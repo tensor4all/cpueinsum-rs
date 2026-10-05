@@ -11,8 +11,7 @@
 //! The crate declares the CBLAS symbols (through `cblas-sys`) and links no
 //! provider: the final binary links one, for example with
 //! `blas-src = { version = "0.14", features = ["openblas"] }` and
-//! `extern crate blas_src;`. The `vendor-batch` feature runs a batch of small
-//! items as one `cblas_?gemm_batch` call, which OpenBLAS and MKL provide.
+//! `extern crate blas_src;`.
 //!
 //! The CBLAS calls are this crate's only `unsafe` code: every pointer handed
 //! to BLAS is checked against the operand's slice at execution, and every
@@ -65,10 +64,6 @@ use layout::{Pack, Side};
 /// (2^12) run 2.2 times faster on tprims-contract at 4 threads.
 pub const DEFAULT_MIN_MACS: u64 = 1 << 15;
 
-/// Largest GEMM extent of a batch item run through `cblas_?gemm_batch` (with
-/// the `vendor-batch` feature), as tenferro's CPU default.
-pub const DEFAULT_VENDOR_BATCH_MAX_DIM: usize = 16;
-
 /// The CBLAS step backend.
 ///
 /// # Examples
@@ -89,7 +84,6 @@ pub const DEFAULT_VENDOR_BATCH_MAX_DIM: usize = 16;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Blas {
     min_macs: u64,
-    vendor_batch_max_dim: usize,
 }
 
 impl Default for Blas {
@@ -102,19 +96,7 @@ impl Blas {
     /// A backend that declines steps whose GEMMs have fewer than `min_macs`
     /// multiply-accumulates each.
     pub fn with_min_macs(min_macs: u64) -> Self {
-        Self {
-            min_macs,
-            vendor_batch_max_dim: DEFAULT_VENDOR_BATCH_MAX_DIM,
-        }
-    }
-
-    /// The same backend, running batches through `cblas_?gemm_batch` when
-    /// every GEMM extent is at most `max_dim` (zero turns it off). Without the
-    /// `vendor-batch` feature batches are always looped.
-    #[must_use]
-    pub fn vendor_batch_max_dim(mut self, max_dim: usize) -> Self {
-        self.vendor_batch_max_dim = max_dim;
-        self
+        Self { min_macs }
     }
 
     /// The GEMM size below which a step is declined.
@@ -159,7 +141,7 @@ impl<T: BlasScalar> StepBackend<T> for Blas {
         if problem.macs() < u128::from(self.min_macs) {
             return None;
         }
-        let step = layout::plan::<T>(problem, self.vendor_batch_max_dim)?;
+        let step = layout::plan::<T>(problem)?;
         (step.gemm_macs() >= self.min_macs).then_some(step)
     }
 
@@ -276,32 +258,12 @@ fn gemms<T: BlasScalar>(step: &BlasStep, pa: *const T, pb: *const T, pd: *mut T)
     let (mut oa, mut ob, mut od) = (0isize, 0isize, 0isize);
     let items: usize = step.h.iter().product();
 
-    #[cfg(feature = "vendor-batch")]
-    let mut batch: Option<(Vec<*const T>, Vec<*const T>, Vec<*mut T>)> =
-        step.vendor_batch.then(|| {
-            (
-                Vec::with_capacity(items),
-                Vec::with_capacity(items),
-                Vec::with_capacity(items),
-            )
-        });
-
     for _ in 0..items {
         let (a, b, c) = (
             pa.wrapping_offset(oa),
             pb.wrapping_offset(ob),
             pd.wrapping_offset(od),
         );
-        #[cfg(feature = "vendor-batch")]
-        if let Some((va, vb, vc)) = &mut batch {
-            va.push(a);
-            vb.push(b);
-            vc.push(c);
-        } else {
-            // SAFETY: as below.
-            unsafe { T::gemm(g, a, b, c) };
-        }
-        #[cfg(not(feature = "vendor-batch"))]
         // SAFETY: the operand slices hold every element the step addresses
         // (checked against the problem's spans, or the packs lie in the work
         // space, which holds `work_len` elements); the batch offsets address
@@ -309,9 +271,7 @@ fn gemms<T: BlasScalar>(step: &BlasStep, pa: *const T, pb: *const T, pd: *mut T)
         // so items are disjoint, and does not overlap the inputs (the plan
         // places a step's result apart from its operands; packs are disjoint
         // ranges of work space).
-        unsafe {
-            T::gemm(g, a, b, c)
-        };
+        unsafe { T::gemm(g, a, b, c) };
         for i in 0..rank {
             idx[i] += 1;
             oa += ha[i];
@@ -326,11 +286,5 @@ fn gemms<T: BlasScalar>(step: &BlasStep, pa: *const T, pb: *const T, pd: *mut T)
             od -= hd[i] * e;
             idx[i] = 0;
         }
-    }
-
-    #[cfg(feature = "vendor-batch")]
-    if let Some((va, vb, vc)) = batch {
-        // SAFETY: as each item above; the batch size fits `i32` (planning).
-        unsafe { T::gemm_batch(g, &va, &vb, &vc) };
     }
 }
