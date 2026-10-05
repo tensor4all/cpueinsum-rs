@@ -1,0 +1,47 @@
+[workspace]
+resolver = "2"
+members = ["crates/cpueinsum"]
+
+[workspace.package]
+edition = "2021"
+# tprims-contract's MSRV (AVX-512 intrinsics in its packed driver).
+rust-version = "1.89"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/tensor4all/cpueinsum-rs"
+
+[workspace.dependencies]
+# tprims-rs main after #60 (strided-rs v0.4.5). Bump the tprims and strided
+# revs together: tprims-contract's views are strided-view types.
+tprims-contract = { git = "https://github.com/tensor4all/tprims-rs.git", rev = "5bb35eac310f0593e5a51756c901c59ec92245e4" }
+tprims-exec = { git = "https://github.com/tensor4all/tprims-rs.git", rev = "5bb35eac310f0593e5a51756c901c59ec92245e4" }
+strided-view = { git = "https://github.com/tensor4all/strided-rs.git", rev = "c12d96fa4cfef622bc1f15fd9940fd418fb686ac", version = "0.4.5" }
+num-complex = "0.4"
+thiserror = "1.0"
+rand = "0.8"
+rand_chacha = "0.3"
+rayon = "1.10"
+
+[workspace.lints.clippy]
+too_many_arguments = "allow"
+needless_range_loop = "allow"
+
+[profile.dev]
+debug = 0
+
+[profile.test]
+debug = 0
+
+[profile.ci]
+inherits = "test"
+incremental = false
+strip = "symbols"
+
+# The packed driver's micro-kernels are tuned for this profile.
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+debug = "line-tables-only"
+
+[profile.bench]
+inherits = "release"
