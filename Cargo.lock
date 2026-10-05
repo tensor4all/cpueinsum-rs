@@ -1001,7 +1001,7 @@ dependencies = [
 [[package]]
 name = "tprims-contract"
 version = "0.1.0"
-source = "git+https://github.com/tensor4all/tprims-rs.git?rev=5bb35eac310f0593e5a51756c901c59ec92245e4#5bb35eac310f0593e5a51756c901c59ec92245e4"
+source = "git+https://github.com/tensor4all/tprims-rs.git?rev=4a44a7f025de3ee736cefdbee8e2c7f28b00812d#4a44a7f025de3ee736cefdbee8e2c7f28b00812d"
 dependencies = [
  "faer",
  "num-complex",
@@ -1015,7 +1015,7 @@ dependencies = [
 [[package]]
 name = "tprims-exec"
 version = "0.1.0"
-source = "git+https://github.com/tensor4all/tprims-rs.git?rev=5bb35eac310f0593e5a51756c901c59ec92245e4#5bb35eac310f0593e5a51756c901c59ec92245e4"
+source = "git+https://github.com/tensor4all/tprims-rs.git?rev=4a44a7f025de3ee736cefdbee8e2c7f28b00812d#4a44a7f025de3ee736cefdbee8e2c7f28b00812d"
 dependencies = [
  "rayon",
  "strided-basic",
@@ -1025,7 +1025,7 @@ dependencies = [
 [[package]]
 name = "tprims-kernel"
 version = "0.1.0"
-source = "git+https://github.com/tensor4all/tprims-rs.git?rev=5bb35eac310f0593e5a51756c901c59ec92245e4#5bb35eac310f0593e5a51756c901c59ec92245e4"
+source = "git+https://github.com/tensor4all/tprims-rs.git?rev=4a44a7f025de3ee736cefdbee8e2c7f28b00812d#4a44a7f025de3ee736cefdbee8e2c7f28b00812d"
 dependencies = [
  "num-complex",
 ]

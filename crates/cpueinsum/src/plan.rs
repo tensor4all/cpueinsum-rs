@@ -44,6 +44,10 @@ impl Temp {
         self.offset + self.len
     }
 
+    fn range(&self) -> core::ops::Range<usize> {
+        self.offset..self.end()
+    }
+
     fn layout(&self) -> Layout<'_> {
         // INVARIANT: dims and strides are built with equal lengths.
         Layout::new(&self.dims, &self.strides).expect("temp layout lengths agree")
@@ -365,14 +369,30 @@ impl<T: Scalar> EinsumPlan<T> {
         let buf = scratch.reserve(self.scratch_len);
         let one = [T::ONE];
 
+        // Intermediates are passed as slices of the scratch buffer, not views:
+        // a view allocates its extents and strides on every construction, a
+        // cost of the order of a small step itself.
         for (k, step) in self.steps.iter().enumerate() {
             let wrap = |source| Error::Contract { step: k, source };
             match step.dst {
                 Dst::Output => {
-                    let a = self.view(step.a, inputs, buf, &one);
-                    let b = self.view(step.b, inputs, buf, &one);
+                    let buf = &*buf;
+                    let side = |s: Src| -> (&[T], isize) {
+                        match s {
+                            Src::Input(i) => (inputs[i].data(), inputs[i].offset()),
+                            Src::One => (&one, 0),
+                            Src::Temp(t) => (&buf[self.temps[t].range()], 0),
+                        }
+                    };
+                    let origin = out.offset();
                     step.plan
-                        .execute_into(exec, T::ONE, &a, &b, out)
+                        .execute_slices(
+                            exec,
+                            T::ONE,
+                            side(step.a),
+                            side(step.b),
+                            (out.data_mut(), origin),
+                        )
                         .map_err(wrap)?;
                 }
                 Dst::Temp(t) => {
@@ -383,67 +403,32 @@ impl<T: Scalar> EinsumPlan<T> {
                     // INVARIANT: the arena never places a step's result over
                     // an intermediate the step reads, so each source lies
                     // wholly in `left` or wholly in `right`.
-                    let side = |s: Src| -> StridedView<'_, T> {
+                    let side = |s: Src| -> (&[T], isize) {
                         match s {
                             Src::Temp(u) => {
                                 let st = &self.temps[u];
                                 let data = if st.end() <= dt.offset {
-                                    &left[st.offset..st.end()]
+                                    &left[st.range()]
                                 } else {
                                     &right[st.offset - dt.end()..st.end() - dt.end()]
                                 };
-                                temp_view(data, st)
+                                (data, 0)
                             }
-                            Src::Input(i) => inputs[i].clone(),
-                            Src::One => temp_view(&one, &RANK0_TEMP),
+                            Src::Input(i) => (inputs[i].data(), inputs[i].offset()),
+                            Src::One => (&one, 0),
                         }
                     };
-                    let a = side(step.a);
-                    let b = side(step.b);
-                    // INVARIANT: `dbuf` is exactly the column-major extent of `dt`.
-                    let mut d = StridedViewMut::new(dbuf, &dt.dims, &dt.strides, 0)
-                        .expect("intermediate view is in bounds");
                     step.plan
-                        .execute_into(exec, T::ONE, &a, &b, &mut d)
+                        .execute_slices(exec, T::ONE, side(step.a), side(step.b), (dbuf, 0))
                         .map_err(wrap)?;
                 }
             }
         }
         Ok(())
     }
-
-    /// The view of a source when the step writes the caller's output.
-    fn view<'v>(
-        &self,
-        s: Src,
-        inputs: &[StridedView<'v, T>],
-        buf: &'v [T],
-        one: &'v [T; 1],
-    ) -> StridedView<'v, T> {
-        match s {
-            Src::Input(i) => inputs[i].clone(),
-            Src::One => temp_view(one, &RANK0_TEMP),
-            Src::Temp(t) => {
-                let st = &self.temps[t];
-                temp_view(&buf[st.offset..st.end()], st)
-            }
-        }
-    }
 }
 
 const RANK0: Layout<'static> = Layout::rank0();
-
-static RANK0_TEMP: Temp = Temp {
-    offset: 0,
-    len: 1,
-    dims: Vec::new(),
-    strides: Vec::new(),
-};
-
-fn temp_view<'v, T>(data: &'v [T], t: &Temp) -> StridedView<'v, T> {
-    // INVARIANT: `data` is exactly the column-major extent of `t`.
-    StridedView::new(data, &t.dims, &t.strides, 0).expect("intermediate view is in bounds")
-}
 
 /// Column-major strides and the element count of `dims`.
 fn column_major(dims: &[usize]) -> Result<(Vec<isize>, usize)> {

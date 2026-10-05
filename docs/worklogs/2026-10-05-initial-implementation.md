@@ -30,8 +30,13 @@ spec, shape and aliasing errors. All pass in dev and release.
 
 ## Not done yet
 
-- Performance: no measurement yet. Each execution builds a `StridedView` per
-  operand, which allocates its dims and strides; whether this matters against
-  the per-step gate is decided by the final benchmark on the #61 corpus.
-- tprims-rs#63 (packed selection for large complex problems) is in tprims.
+- Performance: the final benchmark on the #61 corpus is still to run.
+  Building a `StridedView` per operand cost about 70 ns per step (two `Arc`
+  allocations per view; chi=2 MPS overlap: 126 ns/step with views, 55 ns/step
+  with slices, M5 Max 1T). Execution therefore goes through
+  `Plan::execute_slices` (tprims-rs#66): inputs and the output are passed as
+  their data slice and origin, intermediates as scratch subslices, and no view
+  is built per step.
+- tprims-rs#63 (packed selection for large complex problems) landed as
+  `FaerLimit` in tprims-rs#65; the pin includes it.
 - Conjugation flags and `alpha`/`beta` accumulation are left for later.

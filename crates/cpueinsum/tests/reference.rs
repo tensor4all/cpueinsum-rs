@@ -129,6 +129,38 @@ fn strided_and_negative_stride_inputs() {
 }
 
 #[test]
+fn offset_output_and_inputs_through_a_chain() {
+    // Two steps: an offset input feeds the intermediate and the last step
+    // writes an output with a reversed axis, stored after padding, whose
+    // padding must stay untouched.
+    let mut rng = ChaCha8Rng::seed_from_u64(13);
+    let abuf: Vec<f64> = (0..40).map(|_| rng.gen_range(-1.0..1.0)).collect();
+    let a = Operand::new(abuf, &[3, 4], &[-1, 3], 2 + 5);
+    let b = Operand::random_col_major(&mut rng, &[1, 2], &|_| 4);
+    let cbuf: Vec<f64> = (0..30).map(|_| rng.gen_range(-1.0..1.0)).collect();
+    let c = Operand::new(cbuf, &[4, 2], &[1, -4], 9 + 4);
+    let ops = [
+        a.labelled(&[0, 1]),
+        b.labelled(&[1, 2]),
+        c.labelled(&[2, 3]),
+    ];
+    let expected = naive(&ops, &[0, 3], &[3, 2]);
+
+    // d[i, l] at 4 + (2 - i) + 3 * l in a buffer of 12.
+    let mut d = vec![f64::NAN; 12];
+    let mut dv = StridedViewMut::new(&mut d, &[3, 2], &[-1, 3], 4 + 2).unwrap();
+    let views = [ops[0].view(), ops[1].view(), ops[2].view()];
+    let spec = EinsumSpec::new(&[&[0, 1], &[1, 2], &[2, 3]], &[0, 3], &[[1, 2], [0, 3]]).unwrap();
+    einsum_into(&Exec::serial(), &spec, &views, &mut dv).unwrap();
+    let got: Vec<f64> = (0..2)
+        .flat_map(|l| (0..3).map(move |i| (i, l)))
+        .map(|(i, l)| d[4 + (2 - i) + 3 * l])
+        .collect();
+    close(&got, &expected, 1e-12);
+    assert!(d[..4].iter().chain(&d[10..]).all(|x| x.is_nan()));
+}
+
+#[test]
 fn complex_chain() {
     let mut rng = ChaCha8Rng::seed_from_u64(3);
     let inputs: &[&[i64]] = &[&[0, 1], &[1, 2], &[2, 0, 3]];
