@@ -80,5 +80,5 @@ pub(crate) fn plan_step<T: Scalar>(
         &Labels::new(la, lb, ld),
     )
     .map_err(wrap)?;
-    Plan::<T>::new(&problem, &PlanConfig::default()).map_err(wrap)
+    Plan::<T>::from_problem(problem, &PlanConfig::default()).map_err(wrap)
 }
