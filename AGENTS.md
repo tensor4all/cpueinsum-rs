@@ -27,6 +27,8 @@ is tensor4all/tprims-rs#62.
 
 ## Build
 
+There is no CI for now. Run all of the following locally before every push.
+
 ```bash
 cargo fmt --all
 cargo clippy --workspace --all-targets -- -D warnings
