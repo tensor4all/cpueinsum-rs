@@ -51,8 +51,6 @@ pub struct BlasStep {
     /// Inclusive element spans of A, B and D relative to their origins.
     pub(crate) spans: [(i128, i128); 3],
     pub(crate) work_len: usize,
-    /// Run the batch as one `cblas_?gemm_batch` call.
-    pub(crate) vendor_batch: bool,
 }
 
 impl BlasStep {
@@ -280,7 +278,7 @@ fn input(
 }
 
 /// Plan `p` as batched GEMMs, or `None` when BLAS should not take it.
-pub(crate) fn plan<T: BlasScalar>(p: &Problem, vendor_max_dim: usize) -> Option<BlasStep> {
+pub(crate) fn plan<T: BlasScalar>(p: &Problem) -> Option<BlasStep> {
     use OperandId::{A, B, D};
     let r = p.roles();
     if p.k_empty() || p.out_empty() || p.all_batch() || !p.c_matches_d() {
@@ -366,10 +364,6 @@ pub(crate) fn plan<T: BlasScalar>(p: &Problem, vendor_max_dim: usize) -> Option<
         ldb,
         ldc,
     };
-    let items: usize = h.iter().map(RoleAxis::extent).product();
-    let small = [m.extent, n.extent, k.extent]
-        .iter()
-        .all(|&e| e <= vendor_max_dim);
     Some(BlasStep {
         gemm,
         left,
@@ -378,10 +372,6 @@ pub(crate) fn plan<T: BlasScalar>(p: &Problem, vendor_max_dim: usize) -> Option<
         h: h.iter().map(RoleAxis::extent).collect(),
         spans,
         work_len: work.len,
-        vendor_batch: cfg!(feature = "vendor-batch")
-            && small
-            && items > 1
-            && i32::try_from(items).is_ok(),
     })
 }
 

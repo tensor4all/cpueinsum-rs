@@ -19,8 +19,7 @@ come later).
   output in place (as `D` or as `D^T = B^T A^T`) and the inputs in place
   (`NoTrans`, `Trans`, or `ConjTrans` for conjugated inputs), and otherwise
   packs the operand column-major into the work space with strided-perm.
-  Batch axes are looped (or one `cblas_?gemm_batch` call behind the
-  `vendor-batch` feature, OpenBLAS 0.3.27+ and MKL only). Execution checks
+  Batch axes are looped. Execution checks
   every operand's addressed range against its slice before the FFI calls.
 - Declined: steps whose GEMMs have fewer than `DEFAULT_MIN_MACS` (2^15)
   multiply-accumulates each (the BLAS path is for large matrices; see
@@ -37,8 +36,7 @@ mix the two backends, the thresholds, 300 random einsums, conjugated
 operands driven through the backend directly (checking which operands were
 packed), and bounds errors. Each case runs twice on dirty scratch and checks
 untouched output markers. All pass in dev and release on macOS (Accelerate).
-Not run here: Linux/OpenBLAS, and the vendor batch at runtime (Accelerate
-lacks the symbol; it is checked by clippy with the feature only).
+Not run here: Linux/OpenBLAS.
 
 ## Benchmark
 
@@ -71,8 +69,7 @@ against 10500), since a batch is a loop of small BLAS calls.
 
 ## Not done yet
 
-- Linux with OpenBLAS (tests and the thresholds there), and the vendor batch
-  at runtime.
+- Linux with OpenBLAS (tests and the thresholds there).
 - Phases 2 and 3 (tenferro bridge and delegation) in tenferro-rs.
 
 ## Threads (example `bench`)
@@ -106,3 +103,11 @@ Decision: the BLAS path is for large matrices only. The two thresholds of
 the first version (2^15 per step, 2^12 per GEMM) became one, 2^15 per GEMM:
 from 32^3 BLAS wins or ties at both thread counts, and the batches of 16^3
 that it took before go back to tprims-contract (27.7 µs at 4 threads).
+
+Removed afterwards: the `vendor-batch` feature (`cblas_?gemm_batch` for
+batches of items up to 16 per extent). Under the 2^15 per-GEMM threshold it
+never ran by default, Accelerate lacks the symbol, and tenferro itself keeps
+strided batches (the shape of every cpueinsum step) off the vendor batch
+under its default strategy: on OpenBLAS 0.3.32 at one thread it measured
+1.8x slower at 8^3 and 3.8x at 16^3 than per-item GEMMs
+(`tenferro-cpu/src/dot_runtime.rs`, `strided_batch_route` bench).
