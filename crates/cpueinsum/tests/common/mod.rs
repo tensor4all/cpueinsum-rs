@@ -4,7 +4,7 @@
 
 use cpueinsum::strided_view::StridedView;
 use cpueinsum::Layout;
-use num_complex::Complex64;
+use num_complex::{Complex32, Complex64};
 use rand::Rng;
 
 /// An element the reference supports.
@@ -42,6 +42,36 @@ impl Elem for Complex64 {
     }
     fn mag(self) -> f64 {
         self.norm()
+    }
+}
+
+impl Elem for f32 {
+    fn random(rng: &mut impl Rng) -> Self {
+        rng.gen_range(-1.0..1.0)
+    }
+    fn zero() -> Self {
+        0.0
+    }
+    fn dist(self, other: Self) -> f64 {
+        f64::from((self - other).abs())
+    }
+    fn mag(self) -> f64 {
+        f64::from(self.abs())
+    }
+}
+
+impl Elem for Complex32 {
+    fn random(rng: &mut impl Rng) -> Self {
+        Complex32::new(rng.gen_range(-1.0..1.0), rng.gen_range(-1.0..1.0))
+    }
+    fn zero() -> Self {
+        Complex32::new(0.0, 0.0)
+    }
+    fn dist(self, other: Self) -> f64 {
+        f64::from((self - other).norm())
+    }
+    fn mag(self) -> f64 {
+        f64::from(self.norm())
     }
 }
 
@@ -107,7 +137,7 @@ impl<T: Elem> Operand<T> {
         Layout::new(&self.dims, &self.strides).unwrap()
     }
 
-    fn at(&self, index: &[usize]) -> T {
+    pub fn at(&self, index: &[usize]) -> T {
         let mut p = self.offset as isize;
         for (&i, &s) in index.iter().zip(&self.strides) {
             p += i as isize * s;

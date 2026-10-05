@@ -18,6 +18,14 @@ pub enum Error {
         /// The tprims-contract error.
         source: tprims_contract::Error,
     },
+    /// A [`StepBackend`](crate::StepBackend) failed a step it took.
+    #[error("contraction step {step} (backend): {source}")]
+    Backend {
+        /// The step of the contraction order.
+        step: usize,
+        /// The backend's error.
+        source: crate::BackendError,
+    },
 }
 
 /// An invalid einsum description.

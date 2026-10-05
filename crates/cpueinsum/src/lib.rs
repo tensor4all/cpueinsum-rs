@@ -7,7 +7,9 @@
 //! reusable scratch buffer for all intermediates.
 //!
 //! Deliberately out of scope: contraction-order search (the caller passes the
-//! order), string notation (labels are `i64`), BLAS, and GPUs.
+//! order), string notation (labels are `i64`), and GPUs. BLAS is not linked
+//! here: a [`StepBackend`] can take steps over from tprims-contract, and the
+//! separate `cpueinsum-blas` crate is one that calls CBLAS.
 //!
 //! [tprims-contract]: https://github.com/tensor4all/tprims-rs
 //!
@@ -34,6 +36,7 @@
 #![warn(missing_docs)]
 #![warn(missing_debug_implementations)]
 
+mod backend;
 mod binary;
 mod error;
 mod layout;
@@ -41,6 +44,7 @@ mod plan;
 mod scalar;
 mod spec;
 
+pub use backend::{BackendError, StepBackend, Tprims};
 pub use binary::contract_into;
 pub use error::{Error, Result, ShapeError, SpecError};
 pub use layout::Layout;
@@ -50,3 +54,4 @@ pub use spec::EinsumSpec;
 pub use tprims_exec::{Exec, Pool};
 
 pub use strided_view;
+pub use tprims_contract;
