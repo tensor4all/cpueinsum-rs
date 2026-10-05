@@ -1,0 +1,39 @@
+[package]
+name = "cpueinsum-blas"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+# cpueinsum is not on crates.io yet.
+publish = false
+description = "A CBLAS step backend for cpueinsum: binary steps on the linked BLAS"
+
+[features]
+# `cblas_?gemm_batch` for batches of small items. Only OpenBLAS (0.3.27 and
+# later) and MKL provide it; Accelerate and reference CBLAS do not link.
+vendor-batch = []
+
+[dependencies]
+cblas-sys = { workspace = true }
+cpueinsum = { workspace = true }
+num-complex = { workspace = true }
+strided-perm = { workspace = true }
+strided-view = { workspace = true }
+thiserror = { workspace = true }
+
+# A provider for the tests and examples only: the library links none.
+[target.'cfg(target_os = "macos")'.dev-dependencies]
+blas-src = { workspace = true, features = ["accelerate"] }
+
+[target.'cfg(not(target_os = "macos"))'.dev-dependencies]
+blas-src = { workspace = true, features = ["openblas"] }
+openblas-src = { workspace = true, features = ["cblas", "system"] }
+
+[dev-dependencies]
+rand = { workspace = true }
+rand_chacha = { workspace = true }
+rayon = { workspace = true }
+
+[lints]
+workspace = true

@@ -7,7 +7,7 @@ license.workspace = true
 repository.workspace = true
 # tprims-contract is not on crates.io yet (tprims-rs#62).
 publish = false
-description = "CPU einsum over tprims-contract: integer labels, caller-supplied contraction order, no BLAS"
+description = "CPU einsum over tprims-contract: integer labels, caller-supplied contraction order, BLAS through a separate backend crate"
 
 [dependencies]
 num-complex = { workspace = true }

@@ -70,8 +70,22 @@ pub(crate) fn plan_step<T: Scalar>(
     d: Layout<'_>,
     ld: &[i64],
 ) -> Result<Plan<T>> {
-    let wrap = |source| Error::Contract { step, source };
-    let problem = Problem::from_labels(
+    let problem = step_problem::<T>(step, a, la, b, lb, d, ld)?;
+    Plan::<T>::from_problem(problem, &PlanConfig::default())
+        .map_err(|source| Error::Contract { step, source })
+}
+
+/// The validated tprims problem of one binary step.
+pub(crate) fn step_problem<T: Scalar>(
+    step: usize,
+    a: Layout<'_>,
+    la: &[i64],
+    b: Layout<'_>,
+    lb: &[i64],
+    d: Layout<'_>,
+    ld: &[i64],
+) -> Result<Problem> {
+    Problem::from_labels(
         T::STORAGE,
         a.spec(),
         b.spec(),
@@ -79,6 +93,5 @@ pub(crate) fn plan_step<T: Scalar>(
         d.spec(),
         &Labels::new(la, lb, ld),
     )
-    .map_err(wrap)?;
-    Plan::<T>::from_problem(problem, &PlanConfig::default()).map_err(wrap)
+    .map_err(|source| Error::Contract { step, source })
 }

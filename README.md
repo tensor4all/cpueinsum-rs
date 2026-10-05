@@ -17,7 +17,7 @@ needs on top:
 - a small, stable integer-label API.
 
 Deliberately not included: contraction-order search, string notation
-(`"ij,jk->ik"`), BLAS, and GPUs. Those belong to the caller.
+(`"ij,jk->ik"`), and GPUs. Those belong to the caller.
 
 ```rust
 use cpueinsum::strided_view::{StridedView, StridedViewMut};
@@ -47,6 +47,29 @@ assert_eq!(d, a);
 contraction. Threading is explicit: pass `Exec::rayon(&Pool::borrow(&pool))`
 to use a caller-owned Rayon pool.
 
+## BLAS
+
+`cpueinsum` links no BLAS. A `StepBackend` can take binary steps over from
+tprims-contract at planning time, and the separate `cpueinsum-blas` crate is
+one that runs them on CBLAS. It is for large matrices: steps whose GEMMs have
+at least 2^15 multiply-accumulates each become one GEMM per batch item, in place when the operands fuse to matrices BLAS can
+read and after packing the others; smaller steps stay on tprims-contract.
+`cpueinsum-blas` depends on `cblas-sys` only, so the final binary chooses the
+provider (for example through `blas-src`).
+
+```rust
+use cpueinsum::{EinsumPlan, EinsumSpec, Layout};
+use cpueinsum_blas::Blas;
+
+let spec = EinsumSpec::new(&[&[0, 1], &[1, 2]], &[0, 2], &[[0, 1]])?;
+let cm = Layout::new(&[256, 256], &[1, 256])?;
+let plan = EinsumPlan::<f64, Blas>::with_backend(Blas::default(), &spec, &[cm, cm], cm)?;
+assert_eq!(plan.backend_steps(), 1);
+```
+
+The default backend, `Tprims`, takes no step, so `EinsumPlan<T>` runs exactly
+as without backends.
+
 Element types: `f32`, `f64`, `Complex<f32>`, `Complex<f64>`. Strides may be
 arbitrary, including negative; a label repeated within an input selects a
 diagonal.
@@ -54,7 +77,9 @@ diagonal.
 ## Status
 
 Early. The plan, layering and gates are in
-[tensor4all/tprims-rs#62](https://github.com/tensor4all/tprims-rs/issues/62).
+[tensor4all/tprims-rs#62](https://github.com/tensor4all/tprims-rs/issues/62);
+the BLAS backend in
+[tensor4all/cpueinsum-rs#1](https://github.com/tensor4all/cpueinsum-rs/issues/1).
 Not published to crates.io; tprims is a git dependency at a pinned rev.
 MSRV 1.89.
 

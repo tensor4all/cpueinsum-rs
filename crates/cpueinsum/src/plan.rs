@@ -1,10 +1,11 @@
 //! N-ary einsum: a plan of binary steps over an intermediate arena.
 
 use strided_view::{StridedView, StridedViewMut};
-use tprims_contract::Plan;
+use tprims_contract::{Plan, PlanConfig};
 use tprims_exec::Exec;
 
-use crate::binary::plan_step;
+use crate::backend::{StepBackend, Tprims};
+use crate::binary::step_problem;
 use crate::error::{Error, Result, ShapeError};
 use crate::layout::Layout;
 use crate::scalar::Scalar;
@@ -54,12 +55,26 @@ impl Temp {
     }
 }
 
+/// Who runs a step.
+///
+/// The tprims plan stays inline, as it was before backends: boxing it would add
+/// a pointer chase to every step of the hot path.
 #[derive(Debug)]
-struct Step<T: Scalar> {
+#[allow(clippy::large_enum_variant)]
+enum Kernel<T: Scalar, S> {
+    /// tprims-contract.
+    Tprims(Plan<T>),
+    /// The plan's backend, with the step's work space (an intermediate slot
+    /// live only at this step).
+    Backend { step: S, work: Option<usize> },
+}
+
+#[derive(Debug)]
+struct Step<T: Scalar, S> {
     a: Src,
     b: Src,
     dst: Dst,
-    plan: Plan<T>,
+    kernel: Kernel<T, S>,
 }
 
 /// An owned layout of a caller operand, checked again at execution.
@@ -82,8 +97,9 @@ impl Owned {
     }
 }
 
-/// A planned einsum: one tprims-contract plan per step of the given order,
-/// and the placement of every intermediate in one scratch buffer.
+/// A planned einsum: one plan per step of the given order (tprims-contract's,
+/// or the [`StepBackend`]'s for a step it takes), and the placement of every
+/// intermediate in one scratch buffer.
 ///
 /// Everything that depends only on the description and the operand layouts is
 /// done here once; [`execute_into`](Self::execute_into) only builds views and
@@ -92,6 +108,9 @@ impl Owned {
 /// and storage is reused first fit once it is dead. A single input is
 /// contracted with a rank-0 one, which covers diagonals, sums and
 /// permutations of one operand.
+///
+/// The backend `B` defaults to [`Tprims`], which leaves every step to
+/// tprims-contract; [`with_backend`](Self::with_backend) plans with another.
 ///
 /// # Examples
 ///
@@ -118,16 +137,30 @@ impl Owned {
 /// assert_eq!(d, a);
 /// ```
 #[derive(Debug)]
-pub struct EinsumPlan<T: Scalar> {
+pub struct EinsumPlan<T: Scalar, B: StepBackend<T> = Tprims> {
+    backend: B,
     inputs: Vec<Owned>,
     output: Owned,
     temps: Vec<Temp>,
-    steps: Vec<Step<T>>,
+    steps: Vec<Step<T, B::Step>>,
     scratch_len: usize,
 }
 
 impl<T: Scalar> EinsumPlan<T> {
-    /// Plan `spec` for inputs and an output of these layouts.
+    /// Plan `spec` for inputs and an output of these layouts, every step on
+    /// tprims-contract.
+    ///
+    /// # Errors
+    ///
+    /// As [`with_backend`](Self::with_backend).
+    pub fn new(spec: &EinsumSpec, inputs: &[Layout<'_>], output: Layout<'_>) -> Result<Self> {
+        Self::with_backend(Tprims, spec, inputs, output)
+    }
+}
+
+impl<T: Scalar, B: StepBackend<T>> EinsumPlan<T, B> {
+    /// Plan `spec` for inputs and an output of these layouts, offering every
+    /// step to `backend` first.
     ///
     /// # Errors
     ///
@@ -136,7 +169,12 @@ impl<T: Scalar> EinsumPlan<T> {
     /// extents, or an intermediate's size overflows; [`Error::Contract`] when
     /// tprims-contract rejects a step (for example an output whose axes
     /// alias).
-    pub fn new(spec: &EinsumSpec, inputs: &[Layout<'_>], output: Layout<'_>) -> Result<Self> {
+    pub fn with_backend(
+        backend: B,
+        spec: &EinsumSpec,
+        inputs: &[Layout<'_>],
+        output: Layout<'_>,
+    ) -> Result<Self> {
         let n = spec.inputs().len();
         if inputs.len() != n {
             return Err(ShapeError::InputCount {
@@ -227,9 +265,38 @@ impl<T: Scalar> EinsumPlan<T> {
         let mut scratch_len = 0usize;
         let path = spec.path();
 
+        // The kernel of one step; a work slot is placed beside everything
+        // live at the step, the step's own result included.
+        let kernel = |step: usize,
+                      problem,
+                      temps: &mut Vec<Temp>,
+                      last_use: &mut Vec<usize>,
+                      scratch_len: &mut usize|
+         -> Result<Kernel<T, B::Step>> {
+            let Some(s) = backend.plan(&problem) else {
+                return Plan::<T>::from_problem(problem, &PlanConfig::default())
+                    .map(Kernel::Tprims)
+                    .map_err(|source| Error::Contract { step, source });
+            };
+            let len = B::work_len(&s);
+            let work = (len > 0).then(|| {
+                let offset = first_fit(temps, last_use, step, len);
+                temps.push(Temp {
+                    offset,
+                    len,
+                    dims: Vec::new(),
+                    strides: Vec::new(),
+                });
+                last_use.push(step);
+                *scratch_len = (*scratch_len).max(offset + len);
+                temps.len() - 1
+            });
+            Ok(Kernel::Backend { step: s, work })
+        };
+
         if n == 1 {
             // One input: contract with a rank-0 operand holding one.
-            let plan = plan_step::<T>(
+            let problem = step_problem::<T>(
                 0,
                 inputs[0],
                 &spec.inputs()[0],
@@ -238,11 +305,12 @@ impl<T: Scalar> EinsumPlan<T> {
                 output,
                 spec.output(),
             )?;
+            let kernel = kernel(0, problem, &mut temps, &mut last_use, &mut scratch_len)?;
             steps.push(Step {
                 a: Src::Input(0),
                 b: Src::One,
                 dst: Dst::Output,
-                plan,
+                kernel,
             });
         }
 
@@ -292,7 +360,7 @@ impl<T: Scalar> EinsumPlan<T> {
                 Dst::Output => output,
                 Dst::Temp(t) => temps[t].layout(),
             };
-            let plan = plan_step::<T>(
+            let problem = step_problem::<T>(
                 step,
                 layout_of(sx),
                 &operand_labels[x],
@@ -301,17 +369,19 @@ impl<T: Scalar> EinsumPlan<T> {
                 dst_layout,
                 &result,
             )?;
+            let kernel = kernel(step, problem, &mut temps, &mut last_use, &mut scratch_len)?;
             steps.push(Step {
                 a: sx,
                 b: sy,
                 dst,
-                plan,
+                kernel,
             });
             adjust(&result, &mut live, true);
             operand_labels.push(result);
         }
 
         Ok(Self {
+            backend,
             inputs: inputs.iter().map(|&l| Owned::of(l)).collect(),
             output: Owned::of(output),
             temps,
@@ -330,6 +400,19 @@ impl<T: Scalar> EinsumPlan<T> {
         self.steps.len()
     }
 
+    /// Number of steps the backend took (the rest run on tprims-contract).
+    pub fn backend_steps(&self) -> usize {
+        self.steps
+            .iter()
+            .filter(|s| matches!(s.kernel, Kernel::Backend { .. }))
+            .count()
+    }
+
+    /// The backend.
+    pub fn backend(&self) -> &B {
+        &self.backend
+    }
+
     /// Run the plan: the overwrite form, reading no previous value of `out`.
     ///
     /// `scratch` grows to [`scratch_len`](Self::scratch_len) when it is
@@ -340,7 +423,8 @@ impl<T: Scalar> EinsumPlan<T> {
     ///
     /// [`ShapeError::InputCount`] or [`ShapeError::Mismatch`] when the views
     /// differ from the layouts the plan was built for (nothing is written);
-    /// [`Error::Contract`] when a lower layer fails a step.
+    /// [`Error::Contract`] or [`Error::Backend`] when a lower layer fails a
+    /// step.
     pub fn execute_into(
         &self,
         exec: &Exec<'_>,
@@ -373,55 +457,42 @@ impl<T: Scalar> EinsumPlan<T> {
         // a view allocates its extents and strides on every construction, a
         // cost of the order of a small step itself.
         for (k, step) in self.steps.iter().enumerate() {
-            let wrap = |source| Error::Contract { step: k, source };
-            match step.dst {
-                Dst::Output => {
-                    let buf = &*buf;
-                    let side = |s: Src| -> (&[T], isize) {
-                        match s {
-                            Src::Input(i) => (inputs[i].data(), inputs[i].offset()),
-                            Src::One => (&one, 0),
-                            Src::Temp(t) => (&buf[self.temps[t].range()], 0),
-                        }
-                    };
+            let range = |t: usize| self.temps[t].range();
+            let dst = match step.dst {
+                Dst::Temp(t) => Some(range(t)),
+                Dst::Output => None,
+            };
+            let work = match step.kernel {
+                Kernel::Backend { work: Some(w), .. } => Some(range(w)),
+                _ => None,
+            };
+            let (dbuf, wbuf, rest) = carve(buf, dst, work);
+            // INVARIANT: the arena never places a step's result or work over
+            // an intermediate the step reads, so each source lies wholly in
+            // one read-only part of the scratch.
+            let side = |s: Src| -> (&[T], isize) {
+                match s {
+                    Src::Input(i) => (inputs[i].data(), inputs[i].offset()),
+                    Src::One => (&one, 0),
+                    Src::Temp(t) => (rest.get(range(t)), 0),
+                }
+            };
+            let (a, b) = (side(step.a), side(step.b));
+            let d = match dbuf {
+                Some(dbuf) => (dbuf, 0),
+                None => {
                     let origin = out.offset();
-                    step.plan
-                        .execute_slices(
-                            exec,
-                            T::ONE,
-                            side(step.a),
-                            side(step.b),
-                            (out.data_mut(), origin),
-                        )
-                        .map_err(wrap)?;
+                    (out.data_mut(), origin)
                 }
-                Dst::Temp(t) => {
-                    let dt = &self.temps[t];
-                    let (left, rest) = buf.split_at_mut(dt.offset);
-                    let (dbuf, right) = rest.split_at_mut(dt.len);
-                    let (left, right) = (&*left, &*right);
-                    // INVARIANT: the arena never places a step's result over
-                    // an intermediate the step reads, so each source lies
-                    // wholly in `left` or wholly in `right`.
-                    let side = |s: Src| -> (&[T], isize) {
-                        match s {
-                            Src::Temp(u) => {
-                                let st = &self.temps[u];
-                                let data = if st.end() <= dt.offset {
-                                    &left[st.range()]
-                                } else {
-                                    &right[st.offset - dt.end()..st.end() - dt.end()]
-                                };
-                                (data, 0)
-                            }
-                            Src::Input(i) => (inputs[i].data(), inputs[i].offset()),
-                            Src::One => (&one, 0),
-                        }
-                    };
-                    step.plan
-                        .execute_slices(exec, T::ONE, side(step.a), side(step.b), (dbuf, 0))
-                        .map_err(wrap)?;
-                }
+            };
+            match &step.kernel {
+                Kernel::Tprims(plan) => plan
+                    .execute_slices(exec, T::ONE, a, b, d)
+                    .map_err(|source| Error::Contract { step: k, source })?,
+                Kernel::Backend { step: s, .. } => self
+                    .backend
+                    .execute(s, exec, a, b, d, wbuf.unwrap_or_default())
+                    .map_err(|source| Error::Backend { step: k, source })?,
             }
         }
         Ok(())
@@ -440,6 +511,75 @@ fn column_major(dims: &[usize]) -> Result<(Vec<isize>, usize)> {
     }
     isize::try_from(len).map_err(|_| ShapeError::Overflow)?;
     Ok((strides, len))
+}
+
+/// The read-only parts of a buffer around at most two carved-out ranges, each
+/// with its start.
+struct Rest<'b, T> {
+    parts: [(usize, &'b [T]); 3],
+}
+
+impl<'b, T> Rest<'b, T> {
+    /// The elements of `r`, which lies wholly in one part (or is empty).
+    fn get(&self, r: core::ops::Range<usize>) -> &'b [T] {
+        if r.is_empty() {
+            return &[];
+        }
+        for &(start, part) in &self.parts {
+            if r.start >= start && r.end <= start + part.len() {
+                return &part[r.start - start..r.end - start];
+            }
+        }
+        unreachable!("an operand overlaps a step's result or work space")
+    }
+}
+
+/// Split `buf` into the mutable ranges `x` and `y` (disjoint) and the
+/// read-only rest.
+#[allow(clippy::type_complexity)]
+fn carve<T>(
+    buf: &mut [T],
+    x: Option<core::ops::Range<usize>>,
+    y: Option<core::ops::Range<usize>>,
+) -> (Option<&mut [T]>, Option<&mut [T]>, Rest<'_, T>) {
+    let empty = (0, &[][..]);
+    // Order the two ranges; `swap` records whether y comes first.
+    let (lo, hi, swap) = match (x, y) {
+        (Some(x), Some(y)) if y.start < x.start => (Some(y), Some(x), true),
+        (Some(x), y) => (Some(x), y, false),
+        (None, Some(y)) => (Some(y), None, true),
+        (None, None) => (None, None, false),
+    };
+    let Some(lo) = lo else {
+        return (
+            None,
+            None,
+            Rest {
+                parts: [(0, buf), empty, empty],
+            },
+        );
+    };
+    let (p0, tail) = buf.split_at_mut(lo.start);
+    let (m0, tail) = tail.split_at_mut(lo.len());
+    let (p1, m1, p2, p2_start) = match hi {
+        Some(hi) => {
+            let (p1, tail) = tail.split_at_mut(hi.start - lo.end);
+            let (m1, p2) = tail.split_at_mut(hi.len());
+            (p1, Some(m1), p2, hi.end)
+        }
+        None => (tail, None, &mut [][..], lo.end),
+    };
+    let rest = Rest {
+        parts: [(0, &*p0), (lo.end, &*p1), (p2_start, &*p2)],
+    };
+    if swap {
+        match m1 {
+            Some(m1) => (Some(m1), Some(m0), rest),
+            None => (None, Some(m0), rest),
+        }
+    } else {
+        (Some(m0), m1, rest)
+    }
 }
 
 /// The lowest offset where `len` elements fit beside every intermediate still
