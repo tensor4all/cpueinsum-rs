@@ -36,6 +36,13 @@ being confused with active valid offsets.
   required a direct `tprims-exec` dependency, which the single-pin policy avoids.
   No other prepared surface changed.
 
+## Lower pin
+
+- The `tprims` pin moved to the merged empty-layout preparation fix
+  (tensor4all/tprims-rs#74), so an empty operand with an unreachable-magnitude
+  stride can be planned instead of overflowing the scatter odometer. No
+  cpueinsum code changed; both tprims crates move together as usual.
+
 ## Verification conclusions and limits
 
 Debug and release workspace tests, formatting, all-target clippy with warnings
