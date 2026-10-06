@@ -27,6 +27,15 @@ private vendor metadata avoids retaining unused per-child native alternatives.
 Checked packing geometry and terminal odometer wrapping prevent overflow from
 being confused with active valid offsets.
 
+## Host-side workspace release
+
+- The core crate re-exports `tprims_exec::WorkspaceProvider` alongside
+  `ArenaProvider`/`Exec`/`Pool`. A host that owns a persistent `ArenaProvider`
+  for a pool-less serial route must be able to release its idle scratch, and
+  `ArenaProvider` implements `trim` only through that trait; naming it otherwise
+  required a direct `tprims-exec` dependency, which the single-pin policy avoids.
+  No other prepared surface changed.
+
 ## Verification conclusions and limits
 
 Debug and release workspace tests, formatting, all-target clippy with warnings

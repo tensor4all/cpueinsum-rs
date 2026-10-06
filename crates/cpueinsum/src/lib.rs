@@ -57,7 +57,7 @@ pub use prepared::BinaryPlan;
 pub use scalar::Scalar;
 pub use spec::EinsumSpec;
 pub use tprims_contract::{ExecutionRoute, OutputContract, SliceAccumulationSource};
-pub use tprims_exec::{ArenaProvider, Exec, Pool};
+pub use tprims_exec::{ArenaProvider, Exec, Pool, WorkspaceProvider};
 
 pub use strided_view;
 pub use tprims_contract;
