@@ -33,25 +33,31 @@
 //! einsum_into(&Exec::serial(), &spec, &inputs, &mut dv).unwrap();
 //! assert_eq!(d, [4.0, 6.0]);
 //! ```
+#![forbid(unsafe_code)]
 #![warn(missing_docs)]
 #![warn(missing_debug_implementations)]
 
 mod backend;
 mod binary;
 mod error;
+mod grouped;
 mod layout;
 mod plan;
+mod prepared;
 mod scalar;
 mod spec;
 
 pub use backend::{BackendError, StepBackend, Tprims};
 pub use binary::contract_into;
 pub use error::{Error, Result, ShapeError, SpecError};
+pub use grouped::{GroupedError, GroupedGemmJob, GroupedOperand, GroupedPlan, GroupedRoute};
 pub use layout::Layout;
 pub use plan::{einsum_into, EinsumPlan, Scratch};
+pub use prepared::BinaryPlan;
 pub use scalar::Scalar;
 pub use spec::EinsumSpec;
-pub use tprims_exec::{Exec, Pool};
+pub use tprims_contract::{ExecutionRoute, OutputContract, SliceAccumulationSource};
+pub use tprims_exec::{ArenaProvider, Exec, Pool};
 
 pub use strided_view;
 pub use tprims_contract;

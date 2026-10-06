@@ -21,7 +21,7 @@ mod sealed {
 /// assert_eq!(<f64 as Scalar>::ONE, 1.0);
 /// assert_eq!(<num_complex::Complex<f32> as Scalar>::ONE.re, 1.0);
 /// ```
-pub trait Scalar: sealed::Sealed + tprims_contract::api::Scalar + Default {
+pub trait Scalar: sealed::Sealed + tprims_contract::api::Scalar + Default + Send + Sync {
     /// The multiplicative identity.
     const ONE: Self;
 }
