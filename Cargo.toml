@@ -10,12 +10,13 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/tensor4all/cpueinsum-rs"
 
 [workspace.dependencies]
-# tprims-rs main after #66 (Plan::execute_slices; strided-rs v0.4.5). Bump
-# the tprims and strided revs together: tprims-contract's views are strided-view types.
-tprims-contract = { git = "https://github.com/tensor4all/tprims-rs.git", rev = "fed859ac70985ac1dfb8cdae5ea3eba7ec70ed4b" }
-tprims-exec = { git = "https://github.com/tensor4all/tprims-rs.git", rev = "fed859ac70985ac1dfb8cdae5ea3eba7ec70ed4b" }
-strided-view = { git = "https://github.com/tensor4all/strided-rs.git", rev = "c12d96fa4cfef622bc1f15fd9940fd418fb686ac", version = "0.4.5" }
-strided-perm = { git = "https://github.com/tensor4all/strided-rs.git", rev = "c12d96fa4cfef622bc1f15fd9940fd418fb686ac", version = "0.4.5" }
+# tprims #72 includes merged #71's caller-owned resources and the safe prepared
+# output boundary. strided #290 fixes terminal pointer arithmetic in its leaves.
+# Keep both pins coordinated: tprims-contract's views are strided-view types.
+tprims-contract = { git = "https://github.com/tensor4all/tprims-rs.git", rev = "c893a7b3d54e16c4db3a190e2cf78d2575c24d65" }
+tprims-exec = { git = "https://github.com/tensor4all/tprims-rs.git", rev = "c893a7b3d54e16c4db3a190e2cf78d2575c24d65" }
+strided-view = { git = "https://github.com/tensor4all/strided-rs.git", rev = "722dc6bece0c845ee612fa21242521c2e5ea83ac", version = "0.4.5" }
+strided-perm = { git = "https://github.com/tensor4all/strided-rs.git", rev = "722dc6bece0c845ee612fa21242521c2e5ea83ac", version = "0.4.5" }
 cpueinsum = { path = "crates/cpueinsum" }
 # CBLAS declarations only; a provider is linked by the final binary
 # (blas-src, or any crate that links a CBLAS library).

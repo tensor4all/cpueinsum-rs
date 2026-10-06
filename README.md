@@ -47,6 +47,32 @@ assert_eq!(d, a);
 contraction. Threading is explicit: pass `Exec::rayon(&Pool::borrow(&pool))`
 to use a caller-owned Rayon pool.
 
+## Prepared binary and grouped execution
+
+[`BinaryPlan`](crates/cpueinsum/src/prepared.rs) prepares a tprims `Problem`
+once and accepts arbitrary alpha/beta, Absent/Output/Separate C, and initialized
+views or slices. Its fresh-output entry accepts `&mut [MaybeUninit<T>]` and
+returns initialized storage only after successful full physical coverage;
+padding/diagonal holes and nonzero-beta Output accumulation are rejected.
+Execution returns the actual owning-layer route, not just the plan's default
+algorithm. Neither binary nor grouped plans retain executors or data buffers.
+
+[`GroupedPlan`](crates/cpueinsum/src/grouped.rs) prepares heterogeneous compact
+column-major jobs over shared flat buffers. It checks every job before writing,
+rejects overlapping output ranges, and uses one bounded outer scheduler with
+serial children. Grouped output is initialized; output holes stay unchanged.
+Serial callers can retain `ArenaProvider`, and parallel callers retain `Pool`.
+
+The shared-input overwrite/accumulation example lives in
+[`GroupedPlan`'s executable rustdoc](crates/cpueinsum/src/grouped.rs), checked
+with `cargo test -p cpueinsum --doc`; there is no duplicate snippet to drift.
+
+See the [design and boundary constraints](docs/design/2026-10-06-prepared-binary-and-grouped.md).
+Grouped dispatch currently allocates borrow-only job metadata (one item vector,
+and one lane vector for parallel execution); it creates no per-job arena, view
+metadata, or product buffer. This is not an allocation-free boundary or a
+measured speedup claim.
+
 ## BLAS
 
 `cpueinsum` links no BLAS. A `StepBackend` can take binary steps over from

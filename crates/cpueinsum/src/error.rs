@@ -10,6 +10,9 @@ pub enum Error {
     /// The operands do not fit the description or the plan.
     #[error(transparent)]
     Shape(#[from] ShapeError),
+    /// Invalid grouped descriptors, buffer ranges or overlapping destinations.
+    #[error(transparent)]
+    Grouped(#[from] crate::GroupedError),
     /// A binary contraction was rejected or failed in tprims-contract.
     #[error("contraction step {step}: {source}")]
     Contract {
