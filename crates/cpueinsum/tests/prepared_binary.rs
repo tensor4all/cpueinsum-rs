@@ -275,6 +275,38 @@ fn negative_strides_and_origin() {
 }
 
 #[test]
+fn empty_operand_with_unreachable_strides_plans() {
+    // An empty operand may legitimately carry an unreachable-magnitude stride on
+    // its empty axis (a view over an empty slice). Planning it used to overflow
+    // the lower library's scatter odometer (tprims-rs#74); the empty contraction
+    // must instead execute and write zeros.
+    let a_empty: [f64; 0] = [];
+    let b_empty: [f64; 0] = [];
+    let problem = Problem::from_labels(
+        DType::F64,
+        spec(&[2, 0], &[isize::MAX, 1], 0),
+        spec(&[0, 3], &[1, 1], 0),
+        CSpec::Absent,
+        spec(&[2, 3], &[1, 2], 0),
+        &Labels::new(&[0, 1], &[1, 2], &[0, 2]),
+    )
+    .unwrap();
+    let plan = BinaryPlan::<f64>::new(&problem, &PlanConfig::default()).unwrap();
+    let mut d = [9.0; 6];
+    let route = plan
+        .execute_slices(
+            &Exec::serial(),
+            1.0,
+            (&a_empty, 0),
+            (&b_empty, 0),
+            (&mut d, 0),
+        )
+        .unwrap();
+    let _ = route;
+    assert_eq!(d, [0.0; 6], "an empty contraction writes zeros");
+}
+
+#[test]
 fn uninit_output_and_rejections() {
     let expected = reference();
     let exec = Exec::serial();

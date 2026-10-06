@@ -10,11 +10,11 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/tensor4all/cpueinsum-rs"
 
 [workspace.dependencies]
-# tprims #72 includes merged #71's caller-owned resources and the safe prepared
-# output boundary. strided #290 fixes terminal pointer arithmetic in its leaves.
-# Keep both pins coordinated: tprims-contract's views are strided-view types.
-tprims-contract = { git = "https://github.com/tensor4all/tprims-rs.git", rev = "c893a7b3d54e16c4db3a190e2cf78d2575c24d65" }
-tprims-exec = { git = "https://github.com/tensor4all/tprims-rs.git", rev = "c893a7b3d54e16c4db3a190e2cf78d2575c24d65" }
+# tprims #73 adds a persistent wrapper for the host's selected shared Rayon pool
+# atop #71/#72's caller-owned resources and safe prepared output boundary.
+# strided #290 fixes terminal pointer arithmetic. Keep both tprims pins coherent.
+tprims-contract = { git = "https://github.com/tensor4all/tprims-rs.git", rev = "670a955f42daf028333292c988d29333443e3f58" }
+tprims-exec = { git = "https://github.com/tensor4all/tprims-rs.git", rev = "670a955f42daf028333292c988d29333443e3f58" }
 strided-view = { git = "https://github.com/tensor4all/strided-rs.git", rev = "722dc6bece0c845ee612fa21242521c2e5ea83ac", version = "0.4.5" }
 strided-perm = { git = "https://github.com/tensor4all/strided-rs.git", rev = "722dc6bece0c845ee612fa21242521c2e5ea83ac", version = "0.4.5" }
 cpueinsum = { path = "crates/cpueinsum" }

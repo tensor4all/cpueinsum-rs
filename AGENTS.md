@@ -11,8 +11,9 @@ is tensor4all/tprims-rs#62.
 
 - Out of scope by design: contraction-order search, string notation, GPUs.
   Do not add them; they belong to the caller.
-- BLAS lives only in `crates/cpueinsum-blas`, a `StepBackend` that depends on
-  `cblas-sys` and links no provider (tests link one through dev-dependencies:
+- BLAS lives only in `crates/cpueinsum-blas`: the overwrite-only `StepBackend`
+  and concrete prepared binary/grouped adapters depend on `cblas-sys` and
+  link no provider (tests link one through dev-dependencies:
   Accelerate on macOS, OpenBLAS elsewhere). `cpueinsum` itself never depends
   on a BLAS crate and must build without a C toolchain; check with
   `cargo tree -p cpueinsum`. The plan is tensor4all/cpueinsum-rs#1.
@@ -25,9 +26,10 @@ is tensor4all/tprims-rs#62.
   is implemented rather than per part.
 - No `unsafe` in `cpueinsum`. Intermediates and backend work space are
   disjoint slices of one scratch buffer obtained with `split_at_mut`.
-  `cpueinsum-blas` has `unsafe` only for the CBLAS calls, each with a
-  `SAFETY` comment; pointers are checked against the operand slices at
-  execution and dimensions at planning.
+  `cpueinsum-blas` has `unsafe` only for CBLAS calls and exact-full-write
+  `MaybeUninit` publication, each with a `SAFETY` comment. Pointers are checked
+  against operand slices at execution and dimensions at planning; fresh output
+  is never represented by initialized references before completion.
 - tprims crates and strided-view are git dependencies at pinned revs; bump
   them together with tprims-rs's own pin.
 - Do not publish the crates (`publish = false` until tprims is published).

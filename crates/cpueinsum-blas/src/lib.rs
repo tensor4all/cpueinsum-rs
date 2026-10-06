@@ -13,9 +13,10 @@
 //! `blas-src = { version = "0.14", features = ["openblas"] }` and
 //! `extern crate blas_src;`.
 //!
-//! The CBLAS calls are this crate's only `unsafe` code: every pointer handed
-//! to BLAS is checked against the operand's slice at execution, and every
-//! dimension and leading dimension at planning.
+//! Unsafe code is limited to CBLAS calls and exact-full-write publication of
+//! fresh output. Every BLAS pointer is checked against the operand's slice at
+//! execution, and every dimension and leading dimension at planning. Fresh
+//! output remains uninitialized storage until all physical slots are written.
 //!
 //! # Examples
 //!
@@ -42,14 +43,18 @@
 #![warn(missing_debug_implementations)]
 
 mod ffi;
+mod grouped;
 mod layout;
+mod prepared;
 
 use cpueinsum::tprims_contract::api::{OperandId, Problem};
 use cpueinsum::{BackendError, Exec, StepBackend};
 use strided_view::{StridedView, StridedViewMut};
 
 pub use ffi::BlasScalar;
+pub use grouped::{GroupedPlan, GroupedRoute};
 pub use layout::BlasStep;
+pub use prepared::{BinaryPlan, ExecutionRoute};
 
 use layout::{Pack, Side};
 
@@ -109,6 +114,35 @@ impl Blas {
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum BlasError {
+    /// Preparing the native alternative failed.
+    #[error("preparing contraction plan: {source}")]
+    Prepare {
+        /// The lower-layer preparation error.
+        #[source]
+        source: cpueinsum::Error,
+    },
+    /// The prepared native alternative failed.
+    #[error("native contraction execution: {source}")]
+    Native {
+        /// The lower-layer execution error.
+        #[source]
+        source: cpueinsum::Error,
+    },
+    /// A grouped vendor failure, retaining the original job ID.
+    #[error("grouped job {job}: {source}")]
+    Grouped {
+        /// Original descriptor index.
+        job: usize,
+        /// Original vendor validation or execution failure.
+        #[source]
+        source: Box<BlasError>,
+    },
+    /// The accumulation source does not match the prepared C mode or no-read requirement.
+    #[error("accumulation source or beta does not match the prepared output contract")]
+    Accumulation,
+    /// Fresh output storage is not exactly covered by the prepared output domain.
+    #[error("fresh output requires exact physical coverage without gaps or padding")]
+    FreshCoverage,
     /// An operand slice does not hold the elements the step addresses.
     #[error("operand {operand} addresses elements outside its slice")]
     OutOfBounds {
@@ -236,7 +270,7 @@ fn run<T: BlasScalar>(
         None => dslice.as_mut_ptr().wrapping_offset(dorigin),
     };
 
-    gemms(step, pa, pb, pd);
+    gemms(step, pa, pb, pd, T::ONE, T::default());
 
     if let Some(p) = &step.out.pack {
         let err = |source| BlasError::Pack { operand: D, source };
@@ -249,14 +283,21 @@ fn run<T: BlasScalar>(
 }
 
 /// Run the step's GEMM on every batch item.
-fn gemms<T: BlasScalar>(step: &BlasStep, pa: *const T, pb: *const T, pd: *mut T) {
+fn gemms<T: BlasScalar>(
+    step: &BlasStep,
+    pa: *const T,
+    pb: *const T,
+    pd: *mut T,
+    alpha: T,
+    beta: T,
+) {
     let g = &step.gemm;
     let (ha, hb, hd) = (&step.left.h, &step.right.h, &step.out.h);
     let rank = step.h.len();
     // Odometer over the batch axes.
     let mut idx = vec![0usize; rank];
     let (mut oa, mut ob, mut od) = (0isize, 0isize, 0isize);
-    let items: usize = step.h.iter().product();
+    let items = step.batch_items;
 
     for _ in 0..items {
         let (a, b, c) = (
@@ -271,19 +312,21 @@ fn gemms<T: BlasScalar>(step: &BlasStep, pa: *const T, pb: *const T, pd: *mut T)
         // so items are disjoint, and does not overlap the inputs (the plan
         // places a step's result apart from its operands; packs are disjoint
         // ranges of work space).
-        unsafe { T::gemm(g, a, b, c) };
+        unsafe { T::gemm(g, a, b, c, alpha, beta) };
         for i in 0..rank {
             idx[i] += 1;
-            oa += ha[i];
-            ob += hb[i];
-            od += hd[i];
+            // Terminal odometer advances may lie outside the logical span;
+            // only active offsets are used, proven bounded at preflight.
+            oa = oa.wrapping_add(ha[i]);
+            ob = ob.wrapping_add(hb[i]);
+            od = od.wrapping_add(hd[i]);
             if idx[i] < step.h[i] {
                 break;
             }
             let e = step.h[i] as isize;
-            oa -= ha[i] * e;
-            ob -= hb[i] * e;
-            od -= hd[i] * e;
+            oa = oa.wrapping_sub(ha[i].wrapping_mul(e));
+            ob = ob.wrapping_sub(hb[i].wrapping_mul(e));
+            od = od.wrapping_sub(hd[i].wrapping_mul(e));
             idx[i] = 0;
         }
     }
