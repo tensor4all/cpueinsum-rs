@@ -48,6 +48,7 @@ pub struct BlasStep {
     pub(crate) out: Side,
     /// Batch extents (extent-one axes dropped).
     pub(crate) h: Vec<usize>,
+    pub(crate) batch_items: usize,
     /// Inclusive element spans of A, B and D relative to their origins.
     pub(crate) spans: [(i128, i128); 3],
     pub(crate) work_len: usize,
@@ -83,7 +84,9 @@ impl BlasStep {
     /// Multiply-accumulates of one GEMM of the batch.
     pub fn gemm_macs(&self) -> u64 {
         let g = &self.gemm;
-        [g.m, g.n, g.k].iter().map(|&x| x as u64).product()
+        [g.m, g.n, g.k]
+            .iter()
+            .fold(1u64, |macs, &extent| macs.saturating_mul(extent as u64))
     }
 }
 
@@ -131,8 +134,10 @@ fn choose(group: &[RoleAxis], carriers: &[OperandId]) -> Vec<usize> {
     candidates.into_iter().next().unwrap_or_default()
 }
 
-fn extent(group: &[RoleAxis]) -> usize {
-    group.iter().map(RoleAxis::extent).product()
+fn extent(group: &[RoleAxis]) -> Option<usize> {
+    group
+        .iter()
+        .try_fold(1usize, |n, axis| n.checked_mul(axis.extent()))
 }
 
 /// The leading dimension of a `rows x cols` matrix read as stored
@@ -176,12 +181,12 @@ struct Group<'p> {
 }
 
 impl Group<'_> {
-    fn new<'p>(axes: &'p [RoleAxis], carriers: &[OperandId]) -> Group<'p> {
-        Group {
+    fn new<'p>(axes: &'p [RoleAxis], carriers: &[OperandId]) -> Option<Group<'p>> {
+        Some(Group {
             axes,
             order: choose(axes, carriers),
-            extent: extent(axes),
-        }
+            extent: extent(axes)?,
+        })
     }
 
     fn stride(&self, o: OperandId) -> Option<isize> {
@@ -204,30 +209,36 @@ struct Work {
 impl Work {
     /// A column-major pack of `axes` (`(extent, stride in the operand)`, the
     /// matrix's axes first), and the strides of the batch axes in it.
-    fn pack(&mut self, axes: Vec<(usize, isize)>, h: &[(usize, isize)]) -> (Pack, Vec<isize>) {
+    fn pack(
+        &mut self,
+        axes: Vec<(usize, isize)>,
+        h: &[(usize, isize)],
+    ) -> Option<(Pack, Vec<isize>)> {
         let mut dims = Vec::with_capacity(axes.len() + h.len());
         let mut outer = Vec::with_capacity(dims.capacity());
         let mut inner = Vec::with_capacity(dims.capacity());
         let mut hs = Vec::with_capacity(h.len());
         let mut s = 1usize;
         for (i, &(e, o)) in axes.iter().chain(h).enumerate() {
+            let stride = isize::try_from(s).ok()?;
             if i >= axes.len() {
-                hs.push(s as isize);
+                hs.push(stride);
             }
             dims.push(e);
             outer.push(o);
-            inner.push(s as isize);
-            s *= e;
+            inner.push(stride);
+            s = s.checked_mul(e)?;
         }
+        let offset = self.len;
+        self.len = self.len.checked_add(s)?;
         let pack = Pack {
-            offset: self.len,
+            offset,
             len: s,
             dims,
             outer,
             inner,
         };
-        self.len += s;
-        (pack, hs)
+        Some((pack, hs))
     }
 }
 
@@ -268,7 +279,7 @@ fn input(
             rows.extent.max(1),
         )
     };
-    let (pack, hs) = work.pack(axes, &hax);
+    let (pack, hs) = work.pack(axes, &hax)?;
     let side = Side {
         from: o,
         pack: Some(pack),
@@ -279,12 +290,27 @@ fn input(
 
 /// Plan `p` as batched GEMMs, or `None` when BLAS should not take it.
 pub(crate) fn plan<T: BlasScalar>(p: &Problem) -> Option<BlasStep> {
+    plan_impl::<T>(p, false)
+}
+
+/// Plan geometry for the prepared adapter, which may carry an output C term.
+pub(crate) fn plan_prepared<T: BlasScalar>(p: &Problem) -> Option<BlasStep> {
+    use cpueinsum::tprims_contract::api::CSpec;
+    match p.c_spec() {
+        CSpec::Absent => {}
+        CSpec::Output(op) if !T::COMPLEX || op.is_conj() == p.d().op().is_conj() => {}
+        _ => return None,
+    }
+    plan_impl::<T>(p, true).filter(|step| step.out.pack.is_none())
+}
+
+fn plan_impl<T: BlasScalar>(p: &Problem, allow_output_c: bool) -> Option<BlasStep> {
     use OperandId::{A, B, D};
     let r = p.roles();
     if p.k_empty() || p.out_empty() || p.all_batch() || !p.c_matches_d() {
         return None;
     }
-    if !matches!(p.c_spec(), cpueinsum::tprims_contract::api::CSpec::Absent) {
+    if !allow_output_c && !matches!(p.c_spec(), cpueinsum::tprims_contract::api::CSpec::Absent) {
         return None;
     }
     // A reduction over an axis one input lacks is not a matrix product.
@@ -295,7 +321,14 @@ pub(crate) fn plan<T: BlasScalar>(p: &Problem) -> Option<BlasStep> {
     if !is_injective_layout(dl.dims(), dl.strides()) {
         return None;
     }
-    let span = |o| p.span(o).map(|s| (s.lo(), s.hi()));
+    let span = |o| {
+        let offset = match o {
+            A => p.a().layout().offset(),
+            B => p.b().layout().offset(),
+            _ => p.d().layout().offset(),
+        } as i128;
+        p.span(o).map(|s| (s.lo() - offset, s.hi() - offset))
+    };
     let spans = [span(A)?, span(B)?, span(D)?];
 
     let c = |conj: bool| T::COMPLEX && conj;
@@ -304,10 +337,11 @@ pub(crate) fn plan<T: BlasScalar>(p: &Problem) -> Option<BlasStep> {
     let ca = c(p.a().op().is_conj()) != conj_d;
     let cb = c(p.b().op().is_conj()) != conj_d;
 
-    let m = Group::new(r.m(), &[D, A]);
-    let n = Group::new(r.n(), &[D, B]);
-    let k = Group::new(r.k(), &[A, B]);
+    let m = Group::new(r.m(), &[D, A])?;
+    let n = Group::new(r.n(), &[D, B])?;
+    let k = Group::new(r.k(), &[A, B])?;
     let h: Vec<RoleAxis> = r.h().iter().copied().filter(|x| x.extent() != 1).collect();
+    let batch_items = extent(&h)?;
     let dim = |e: usize| i32::try_from(e).ok();
     let (mi, ni, ki) = (dim(m.extent)?, dim(n.extent)?, dim(k.extent)?);
 
@@ -335,7 +369,7 @@ pub(crate) fn plan<T: BlasScalar>(p: &Problem) -> Option<BlasStep> {
         (true, out, ld)
     } else {
         let hax: Vec<_> = h.iter().map(|x| (x.extent(), x.stride(D))).collect();
-        let (pack, hs) = work.pack(m.axes(D).chain(n.axes(D)).collect(), &hax);
+        let (pack, hs) = work.pack(m.axes(D).chain(n.axes(D)).collect(), &hax)?;
         let out = Side {
             from: D,
             pack: Some(pack),
@@ -370,6 +404,7 @@ pub(crate) fn plan<T: BlasScalar>(p: &Problem) -> Option<BlasStep> {
         right,
         out,
         h: h.iter().map(RoleAxis::extent).collect(),
+        batch_items,
         spans,
         work_len: work.len,
     })
