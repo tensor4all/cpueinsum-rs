@@ -1,0 +1,85 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+
+# This file is the gate AGENTS.md asks for, run on a clean machine: `cargo fmt`,
+# `cargo clippy --workspace --all-targets`, `cargo test --workspace` and
+# `cargo test --release --workspace`. Keep the two in step.
+#
+# Every Rust job restores `Swatinem/rust-cache` and only a push to main writes it,
+# so a pull request never publishes a cache built from PR-controlled content. Without
+# it a cold `cargo test` of this workspace is over ten minutes on a four-core runner;
+# measured on `tprims-rs`, whose `test` job is 13 minutes (ubuntu) and 17 minutes
+# (macos) and sets the whole wall clock of its CI.
+#
+# The crate layout decides the matrix. `cpueinsum` builds with no C toolchain, but
+# `cpueinsum-blas`'s tests link a provider: Accelerate on macOS, and on Linux the
+# system OpenBLAS, which `openblas-src`'s `system` feature requires to be installed
+# (hence the apt step - a bare runner fails with `unable to find library -lopenblas`).
+# The release-profile tests run on Linux only: that profile exists for the packed
+# driver's x86 kernels, and a thin-LTO build on a three-core macOS runner is by far
+# the most expensive step available here.
+
+jobs:
+  fmt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --all -- --check
+
+  clippy:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.event_name == 'push' }}
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.event_name == 'push' }}
+      # `cpueinsum-blas`'s dev-dependencies link the system OpenBLAS through
+      # `openblas-src`'s `system` feature; macOS links Accelerate instead.
+      - name: System BLAS
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libopenblas-dev
+      - run: cargo test --workspace
+
+  test-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.event_name == 'push' }}
+      - name: System BLAS
+        run: sudo apt-get update && sudo apt-get install -y libopenblas-dev
+      - run: cargo test --release --workspace
