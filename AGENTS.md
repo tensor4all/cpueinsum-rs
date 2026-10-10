@@ -36,7 +36,13 @@ is tensor4all/tprims-rs#62.
 
 ## Build
 
-There is no CI for now. Run all of the following locally before every push.
+`.github/workflows/ci.yml` runs all of the following on every push and pull
+request. Run them locally before every push.
+
+On Linux the `cpueinsum-blas` tests link the system OpenBLAS, which
+`openblas-src`'s `system` feature requires to be installed (`libopenblas-dev`); the
+workflow installs it, and macOS links Accelerate instead. `cpueinsum` alone needs
+no C toolchain, so `cargo test -p cpueinsum` runs anywhere.
 
 ```bash
 cargo fmt --all
