@@ -83,3 +83,20 @@ jobs:
       - name: System BLAS
         run: sudo apt-get update && sudo apt-get install -y libopenblas-dev
       - run: cargo test --release --workspace
+
+  # The workspace declares `rust-version = "1.89"` (tprims-contract's MSRV, whose
+  # packed driver uses AVX-512 intrinsics). Nothing else checks that claim, so it
+  # would drift silently on the next dependency bump.
+  msrv:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.89.0"
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.event_name == 'push' }}
+      - name: System BLAS
+        run: sudo apt-get update && sudo apt-get install -y libopenblas-dev
+      - run: cargo build --workspace --all-targets

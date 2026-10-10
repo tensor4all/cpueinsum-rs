@@ -44,6 +44,10 @@ On Linux the `cpueinsum-blas` tests link the system OpenBLAS, which
 workflow installs it, and macOS links Accelerate instead. `cpueinsum` alone needs
 no C toolchain, so `cargo test -p cpueinsum` runs anywhere.
 
+The declared `rust-version` is 1.89 (tprims-contract's MSRV, whose packed driver uses
+AVX-512 intrinsics); the workflow's `msrv` job builds the workspace on 1.89.0 so the
+claim cannot drift silently.
+
 ```bash
 cargo fmt --all
 cargo clippy --workspace --all-targets -- -D warnings
