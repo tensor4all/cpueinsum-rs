@@ -5,8 +5,8 @@ extern crate blas_src as _;
 mod common;
 
 use common::{close, naive, Elem, Operand};
-use cpueinsum::tprims_contract::api::{CSpec, Labels, LayoutSpec, Op, OperandSpec, Problem};
-use cpueinsum::tprims_contract::{PlanConfig, SliceAccumulationSource};
+use cpueinsum::tcontract::api::{CSpec, Labels, LayoutSpec, Op, OperandSpec, Problem};
+use cpueinsum::tcontract::{PlanConfig, SliceAccumulationSource};
 use cpueinsum::Exec;
 use cpueinsum_blas::{BinaryPlan, BlasError, BlasScalar, ExecutionRoute};
 use num_complex::{Complex32, Complex64};

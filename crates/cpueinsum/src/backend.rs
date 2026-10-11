@@ -3,8 +3,8 @@
 use core::convert::Infallible;
 use core::fmt::Debug;
 
-use tprims_contract::api::Problem;
-use tprims_exec::Exec;
+use tcontract::api::Problem;
+use tcontract_exec::Exec;
 
 use crate::scalar::Scalar;
 
@@ -12,17 +12,17 @@ use crate::scalar::Scalar;
 pub type BackendError = Box<dyn std::error::Error + Send + Sync>;
 
 /// An implementation of some binary steps of an [`EinsumPlan`](crate::EinsumPlan),
-/// next to tprims-contract.
+/// next to tcontract.
 ///
 /// [`EinsumPlan::with_backend`](crate::EinsumPlan::with_backend) offers every
 /// step to the backend once, at planning: [`plan`](Self::plan) either takes
 /// the step, returning the state it needs to run it, or declines it
-/// (`None`), and a declined step is planned and run by tprims-contract as
+/// (`None`), and a declined step is planned and run by tcontract as
 /// without a backend. The backend owns the routing decision, including the
 /// size below which it declines. Execution never declines.
 ///
 /// The plan is generic over the backend, so routing costs one branch per step
-/// and no dynamic call. The default backend, [`Tprims`], declines every step.
+/// and no dynamic call. The default backend, [`Tcontract`], declines every step.
 ///
 /// A step's operands arrive as data slices with an origin, laid out as the
 /// [`Problem`] describes (its `LayoutSpec` offsets are zero), and the step
@@ -34,7 +34,7 @@ pub type BackendError = Box<dyn std::error::Error + Send + Sync>;
 /// # Examples
 ///
 /// ```
-/// use cpueinsum::tprims_contract::api::Problem;
+/// use cpueinsum::tcontract::api::Problem;
 /// use cpueinsum::{BackendError, Exec, StepBackend};
 ///
 /// /// Takes no step.
@@ -93,23 +93,23 @@ pub trait StepBackend<T: Scalar>: Debug {
     ) -> Result<(), BackendError>;
 }
 
-/// The default backend: every step runs on tprims-contract.
+/// The default backend: every step runs on tcontract.
 ///
 /// # Examples
 ///
 /// ```
-/// use cpueinsum::{EinsumPlan, EinsumSpec, Layout, Tprims};
+/// use cpueinsum::{EinsumPlan, EinsumSpec, Layout, Tcontract};
 /// let spec = EinsumSpec::new(&[&[0, 1], &[1, 2]], &[0, 2], &[[0, 1]]).unwrap();
 /// let cm = Layout::new(&[2, 2], &[1, 2]).unwrap();
 /// let a = EinsumPlan::<f64>::new(&spec, &[cm, cm], cm).unwrap();
-/// let b = EinsumPlan::<f64, Tprims>::with_backend(Tprims, &spec, &[cm, cm], cm).unwrap();
+/// let b = EinsumPlan::<f64, Tcontract>::with_backend(Tcontract, &spec, &[cm, cm], cm).unwrap();
 /// assert_eq!(a.backend_steps(), 0);
 /// assert_eq!(b.backend_steps(), 0);
 /// ```
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct Tprims;
+pub struct Tcontract;
 
-impl<T: Scalar> StepBackend<T> for Tprims {
+impl<T: Scalar> StepBackend<T> for Tcontract {
     type Step = Infallible;
 
     #[inline]

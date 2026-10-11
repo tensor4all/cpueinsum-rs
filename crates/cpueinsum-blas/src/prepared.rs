@@ -2,10 +2,8 @@
 
 use core::mem::MaybeUninit;
 
-use cpueinsum::tprims_contract::api::{CSpec, OperandId, Problem};
-use cpueinsum::tprims_contract::{
-    ExecutionRoute as NativeRoute, PlanConfig, SliceAccumulationSource,
-};
+use cpueinsum::tcontract::api::{CSpec, OperandId, Problem};
+use cpueinsum::tcontract::{ExecutionRoute as NativeRoute, PlanConfig, SliceAccumulationSource};
 use cpueinsum::Exec;
 
 use crate::{BlasError, BlasScalar, BlasStep, Side};
@@ -30,11 +28,11 @@ pub enum ExecutionRoute {
 ///
 /// ```
 /// # extern crate blas_src as _;
-/// use cpueinsum::{Exec, tprims_contract::{PlanConfig, SliceAccumulationSource}};
-/// use cpueinsum::tprims_contract::api::{CSpec, DType, Labels, LayoutSpec, OperandSpec, Problem};
+/// use cpueinsum::{Exec, tcontract::{PlanConfig, SliceAccumulationSource}};
+/// use cpueinsum::tcontract::api::{CSpec, DType, Labels, LayoutSpec, OperandSpec, Problem};
 /// use cpueinsum_blas::{BinaryPlan, ExecutionRoute};
 /// use std::mem::MaybeUninit;
-/// let operand = |dims: &[usize], strides: &[isize]| -> Result<_, cpueinsum::tprims_contract::Error> {
+/// let operand = |dims: &[usize], strides: &[isize]| -> Result<_, cpueinsum::tcontract::Error> {
 ///     Ok(OperandSpec::new(LayoutSpec::new(dims, strides, 0)?))
 /// };
 /// let problem = Problem::from_labels(DType::F64,

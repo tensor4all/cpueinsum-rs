@@ -4,7 +4,7 @@ CPU einsum over integer labels, with the contraction order supplied by the
 caller.
 
 Each binary step of an einsum is planned once by
-[tprims-contract](https://github.com/tensor4all/tprims-rs) (a packed
+[tcontract](https://github.com/tensor4all/tcontract-rs) (a packed
 TBLIS-style driver for general strides, faer for copy-free GEMM fusions, an
 elementwise pass for all-batch steps). cpueinsum adds what an N-ary einsum
 needs on top:
@@ -49,7 +49,7 @@ to use a caller-owned Rayon pool.
 
 ## Prepared binary and grouped execution
 
-[`BinaryPlan`](crates/cpueinsum/src/prepared.rs) prepares a tprims `Problem`
+[`BinaryPlan`](crates/cpueinsum/src/prepared.rs) prepares a tcontract `Problem`
 once and accepts arbitrary alpha/beta, Absent/Output/Separate C, and initialized
 views or slices. Its fresh-output entry accepts `&mut [MaybeUninit<T>]` and
 returns initialized storage only after successful full physical coverage;
@@ -76,10 +76,10 @@ measured speedup claim.
 ## BLAS
 
 `cpueinsum` links no BLAS. A `StepBackend` can take binary steps over from
-tprims-contract at planning time, and the separate `cpueinsum-blas` crate is
+tcontract at planning time, and the separate `cpueinsum-blas` crate is
 one that runs them on CBLAS. It is for large matrices: steps whose GEMMs have
 at least 2^15 multiply-accumulates each become one GEMM per batch item, in place when the operands fuse to matrices BLAS can
-read and after packing the others; smaller steps stay on tprims-contract.
+read and after packing the others; smaller steps stay on tcontract.
 `cpueinsum-blas` depends on `cblas-sys` only, so the final binary chooses the
 provider (for example through `blas-src`).
 
@@ -106,7 +106,7 @@ A group is entirely vendor or entirely native, not mixed after mutation.
 Executable examples live in the adapters' rustdoc; see the
 [prepared BLAS design](docs/design/prepared-blas-integration.md).
 
-The default backend, `Tprims`, takes no step, so `EinsumPlan<T>` runs exactly
+The default backend, `Tcontract`, takes no step, so `EinsumPlan<T>` runs exactly
 as without backends.
 
 Element types: `f32`, `f64`, `Complex<f32>`, `Complex<f64>`. Strides may be
@@ -116,10 +116,10 @@ diagonal.
 ## Status
 
 Early. The plan, layering and gates are in
-[tensor4all/tprims-rs#62](https://github.com/tensor4all/tprims-rs/issues/62);
+[tensor4all/tcontract-rs#62](https://github.com/tensor4all/tcontract-rs/issues/62);
 the BLAS backend in
 [tensor4all/cpueinsum-rs#1](https://github.com/tensor4all/cpueinsum-rs/issues/1).
-Not published to crates.io; tprims is a git dependency at a pinned rev.
+Not published to crates.io; tcontract is a git dependency at a pinned rev.
 MSRV 1.89.
 
 ## License

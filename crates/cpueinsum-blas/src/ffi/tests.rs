@@ -3,8 +3,8 @@ extern crate blas_src as _;
 use std::cell::RefCell;
 use std::thread::{self, ThreadId};
 
-use cpueinsum::tprims_contract::api::{CSpec, Labels, LayoutSpec, OperandSpec, Problem};
-use cpueinsum::tprims_contract::{PlanConfig, SliceAccumulationSource};
+use cpueinsum::tcontract::api::{CSpec, Labels, LayoutSpec, OperandSpec, Problem};
+use cpueinsum::tcontract::{PlanConfig, SliceAccumulationSource};
 use cpueinsum::{Exec, Pool};
 
 use crate::{BinaryPlan, BlasScalar, ExecutionRoute};

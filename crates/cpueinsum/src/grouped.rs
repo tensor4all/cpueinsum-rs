@@ -1,14 +1,14 @@
 //! Prepared heterogeneous column-major GEMM groups.
 //!
-//! A [`GroupedPlan`] owns one immutable tprims-contract plan per job.  The
+//! A [`GroupedPlan`] owns one immutable tcontract plan per job.  The
 //! caller lends flat input and output buffers at execution time; no pointers
 //! or executors are retained by the plan.
 
 use std::sync::Mutex;
 
-use tprims_contract::api::{CSpec, Labels, LayoutSpec, Op, OperandSpec, Problem};
-use tprims_contract::{OutputContract, Plan, PlanConfig, SliceAccumulationSource, NS_PER_FLOP};
-use tprims_exec::{Exec, WidthPolicy};
+use tcontract::api::{CSpec, Labels, LayoutSpec, Op, OperandSpec, Problem};
+use tcontract::{OutputContract, Plan, PlanConfig, SliceAccumulationSource, NS_PER_FLOP};
+use tcontract_exec::{Exec, WidthPolicy};
 
 use crate::{Error, Result, Scalar};
 
@@ -139,7 +139,7 @@ impl std::fmt::Display for GroupedOperand {
 /// The scheduler route selected for a grouped execution.
 ///
 /// `Outer` is the only parallel route: each child contraction is forced to a
-/// serial tprims context and receives the outer context's reusable workspace.
+/// serial tcontract context and receives the outer context's reusable workspace.
 ///
 /// # Examples
 ///
@@ -211,13 +211,13 @@ impl<T: Scalar> GroupedPlan<T> {
     /// # Errors
     ///
     /// Returns [`Error::Grouped`] for checked arithmetic or overlapping output
-    /// ranges, and [`Error::Contract`] when tprims rejects a child problem.
+    /// ranges, and [`Error::Contract`] when tcontract rejects a child problem.
     ///
     /// # Examples
     ///
     /// ```
     /// use cpueinsum::{GroupedGemmJob, GroupedPlan};
-    /// use cpueinsum::tprims_contract::PlanConfig;
+    /// use cpueinsum::tcontract::PlanConfig;
     /// let plan = GroupedPlan::<f64>::new(
     ///     &[GroupedGemmJob::new(0, 0, 0, 1, 1, 1)],
     ///     &PlanConfig::default(),
@@ -237,7 +237,7 @@ impl<T: Scalar> GroupedPlan<T> {
     ///
     /// ```
     /// use cpueinsum::{Exec, GroupedGemmJob, GroupedPlan};
-    /// use cpueinsum::tprims_contract::api::Op;
+    /// use cpueinsum::tcontract::api::Op;
     /// use num_complex::Complex64 as C;
     /// let plan = GroupedPlan::<C>::new_with_ops(
     ///     &[GroupedGemmJob::new(0, 0, 0, 1, 1, 1)],
@@ -251,13 +251,13 @@ impl<T: Scalar> GroupedPlan<T> {
     /// ```
     ///
     /// The third operation is also used for the in-place accumulation source,
-    /// matching tprims-contract's `CSpec::Output` semantics. The config's
+    /// matching tcontract's `CSpec::Output` semantics. The config's
     /// `fresh_output` capability is unused: grouped output is initialized.
     ///
     /// # Errors
     ///
     /// Returns [`Error::Grouped`] for checked arithmetic or overlapping output
-    /// ranges, and [`Error::Contract`] when tprims rejects a child problem.
+    /// ranges, and [`Error::Contract`] when tcontract rejects a child problem.
     pub fn new_with_ops(
         jobs: &[GroupedGemmJob],
         ops: [Op; 3],

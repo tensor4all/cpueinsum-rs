@@ -4,17 +4,18 @@ members = ["crates/cpueinsum", "crates/cpueinsum-blas"]
 
 [workspace.package]
 edition = "2021"
-# tprims-contract's MSRV (AVX-512 intrinsics in its packed driver).
+# tcontract's MSRV (AVX-512 intrinsics in its packed driver).
 rust-version = "1.89"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/tensor4all/cpueinsum-rs"
 
 [workspace.dependencies]
-# tprims #73 adds a persistent wrapper for the host's selected shared Rayon pool
-# atop #71/#72's caller-owned resources and safe prepared output boundary.
-# Use published strided v0.4.6, retaining #290's safety fixes; keep tprims pins coherent.
-tprims-contract = { git = "https://github.com/tensor4all/tprims-rs.git", rev = "dc89196036a0b65d9b9fb998c325ce5be1d8c18f" }
-tprims-exec = { git = "https://github.com/tensor4all/tprims-rs.git", rev = "dc89196036a0b65d9b9fb998c325ce5be1d8c18f" }
+# tcontract #73 adds a persistent wrapper for the host's selected shared Rayon pool
+# atop #71/#72's caller-owned resources and safe prepared output boundary (the
+# tprims-to-tcontract rename landed in tcontract-rs#108).
+# Use published strided v0.4.8, retaining #290's safety fixes; keep tcontract pins coherent.
+tcontract = { git = "https://github.com/tensor4all/tcontract-rs.git", rev = "8abfa38aa1de3bd0f55d65751afa8ce6c0a4e590" }
+tcontract-exec = { git = "https://github.com/tensor4all/tcontract-rs.git", rev = "8abfa38aa1de3bd0f55d65751afa8ce6c0a4e590" }
 strided-view = { git = "https://github.com/tensor4all/strided-rs.git", rev = "4373ba0bcb4bdc02f4c03a8a2d4896b84a47dd7c", version = "=0.4.8" }
 strided-perm = { git = "https://github.com/tensor4all/strided-rs.git", rev = "4373ba0bcb4bdc02f4c03a8a2d4896b84a47dd7c", version = "=0.4.8" }
 cpueinsum = { path = "crates/cpueinsum" }

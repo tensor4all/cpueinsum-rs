@@ -12,7 +12,7 @@ mod sealed {
 
 /// An element type: `f32`, `f64`, `Complex<f32>` or `Complex<f64>`.
 ///
-/// Sealed, and exactly the storage types of [`tprims_contract::api::Scalar`].
+/// Sealed, and exactly the storage types of [`tcontract::api::Scalar`].
 ///
 /// # Examples
 ///
@@ -21,7 +21,7 @@ mod sealed {
 /// assert_eq!(<f64 as Scalar>::ONE, 1.0);
 /// assert_eq!(<num_complex::Complex<f32> as Scalar>::ONE.re, 1.0);
 /// ```
-pub trait Scalar: sealed::Sealed + tprims_contract::api::Scalar + Default + Send + Sync {
+pub trait Scalar: sealed::Sealed + tcontract::api::Scalar + Default + Send + Sync {
     /// The multiplicative identity.
     const ONE: Self;
 }

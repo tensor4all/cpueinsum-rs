@@ -133,9 +133,9 @@ dependencies = [
  "rand_chacha",
  "rayon",
  "strided-view",
+ "tcontract",
+ "tcontract-exec",
  "thiserror 1.0.69",
- "tprims-contract",
- "tprims-exec",
 ]
 
 [[package]]
@@ -1283,6 +1283,38 @@ dependencies = [
 ]
 
 [[package]]
+name = "tcontract"
+version = "0.1.0"
+source = "git+https://github.com/tensor4all/tcontract-rs.git?rev=8abfa38aa1de3bd0f55d65751afa8ce6c0a4e590#8abfa38aa1de3bd0f55d65751afa8ce6c0a4e590"
+dependencies = [
+ "faer",
+ "num-complex",
+ "strided-basic",
+ "strided-view",
+ "tcontract-exec",
+ "tcontract-kernel",
+ "thiserror 1.0.69",
+]
+
+[[package]]
+name = "tcontract-exec"
+version = "0.1.0"
+source = "git+https://github.com/tensor4all/tcontract-rs.git?rev=8abfa38aa1de3bd0f55d65751afa8ce6c0a4e590#8abfa38aa1de3bd0f55d65751afa8ce6c0a4e590"
+dependencies = [
+ "rayon",
+ "strided-basic",
+ "thiserror 1.0.69",
+]
+
+[[package]]
+name = "tcontract-kernel"
+version = "0.1.0"
+source = "git+https://github.com/tensor4all/tcontract-rs.git?rev=8abfa38aa1de3bd0f55d65751afa8ce6c0a4e590#8abfa38aa1de3bd0f55d65751afa8ce6c0a4e590"
+dependencies = [
+ "num-complex",
+]
+
+[[package]]
 name = "thiserror"
 version = "1.0.69"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1329,38 +1361,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1ad99c4c6d32803332c548b1af0540b357b3f5fc0be8f6c6bfe8b2e6ae784070"
 dependencies = [
  "cfg-if",
-]
-
-[[package]]
-name = "tprims-contract"
-version = "0.1.0"
-source = "git+https://github.com/tensor4all/tprims-rs.git?rev=dc89196036a0b65d9b9fb998c325ce5be1d8c18f#dc89196036a0b65d9b9fb998c325ce5be1d8c18f"
-dependencies = [
- "faer",
- "num-complex",
- "strided-basic",
- "strided-view",
- "thiserror 1.0.69",
- "tprims-exec",
- "tprims-kernel",
-]
-
-[[package]]
-name = "tprims-exec"
-version = "0.1.0"
-source = "git+https://github.com/tensor4all/tprims-rs.git?rev=dc89196036a0b65d9b9fb998c325ce5be1d8c18f#dc89196036a0b65d9b9fb998c325ce5be1d8c18f"
-dependencies = [
- "rayon",
- "strided-basic",
- "thiserror 1.0.69",
-]
-
-[[package]]
-name = "tprims-kernel"
-version = "0.1.0"
-source = "git+https://github.com/tensor4all/tprims-rs.git?rev=dc89196036a0b65d9b9fb998c325ce5be1d8c18f#dc89196036a0b65d9b9fb998c325ce5be1d8c18f"
-dependencies = [
- "num-complex",
 ]
 
 [[package]]

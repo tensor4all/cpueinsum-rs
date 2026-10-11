@@ -1,9 +1,9 @@
 //! One binary contraction, planned and executed in one call.
 
 use strided_view::{StridedView, StridedViewMut};
-use tprims_contract::api::{CSpec, Labels, Problem};
-use tprims_contract::{Plan, PlanConfig};
-use tprims_exec::Exec;
+use tcontract::api::{CSpec, Labels, Problem};
+use tcontract::{Plan, PlanConfig};
+use tcontract_exec::Exec;
 
 use crate::error::{Error, Result};
 use crate::layout::Layout;
@@ -19,7 +19,7 @@ use crate::scalar::Scalar;
 ///
 /// # Errors
 ///
-/// [`Error::Contract`] (step 0) when tprims-contract rejects the labels or the
+/// [`Error::Contract`] (step 0) when tcontract rejects the labels or the
 /// layouts: mismatched label counts or extents, an output-only label, or an
 /// output whose axes alias.
 ///
@@ -60,7 +60,7 @@ pub fn contract_into<T: Scalar>(
         .map_err(|source| Error::Contract { step: 0, source })
 }
 
-/// The tprims plan of one binary step.
+/// The tcontract plan of one binary step.
 pub(crate) fn plan_step<T: Scalar>(
     step: usize,
     a: Layout<'_>,
@@ -75,7 +75,7 @@ pub(crate) fn plan_step<T: Scalar>(
         .map_err(|source| Error::Contract { step, source })
 }
 
-/// The validated tprims problem of one binary step.
+/// The validated tcontract problem of one binary step.
 pub(crate) fn step_problem<T: Scalar>(
     step: usize,
     a: Layout<'_>,

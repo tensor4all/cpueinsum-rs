@@ -6,8 +6,8 @@ Before acting, read the shared tensor4all agent rules, starting from
 relevant to the task and do not vendor them here.
 
 cpueinsum is a CPU einsum over integer labels with a caller-supplied
-contraction order, built on tprims-contract (tensor4all/tprims-rs). The plan
-is tensor4all/tprims-rs#62.
+contraction order, built on tcontract (tensor4all/tcontract-rs). The plan
+is tensor4all/tcontract-rs#62.
 
 - Out of scope by design: contraction-order search, string notation, GPUs.
   Do not add them; they belong to the caller.
@@ -17,8 +17,8 @@ is tensor4all/tprims-rs#62.
   Accelerate on macOS, OpenBLAS elsewhere). `cpueinsum` itself never depends
   on a BLAS crate and must build without a C toolchain; check with
   `cargo tree -p cpueinsum`. The plan is tensor4all/cpueinsum-rs#1.
-- Binary contraction kernels and strategy selection belong in tprims-contract.
-  Fix planner behavior there (for example tensor4all/tprims-rs#63), not by
+- Binary contraction kernels and strategy selection belong in tcontract.
+  Fix planner behavior there (for example tensor4all/tcontract-rs#63), not by
   working around it here.
 - Every numerical change is checked against the naive reference in
   `crates/cpueinsum/tests/` (shared by `crates/cpueinsum-blas/tests/`). Performance claims need a recorded measurement
@@ -30,9 +30,9 @@ is tensor4all/tprims-rs#62.
   `MaybeUninit` publication, each with a `SAFETY` comment. Pointers are checked
   against operand slices at execution and dimensions at planning; fresh output
   is never represented by initialized references before completion.
-- tprims crates and strided-view are git dependencies at pinned revs; bump
-  them together with tprims-rs's own pin.
-- Do not publish the crates (`publish = false` until tprims is published).
+- tcontract crates and strided-view are git dependencies at pinned revs; bump
+  them together with tcontract-rs's own pin.
+- Do not publish the crates (`publish = false` until tcontract is published).
 
 ## Build
 
@@ -44,7 +44,7 @@ On Linux the `cpueinsum-blas` tests link the system OpenBLAS, which
 workflow installs it, and macOS links Accelerate instead. `cpueinsum` alone needs
 no C toolchain, so `cargo test -p cpueinsum` runs anywhere.
 
-The declared `rust-version` is 1.89 (tprims-contract's MSRV, whose packed driver uses
+The declared `rust-version` is 1.89 (tcontract's MSRV, whose packed driver uses
 AVX-512 intrinsics); the workflow's `msrv` job builds the workspace on 1.89.0 so the
 claim cannot drift silently.
 
