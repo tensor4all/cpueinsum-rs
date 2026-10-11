@@ -13,13 +13,13 @@ pub enum Error {
     /// Invalid grouped descriptors, buffer ranges or overlapping destinations.
     #[error(transparent)]
     Grouped(#[from] crate::GroupedError),
-    /// A binary contraction was rejected or failed in tprims-contract.
+    /// A binary contraction was rejected or failed in tcontract.
     #[error("contraction step {step}: {source}")]
     Contract {
         /// The step of the contraction order (0 for a binary contraction).
         step: usize,
-        /// The tprims-contract error.
-        source: tprims_contract::Error,
+        /// The tcontract error.
+        source: tcontract::Error,
     },
     /// A [`StepBackend`](crate::StepBackend) failed a step it took.
     #[error("contraction step {step} (backend): {source}")]

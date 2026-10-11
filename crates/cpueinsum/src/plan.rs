@@ -1,10 +1,10 @@
 //! N-ary einsum: a plan of binary steps over an intermediate arena.
 
 use strided_view::{StridedView, StridedViewMut};
-use tprims_contract::{Plan, PlanConfig};
-use tprims_exec::Exec;
+use tcontract::{Plan, PlanConfig};
+use tcontract_exec::Exec;
 
-use crate::backend::{StepBackend, Tprims};
+use crate::backend::{StepBackend, Tcontract};
 use crate::binary::step_problem;
 use crate::error::{Error, Result, ShapeError};
 use crate::layout::Layout;
@@ -57,13 +57,13 @@ impl Temp {
 
 /// Who runs a step.
 ///
-/// The tprims plan stays inline, as it was before backends: boxing it would add
+/// The tcontract plan stays inline, as it was before backends: boxing it would add
 /// a pointer chase to every step of the hot path.
 #[derive(Debug)]
 #[allow(clippy::large_enum_variant)]
 enum Kernel<T: Scalar, S> {
-    /// tprims-contract.
-    Tprims(Plan<T>),
+    /// tcontract.
+    Tcontract(Plan<T>),
     /// The plan's backend, with the step's work space (an intermediate slot
     /// live only at this step).
     Backend { step: S, work: Option<usize> },
@@ -97,7 +97,7 @@ impl Owned {
     }
 }
 
-/// A planned einsum: one plan per step of the given order (tprims-contract's,
+/// A planned einsum: one plan per step of the given order (tcontract's,
 /// or the [`StepBackend`]'s for a step it takes), and the placement of every
 /// intermediate in one scratch buffer.
 ///
@@ -109,8 +109,8 @@ impl Owned {
 /// contracted with a rank-0 one, which covers diagonals, sums and
 /// permutations of one operand.
 ///
-/// The backend `B` defaults to [`Tprims`], which leaves every step to
-/// tprims-contract; [`with_backend`](Self::with_backend) plans with another.
+/// The backend `B` defaults to [`Tcontract`], which leaves every step to
+/// tcontract; [`with_backend`](Self::with_backend) plans with another.
 ///
 /// # Examples
 ///
@@ -137,7 +137,7 @@ impl Owned {
 /// assert_eq!(d, a);
 /// ```
 #[derive(Debug)]
-pub struct EinsumPlan<T: Scalar, B: StepBackend<T> = Tprims> {
+pub struct EinsumPlan<T: Scalar, B: StepBackend<T> = Tcontract> {
     backend: B,
     inputs: Vec<Owned>,
     output: Owned,
@@ -148,13 +148,13 @@ pub struct EinsumPlan<T: Scalar, B: StepBackend<T> = Tprims> {
 
 impl<T: Scalar> EinsumPlan<T> {
     /// Plan `spec` for inputs and an output of these layouts, every step on
-    /// tprims-contract.
+    /// tcontract.
     ///
     /// # Errors
     ///
     /// As [`with_backend`](Self::with_backend).
     pub fn new(spec: &EinsumSpec, inputs: &[Layout<'_>], output: Layout<'_>) -> Result<Self> {
-        Self::with_backend(Tprims, spec, inputs, output)
+        Self::with_backend(Tcontract, spec, inputs, output)
     }
 }
 
@@ -167,7 +167,7 @@ impl<T: Scalar, B: StepBackend<T>> EinsumPlan<T, B> {
     /// [`ShapeError`] when the number of inputs differs from the description,
     /// an operand's rank differs from its number of labels, a label has two
     /// extents, or an intermediate's size overflows; [`Error::Contract`] when
-    /// tprims-contract rejects a step (for example an output whose axes
+    /// tcontract rejects a step (for example an output whose axes
     /// alias).
     pub fn with_backend(
         backend: B,
@@ -275,7 +275,7 @@ impl<T: Scalar, B: StepBackend<T>> EinsumPlan<T, B> {
          -> Result<Kernel<T, B::Step>> {
             let Some(s) = backend.plan(&problem) else {
                 return Plan::<T>::from_problem(problem, &PlanConfig::default())
-                    .map(Kernel::Tprims)
+                    .map(Kernel::Tcontract)
                     .map_err(|source| Error::Contract { step, source });
             };
             let len = B::work_len(&s);
@@ -400,7 +400,7 @@ impl<T: Scalar, B: StepBackend<T>> EinsumPlan<T, B> {
         self.steps.len()
     }
 
-    /// Number of steps the backend took (the rest run on tprims-contract).
+    /// Number of steps the backend took (the rest run on tcontract).
     pub fn backend_steps(&self) -> usize {
         self.steps
             .iter()
@@ -486,7 +486,7 @@ impl<T: Scalar, B: StepBackend<T>> EinsumPlan<T, B> {
                 }
             };
             match &step.kernel {
-                Kernel::Tprims(plan) => plan
+                Kernel::Tcontract(plan) => plan
                     .execute_slices(exec, T::ONE, a, b, d)
                     .map_err(|source| Error::Contract { step: k, source })?,
                 Kernel::Backend { step: s, .. } => self

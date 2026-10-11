@@ -1,7 +1,7 @@
 mod common;
 
 use common::{close, naive, Elem, Operand};
-use cpueinsum::tprims_contract::{api::Op, PlanConfig};
+use cpueinsum::tcontract::{api::Op, PlanConfig};
 use cpueinsum::{Error, Exec, GroupedError, GroupedGemmJob, GroupedPlan, GroupedRoute};
 use num_complex::{Complex32, Complex64};
 use rand::SeedableRng;

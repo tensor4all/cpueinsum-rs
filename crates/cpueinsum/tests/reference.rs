@@ -384,7 +384,7 @@ fn shape_errors() {
 }
 
 #[test]
-fn aliasing_output_is_rejected_by_tprims() {
+fn aliasing_output_is_rejected_by_tcontract() {
     let spec = EinsumSpec::new(&[&[0, 1]], &[0, 1], &[]).unwrap();
     let l = Layout::new(&[2, 2], &[1, 2]).unwrap();
     let alias = Layout::new(&[2, 2], &[1, 0]).unwrap();

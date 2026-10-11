@@ -3,23 +3,23 @@
 use core::mem::MaybeUninit;
 
 use strided_view::{StridedView, StridedViewMut};
-use tprims_contract::api::{AccumulationSource, Problem};
-use tprims_contract::{
+use tcontract::api::{AccumulationSource, Problem};
+use tcontract::{
     ExecutionRoute, OutputContract, Plan, PlanConfig, PlanReport, SliceAccumulationSource,
 };
-use tprims_exec::Exec;
+use tcontract_exec::Exec;
 
 use crate::error::{Error, Result};
 use crate::scalar::Scalar;
 
 /// A single binary step's lower-layer failure, as a cpueinsum contract error.
-fn contract(source: tprims_contract::Error) -> Error {
+fn contract(source: tcontract::Error) -> Error {
     Error::Contract { step: 0, source }
 }
 
 /// A binary contraction planned once and executed on many buffers.
 ///
-/// A `BinaryPlan` owns only an immutable tprims-contract [`Plan`] built from a
+/// A `BinaryPlan` owns only an immutable tcontract [`Plan`] built from a
 /// validated [`Problem`] and [`PlanConfig`]. It holds no executor, buffer,
 /// arena or lease: each execution borrows the caller's [`Exec`] and operands.
 /// The operand operations and C mode are fixed by the [`Problem`]; the caller
@@ -34,10 +34,10 @@ fn contract(source: tprims_contract::Error) -> Error {
 ///
 /// ```
 /// use cpueinsum::strided_view::{StridedView, StridedViewMut};
-/// use cpueinsum::tprims_contract::api::{
+/// use cpueinsum::tcontract::api::{
 ///     CSpec, DType, Labels, LayoutSpec, OperandSpec, Problem,
 /// };
-/// use cpueinsum::tprims_contract::PlanConfig;
+/// use cpueinsum::tcontract::PlanConfig;
 /// use cpueinsum::{BinaryPlan, Exec};
 /// // D[i, j] = sum_k A[i, k] B[k, j], column-major 2x2.
 /// let l = |d: &[usize], s: &[isize]| OperandSpec::new(LayoutSpec::new(d, s, 0).unwrap());
@@ -76,17 +76,17 @@ impl<T: Scalar> BinaryPlan<T> {
     ///
     /// # Errors
     ///
-    /// [`Error::Contract`] (step 0) when tprims-contract rejects the problem
+    /// [`Error::Contract`] (step 0) when tcontract rejects the problem
     /// or the configuration, including a `T` that does not match the problem's
     /// storage type.
     ///
     /// # Examples
     ///
     /// ```
-    /// use cpueinsum::tprims_contract::api::{
+    /// use cpueinsum::tcontract::api::{
     ///     CSpec, DType, Labels, LayoutSpec, OperandSpec, Problem,
     /// };
-    /// use cpueinsum::tprims_contract::PlanConfig;
+    /// use cpueinsum::tcontract::PlanConfig;
     /// use cpueinsum::BinaryPlan;
     /// let l = OperandSpec::new(LayoutSpec::new(&[3], &[1], 0).unwrap());
     /// let problem = Problem::from_labels(
@@ -111,7 +111,7 @@ impl<T: Scalar> BinaryPlan<T> {
             .map_err(contract)
     }
 
-    /// The immutable tprims-contract report of what was prepared.
+    /// The immutable tcontract report of what was prepared.
     ///
     /// This describes the algorithm the plan chose, not an executed route; the
     /// executed route is returned by each execution method.
@@ -119,10 +119,10 @@ impl<T: Scalar> BinaryPlan<T> {
     /// # Examples
     ///
     /// ```
-    /// use cpueinsum::tprims_contract::api::{
+    /// use cpueinsum::tcontract::api::{
     ///     CSpec, DType, Labels, LayoutSpec, OperandSpec, Problem,
     /// };
-    /// use cpueinsum::tprims_contract::PlanConfig;
+    /// use cpueinsum::tcontract::PlanConfig;
     /// use cpueinsum::BinaryPlan;
     /// let l = OperandSpec::new(LayoutSpec::new(&[2], &[1], 0).unwrap());
     /// let problem = Problem::from_labels(
@@ -163,10 +163,10 @@ impl<T: Scalar> BinaryPlan<T> {
     ///
     /// ```
     /// use cpueinsum::strided_view::{StridedView, StridedViewMut};
-    /// use cpueinsum::tprims_contract::api::{
+    /// use cpueinsum::tcontract::api::{
     ///     CSpec, DType, Labels, LayoutSpec, OperandSpec, Problem,
     /// };
-    /// use cpueinsum::tprims_contract::PlanConfig;
+    /// use cpueinsum::tcontract::PlanConfig;
     /// use cpueinsum::{BinaryPlan, Exec};
     /// let l = |d: &[usize], s: &[isize]| OperandSpec::new(LayoutSpec::new(d, s, 0).unwrap());
     /// let problem = Problem::from_labels(
@@ -222,10 +222,10 @@ impl<T: Scalar> BinaryPlan<T> {
     ///
     /// ```
     /// use cpueinsum::strided_view::{StridedView, StridedViewMut};
-    /// use cpueinsum::tprims_contract::api::{
+    /// use cpueinsum::tcontract::api::{
     ///     AccumulationSource, CSpec, DType, Labels, LayoutSpec, Op, OperandSpec, Problem,
     /// };
-    /// use cpueinsum::tprims_contract::PlanConfig;
+    /// use cpueinsum::tcontract::PlanConfig;
     /// use cpueinsum::{BinaryPlan, Exec};
     /// let l = |d: &[usize], s: &[isize]| OperandSpec::new(LayoutSpec::new(d, s, 0).unwrap());
     /// let problem = Problem::from_labels(
@@ -285,10 +285,10 @@ impl<T: Scalar> BinaryPlan<T> {
     /// # Examples
     ///
     /// ```
-    /// use cpueinsum::tprims_contract::api::{
+    /// use cpueinsum::tcontract::api::{
     ///     CSpec, DType, Labels, LayoutSpec, OperandSpec, Problem,
     /// };
-    /// use cpueinsum::tprims_contract::PlanConfig;
+    /// use cpueinsum::tcontract::PlanConfig;
     /// use cpueinsum::{BinaryPlan, Exec};
     /// let l = |d: &[usize], s: &[isize]| OperandSpec::new(LayoutSpec::new(d, s, 0).unwrap());
     /// let problem = Problem::from_labels(
@@ -340,10 +340,10 @@ impl<T: Scalar> BinaryPlan<T> {
     /// # Examples
     ///
     /// ```
-    /// use cpueinsum::tprims_contract::api::{
+    /// use cpueinsum::tcontract::api::{
     ///     CSpec, DType, Labels, LayoutSpec, OperandSpec, Problem,
     /// };
-    /// use cpueinsum::tprims_contract::{PlanConfig, SliceAccumulationSource};
+    /// use cpueinsum::tcontract::{PlanConfig, SliceAccumulationSource};
     /// use cpueinsum::{BinaryPlan, Exec};
     /// // A scalar contraction d = sum_k a[k] * b[k] with a separate C.
     /// let v = || OperandSpec::new(LayoutSpec::new(&[1], &[1], 0).unwrap());
@@ -404,10 +404,10 @@ impl<T: Scalar> BinaryPlan<T> {
     ///
     /// ```
     /// use core::mem::MaybeUninit;
-    /// use cpueinsum::tprims_contract::api::{
+    /// use cpueinsum::tcontract::api::{
     ///     CSpec, DType, Labels, LayoutSpec, OperandSpec, Problem,
     /// };
-    /// use cpueinsum::tprims_contract::{PlanConfig, SliceAccumulationSource};
+    /// use cpueinsum::tcontract::{PlanConfig, SliceAccumulationSource};
     /// use cpueinsum::{BinaryPlan, Exec};
     /// let l = |d: &[usize], s: &[isize]| OperandSpec::new(LayoutSpec::new(d, s, 0).unwrap());
     /// let problem = Problem::from_labels(

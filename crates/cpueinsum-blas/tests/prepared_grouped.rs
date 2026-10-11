@@ -4,8 +4,8 @@ extern crate blas_src as _;
 mod common;
 
 use common::{close, naive, Elem, Operand};
-use cpueinsum::tprims_contract::api::Op;
-use cpueinsum::tprims_contract::PlanConfig;
+use cpueinsum::tcontract::api::Op;
+use cpueinsum::tcontract::PlanConfig;
 use cpueinsum::{Exec, GroupedGemmJob};
 use cpueinsum_blas::{BlasError, BlasScalar, GroupedPlan, GroupedRoute};
 use rand::SeedableRng;

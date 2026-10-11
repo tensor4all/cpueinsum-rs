@@ -2,13 +2,13 @@
 //!
 //! The index groups M (A, D), N (B, D) and K (A, B) are each put in one order
 //! and fused per operand as tenferro's CPU `dot_general` does (via
-//! tprims-contract's faer strategy, which ported it): an operand whose groups
+//! tcontract's faer strategy, which ported it): an operand whose groups
 //! fuse and whose fused matrix has a unit stride on one axis with a valid
 //! leading dimension is handed to BLAS in place. Any other operand is packed
 //! into column-major work space first (and the output copied back after).
 //! Batch axes are looped over, never fused.
 
-use cpueinsum::tprims_contract::api::{is_injective_layout, OperandId, Problem, RoleAxis};
+use cpueinsum::tcontract::api::{is_injective_layout, OperandId, Problem, RoleAxis};
 
 use crate::ffi::{BlasScalar, Gemm, Trans};
 
@@ -295,7 +295,7 @@ pub(crate) fn plan<T: BlasScalar>(p: &Problem) -> Option<BlasStep> {
 
 /// Plan geometry for the prepared adapter, which may carry an output C term.
 pub(crate) fn plan_prepared<T: BlasScalar>(p: &Problem) -> Option<BlasStep> {
-    use cpueinsum::tprims_contract::api::CSpec;
+    use cpueinsum::tcontract::api::CSpec;
     match p.c_spec() {
         CSpec::Absent => {}
         CSpec::Output(op) if !T::COMPLEX || op.is_conj() == p.d().op().is_conj() => {}
@@ -310,7 +310,7 @@ fn plan_impl<T: BlasScalar>(p: &Problem, allow_output_c: bool) -> Option<BlasSte
     if p.k_empty() || p.out_empty() || p.all_batch() || !p.c_matches_d() {
         return None;
     }
-    if !allow_output_c && !matches!(p.c_spec(), cpueinsum::tprims_contract::api::CSpec::Absent) {
+    if !allow_output_c && !matches!(p.c_spec(), cpueinsum::tcontract::api::CSpec::Absent) {
         return None;
     }
     // A reduction over an axis one input lacks is not a matrix product.

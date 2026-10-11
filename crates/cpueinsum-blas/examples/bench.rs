@@ -1,25 +1,25 @@
-//! tprims-contract against the CBLAS backend, at 1 and 4 threads.
+//! tcontract against the CBLAS backend, at 1 and 4 threads.
 //!
 //! ```text
 //! cargo run --release -p cpueinsum-blas --example bench [-- --threads 1,4 --case mps --sample-ms 20 --samples 11]
 //! ```
 //!
-//! Cases: the tprims-rs#61 corpus (MPS chains, batched and plain products)
+//! Cases: the tcontract-rs#61 corpus (MPS chains, batched and plain products)
 //! and larger ones where threads matter. Arms, per thread count:
 //!
 //! | arm | backend | timed |
 //! | --- | --- | --- |
-//! | `tprims_exec` | [`Tprims`] | `execute_into` of a prebuilt plan with kept scratch |
+//! | `tcontract_exec` | [`Tcontract`] | `execute_into` of a prebuilt plan with kept scratch |
 //! | `blas_exec` | [`Blas::default`] | the same |
-//! | `tprims_call` | [`Tprims`] | spec, plan, scratch and output built per call |
+//! | `tcontract_call` | [`Tcontract`] | spec, plan, scratch and output built per call |
 //! | `blas_call` | [`Blas::default`] | the same |
 //!
-//! tprims-contract runs on a Rayon pool of the thread count (serial at one
+//! tcontract runs on a Rayon pool of the thread count (serial at one
 //! thread); so do the steps the BLAS backend declines. BLAS reads its thread
 //! count when the library initialises, so each thread count runs in a child
 //! process with `VECLIB_MAXIMUM_THREADS` (Accelerate) and
 //! `OPENBLAS_NUM_THREADS` set. Every output is checked against the
-//! one-thread tprims result. Prints CSV, then a table of `exec` medians.
+//! one-thread tcontract result. Prints CSV, then a table of `exec` medians.
 
 extern crate blas_src;
 
@@ -28,7 +28,7 @@ use std::process::Command;
 use std::time::{Duration, Instant};
 
 use cpueinsum::strided_view::{StridedView, StridedViewMut};
-use cpueinsum::{EinsumPlan, EinsumSpec, Exec, Layout, Pool, Scratch, StepBackend, Tprims};
+use cpueinsum::{EinsumPlan, EinsumSpec, Exec, Layout, Pool, Scratch, StepBackend, Tcontract};
 use cpueinsum_blas::{Blas, BlasScalar};
 use num_complex::Complex64;
 use rand::{Rng, SeedableRng};
@@ -365,19 +365,19 @@ fn rel_err<T: Elem>(got: &[T], want: &[T]) -> f64 {
 
 fn run_case<T: Elem>(c: &Case, threads: usize, exec: &Exec<'_>, o: &Opts) {
     let d = Data::<T>::new(c);
-    let (_, _, reference) = arm(c, &d, &Exec::serial(), Tprims, false, &o_once());
+    let (_, _, reference) = arm(c, &d, &Exec::serial(), Tcontract, false, &o_once());
     let steps = c.path.len();
     let arms: [(&str, bool, bool); 4] = [
-        ("tprims_exec", false, false),
+        ("tcontract_exec", false, false),
         ("blas_exec", true, false),
-        ("tprims_call", false, true),
+        ("tcontract_call", false, true),
         ("blas_call", true, true),
     ];
     for (name, blas, per_call) in arms {
         let (ns, taken, out) = if blas {
             arm(c, &d, exec, Blas::default(), per_call, o)
         } else {
-            arm(c, &d, exec, Tprims, per_call, o)
+            arm(c, &d, exec, Tcontract, per_call, o)
         };
         let err = rel_err(&out, &reference);
         assert!(err < 1e-10, "{} {name} {threads}T: rel err {err:e}", c.name);
@@ -445,7 +445,7 @@ fn summary(csv: &str, threads: &[usize]) {
     for t in threads {
         print!(
             " {:>10} {:>10}",
-            format!("tprims {t}T"),
+            format!("tcontract {t}T"),
             format!("blas {t}T")
         );
     }
@@ -454,7 +454,7 @@ fn summary(csv: &str, threads: &[usize]) {
         print!("{case:<24}");
         let mut taken = "";
         for &t in threads {
-            for a in ["tprims_exec", "blas_exec"] {
+            for a in ["tcontract_exec", "blas_exec"] {
                 match get(case, t, a) {
                     Some((ns, k)) => {
                         print!(" {:>10.2}", ns / 1e3);

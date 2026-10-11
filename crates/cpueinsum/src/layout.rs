@@ -74,11 +74,11 @@ impl<'a> Layout<'a> {
         self.strides
     }
 
-    pub(crate) fn spec(&self) -> tprims_contract::api::OperandSpec {
+    pub(crate) fn spec(&self) -> tcontract::api::OperandSpec {
         // INVARIANT: `new` and the view constructors guarantee equal lengths,
         // the only failure of `LayoutSpec::new`.
-        let l = tprims_contract::api::LayoutSpec::new(self.dims, self.strides, 0)
+        let l = tcontract::api::LayoutSpec::new(self.dims, self.strides, 0)
             .expect("layout lengths agree by construction");
-        tprims_contract::api::OperandSpec::new(l)
+        tcontract::api::OperandSpec::new(l)
     }
 }

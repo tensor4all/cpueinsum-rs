@@ -5,16 +5,16 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
-# tprims-contract is not on crates.io yet (tprims-rs#62).
+# tcontract is not on crates.io yet (tcontract-rs#62).
 publish = false
-description = "CPU einsum over tprims-contract: integer labels, caller-supplied contraction order, BLAS through a separate backend crate"
+description = "CPU einsum over tcontract: integer labels, caller-supplied contraction order, BLAS through a separate backend crate"
 
 [dependencies]
 num-complex = { workspace = true }
 strided-view = { workspace = true }
 thiserror = { workspace = true }
-tprims-contract = { workspace = true }
-tprims-exec = { workspace = true }
+tcontract = { workspace = true }
+tcontract-exec = { workspace = true }
 
 [dev-dependencies]
 rand = { workspace = true }

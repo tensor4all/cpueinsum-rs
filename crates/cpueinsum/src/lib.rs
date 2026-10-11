@@ -1,17 +1,17 @@
 //! CPU einsum over integer labels with a caller-supplied contraction order.
 //!
-//! cpueinsum sits above [tprims-contract]: each binary step of an einsum is one
-//! tprims-contract plan (packed TBLIS-style driver, faer on a copy-free GEMM
+//! cpueinsum sits above [tcontract]: each binary step of an einsum is one
+//! tcontract plan (packed TBLIS-style driver, faer on a copy-free GEMM
 //! fusion, or an elementwise pass), and cpueinsum adds what an N-ary einsum
 //! needs on top: the step order, the labels each intermediate keeps, and one
 //! reusable scratch buffer for all intermediates.
 //!
 //! Deliberately out of scope: contraction-order search (the caller passes the
 //! order), string notation (labels are `i64`), and GPUs. BLAS is not linked
-//! here: a [`StepBackend`] can take steps over from tprims-contract, and the
+//! here: a [`StepBackend`] can take steps over from tcontract, and the
 //! separate `cpueinsum-blas` crate is one that calls CBLAS.
 //!
-//! [tprims-contract]: https://github.com/tensor4all/tprims-rs
+//! [tcontract]: https://github.com/tensor4all/tcontract-rs
 //!
 //! # Examples
 //!
@@ -47,7 +47,7 @@ mod prepared;
 mod scalar;
 mod spec;
 
-pub use backend::{BackendError, StepBackend, Tprims};
+pub use backend::{BackendError, StepBackend, Tcontract};
 pub use binary::contract_into;
 pub use error::{Error, Result, ShapeError, SpecError};
 pub use grouped::{GroupedError, GroupedGemmJob, GroupedOperand, GroupedPlan, GroupedRoute};
@@ -56,8 +56,8 @@ pub use plan::{einsum_into, EinsumPlan, Scratch};
 pub use prepared::BinaryPlan;
 pub use scalar::Scalar;
 pub use spec::EinsumSpec;
-pub use tprims_contract::{ExecutionRoute, OutputContract, SliceAccumulationSource};
-pub use tprims_exec::{ArenaProvider, Exec, Pool, WorkspaceProvider};
+pub use tcontract::{ExecutionRoute, OutputContract, SliceAccumulationSource};
+pub use tcontract_exec::{ArenaProvider, Exec, Pool, WorkspaceProvider};
 
 pub use strided_view;
-pub use tprims_contract;
+pub use tcontract;

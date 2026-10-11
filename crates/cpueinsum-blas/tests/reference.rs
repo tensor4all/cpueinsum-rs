@@ -7,7 +7,7 @@ mod common;
 
 use common::{close, naive, Elem, Operand};
 use cpueinsum::strided_view::{StridedView, StridedViewMut};
-use cpueinsum::tprims_contract::api::{CSpec, DType, Labels, LayoutSpec, OperandSpec, Problem};
+use cpueinsum::tcontract::api::{CSpec, DType, Labels, LayoutSpec, OperandSpec, Problem};
 use cpueinsum::{EinsumPlan, EinsumSpec, Exec, Scratch, StepBackend};
 use cpueinsum_blas::{Blas, BlasScalar};
 use num_complex::{Complex32, Complex64};
@@ -187,7 +187,7 @@ fn products_complex32() {
 fn chains_mix_backends() {
     let mut rng = ChaCha8Rng::seed_from_u64(5);
     // MPS-like chain; a Hadamard step and an isolated reduction stay on
-    // tprims-contract.
+    // tcontract.
     let inputs: &[&[i64]] = &[&[0, 1, 2], &[2, 3, 4], &[4, 5, 6], &[6, 7, 8]];
     let ext = |l: i64| if l % 2 == 0 { 6 } else { 2 };
     let path = [[0, 1], [4, 2], [5, 3]];

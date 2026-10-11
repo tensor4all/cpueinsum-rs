@@ -3,7 +3,7 @@
 //! [`Blas`] takes the binary steps of an [`EinsumPlan`](cpueinsum::EinsumPlan)
 //! that are matrix products large enough to pay for a BLAS call, and leaves
 //! the others (small steps, isolated reductions, Hadamard products) to
-//! tprims-contract. A step it takes runs as one column-major GEMM per batch
+//! tcontract. A step it takes runs as one column-major GEMM per batch
 //! item: in place when the operands' index groups fuse to matrices BLAS can
 //! read, else after packing the operands that do not into work space (and
 //! copying the output back) with strided-rs.
@@ -47,7 +47,7 @@ mod grouped;
 mod layout;
 mod prepared;
 
-use cpueinsum::tprims_contract::api::{OperandId, Problem};
+use cpueinsum::tcontract::api::{OperandId, Problem};
 use cpueinsum::{BackendError, Exec, StepBackend};
 use strided_view::{StridedView, StridedViewMut};
 
@@ -61,12 +61,12 @@ use layout::{Pack, Side};
 /// Multiply-accumulates of one GEMM below which [`Blas::default`] declines a
 /// step, however large its batch.
 ///
-/// The BLAS path is for large matrices; tprims-contract keeps everything
+/// The BLAS path is for large matrices; tcontract keeps everything
 /// else. Each BLAS call costs a fixed overhead, a batch is a loop of calls,
-/// and tprims-contract runs a batch in parallel. Set on an M5 Max with
+/// and tcontract runs a batch in parallel. Set on an M5 Max with
 /// Accelerate (`docs/worklogs/2026-10-05-cpueinsum-blas.md`): from 32^3
 /// (2^15) BLAS wins or ties at 1 and 4 threads, while 256 items of 16^3
-/// (2^12) run 2.2 times faster on tprims-contract at 4 threads.
+/// (2^12) run 2.2 times faster on tcontract at 4 threads.
 pub const DEFAULT_MIN_MACS: u64 = 1 << 15;
 
 /// The CBLAS step backend.

@@ -2,8 +2,8 @@ mod common;
 
 use common::{close, naive, Elem, Operand};
 use core::mem::MaybeUninit;
-use cpueinsum::tprims_contract::api::{CSpec, Labels, LayoutSpec, Op, OperandSpec, Problem};
-use cpueinsum::tprims_contract::{PlanConfig, SliceAccumulationSource};
+use cpueinsum::tcontract::api::{CSpec, Labels, LayoutSpec, Op, OperandSpec, Problem};
+use cpueinsum::tcontract::{PlanConfig, SliceAccumulationSource};
 use cpueinsum::{BinaryPlan, Exec};
 use num_complex::{Complex32, Complex64};
 use rand::SeedableRng;
@@ -156,7 +156,7 @@ fn zero_scale_nan_and_empty_k_do_not_read_unused_values() {
     };
     for k in [0, 2] {
         let p = Problem::from_labels(
-            cpueinsum::tprims_contract::api::DType::F64,
+            cpueinsum::tcontract::api::DType::F64,
             spec(&[2, k], &[1, 2]),
             spec(&[k, 2], &[1, k.max(1) as isize]),
             CSpec::Separate(spec(&[2, 2], &[1, 2])),
@@ -193,7 +193,7 @@ fn parallel_elementwise_fresh_output_with_broadcast_and_reversal() {
         OperandSpec::new(LayoutSpec::new(&dims, strides, offset).unwrap()).with_op(op)
     };
     let p = Problem::from_labels(
-        cpueinsum::tprims_contract::api::DType::C64,
+        cpueinsum::tcontract::api::DType::C64,
         spec(&[1, rows as isize], 0, Op::Conjugate),
         spec(&[0, 0], 0, Op::Conjugate),
         CSpec::Separate(spec(&[0, 0], 0, Op::Conjugate)),

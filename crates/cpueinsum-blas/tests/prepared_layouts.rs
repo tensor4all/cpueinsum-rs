@@ -4,8 +4,8 @@ extern crate blas_src as _;
 mod common;
 
 use common::{close, naive, Operand};
-use cpueinsum::tprims_contract::api::{CSpec, DType, Labels, LayoutSpec, Op, OperandSpec, Problem};
-use cpueinsum::tprims_contract::{PlanConfig, SliceAccumulationSource};
+use cpueinsum::tcontract::api::{CSpec, DType, Labels, LayoutSpec, Op, OperandSpec, Problem};
+use cpueinsum::tcontract::{PlanConfig, SliceAccumulationSource};
 use cpueinsum::Exec;
 use cpueinsum_blas::{BinaryPlan, ExecutionRoute};
 use std::mem::MaybeUninit;

@@ -7,13 +7,13 @@ use core::mem::MaybeUninit;
 
 use common::{close, naive, Operand};
 use cpueinsum::strided_view::{StridedView, StridedViewMut};
-use cpueinsum::tprims_contract::api::{
+use cpueinsum::tcontract::api::{
     AccumulationSource, CSpec, DType, Labels, LayoutSpec, Op, OperandSpec, Problem,
 };
-use cpueinsum::tprims_contract::{PlanConfig, SliceAccumulationSource};
+use cpueinsum::tcontract::{PlanConfig, SliceAccumulationSource};
 use cpueinsum::{BinaryPlan, Error, Exec};
 use num_complex::Complex64;
-use tprims_exec::ArenaProvider;
+use tcontract_exec::ArenaProvider;
 
 /// A layout spec with an explicit element offset.
 fn spec(dims: &[usize], strides: &[isize], offset: isize) -> OperandSpec {
@@ -278,7 +278,7 @@ fn negative_strides_and_origin() {
 fn empty_operand_with_unreachable_strides_plans() {
     // An empty operand may legitimately carry an unreachable-magnitude stride on
     // its empty axis (a view over an empty slice). Planning it used to overflow
-    // the lower library's scatter odometer (tprims-rs#74); the empty contraction
+    // the lower library's scatter odometer (tcontract-rs#74); the empty contraction
     // must instead execute and write zeros.
     let a_empty: [f64; 0] = [];
     let b_empty: [f64; 0] = [];

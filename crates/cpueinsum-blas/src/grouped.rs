@@ -1,7 +1,7 @@
 //! Whole-group preparation and preflight; vendor jobs run on the coordinator.
 
-use cpueinsum::tprims_contract::api::{CSpec, Labels, LayoutSpec, Op, OperandSpec, Problem};
-use cpueinsum::tprims_contract::{PlanConfig, SliceAccumulationSource};
+use cpueinsum::tcontract::api::{CSpec, Labels, LayoutSpec, Op, OperandSpec, Problem};
+use cpueinsum::tcontract::{PlanConfig, SliceAccumulationSource};
 use cpueinsum::{Exec, GroupedGemmJob};
 
 use crate::prepared::VendorPlan;
@@ -40,7 +40,7 @@ struct VendorJob {
 ///
 /// ```
 /// # extern crate blas_src as _;
-/// use cpueinsum::{Exec, GroupedGemmJob, tprims_contract::PlanConfig};
+/// use cpueinsum::{Exec, GroupedGemmJob, tcontract::PlanConfig};
 /// use cpueinsum_blas::{GroupedPlan, GroupedRoute};
 /// let jobs = [GroupedGemmJob::new(0, 0, 0, 2, 2, 2)];
 /// let plan = GroupedPlan::<f64>::new(&jobs, &PlanConfig::default())?;
