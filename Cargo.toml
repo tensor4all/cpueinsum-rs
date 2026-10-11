@@ -13,10 +13,10 @@ repository = "https://github.com/tensor4all/cpueinsum-rs"
 # tprims #73 adds a persistent wrapper for the host's selected shared Rayon pool
 # atop #71/#72's caller-owned resources and safe prepared output boundary.
 # Use published strided v0.4.6, retaining #290's safety fixes; keep tprims pins coherent.
-tprims-contract = { git = "https://github.com/tensor4all/tprims-rs.git", rev = "bd5b7c9153c771f6e24d2246eefb17fbdc5f1dad" }
-tprims-exec = { git = "https://github.com/tensor4all/tprims-rs.git", rev = "bd5b7c9153c771f6e24d2246eefb17fbdc5f1dad" }
-strided-view = { git = "https://github.com/tensor4all/strided-rs.git", rev = "6d106e9d565984bdf5592bd6ffe991d3e5345383", version = "=0.4.6" }
-strided-perm = { git = "https://github.com/tensor4all/strided-rs.git", rev = "6d106e9d565984bdf5592bd6ffe991d3e5345383", version = "=0.4.6" }
+tprims-contract = { git = "https://github.com/tensor4all/tprims-rs.git", rev = "4bbc9109c5dbd9d570686bf0e3306cf9ab5f86ee" }
+tprims-exec = { git = "https://github.com/tensor4all/tprims-rs.git", rev = "4bbc9109c5dbd9d570686bf0e3306cf9ab5f86ee" }
+strided-view = { git = "https://github.com/tensor4all/strided-rs.git", rev = "9fa651152d0b891b8f2f65a8f786a3058b3ed2e9", version = "=0.4.7" }
+strided-perm = { git = "https://github.com/tensor4all/strided-rs.git", rev = "9fa651152d0b891b8f2f65a8f786a3058b3ed2e9", version = "=0.4.7" }
 cpueinsum = { path = "crates/cpueinsum" }
 # CBLAS declarations only; a provider is linked by the final binary
 # (blas-src, or any crate that links a CBLAS library).
