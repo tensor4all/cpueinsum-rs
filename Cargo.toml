@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/cpueinsum", "crates/cpueinsum-blas"]
+members = ["crates/cpueinsum", "crates/cpueinsum-blas", "crates/cpueinsum-capi"]
 
 [workspace.package]
 edition = "2021"
@@ -15,11 +15,14 @@ repository = "https://github.com/tensor4all/cpueinsum-rs"
 # tprims-to-tcontract rename landed in tcontract-rs#108).
 # strided 0.5.0 and tcontract 0.2.0: the view metadata change reaches this
 # crate's public API, so the pins move together.
-tcontract = { git = "https://github.com/tensor4all/tcontract-rs.git", rev = "26ed2a2a8c5eb9986b063dd2c91d43a88ddc208e", version = "=0.2.0" }
-tcontract-exec = { git = "https://github.com/tensor4all/tcontract-rs.git", rev = "26ed2a2a8c5eb9986b063dd2c91d43a88ddc208e", version = "=0.2.0" }
+tcontract = { git = "https://github.com/tensor4all/tcontract-rs.git", rev = "ba57736b16ae7f5e5985f3893a58565b98829bf0", version = "=0.2.0" }
+tcontract-exec = { git = "https://github.com/tensor4all/tcontract-rs.git", rev = "ba57736b16ae7f5e5985f3893a58565b98829bf0", version = "=0.2.0" }
 strided-view = { git = "https://github.com/tensor4all/strided-rs.git", rev = "49dd63aac7af12a9a3e7de90cffb0337f26025c8", version = "=0.5.0" }
 strided-perm = { git = "https://github.com/tensor4all/strided-rs.git", rev = "49dd63aac7af12a9a3e7de90cffb0337f26025c8", version = "=0.5.0" }
 cpueinsum = { version = "=0.2.0", path = "crates/cpueinsum" }
+# publish = false, so this is a git-only dependency, at the same revision as the
+# tcontract pins above (the executor handle types must be one source).
+tcontract-capi = { git = "https://github.com/tensor4all/tcontract-rs.git", rev = "ba57736b16ae7f5e5985f3893a58565b98829bf0" }
 # CBLAS declarations only; a provider is linked by the final binary
 # (blas-src, or any crate that links a CBLAS library).
 cblas-sys = "0.1"

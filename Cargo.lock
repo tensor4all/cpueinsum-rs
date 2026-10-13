@@ -156,6 +156,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "cpueinsum-capi"
+version = "0.2.0"
+dependencies = [
+ "cpueinsum",
+ "num-complex",
+ "strided-view",
+ "tcontract-capi",
+]
+
+[[package]]
 name = "crc32fast"
 version = "1.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1285,7 +1295,7 @@ dependencies = [
 [[package]]
 name = "tcontract"
 version = "0.2.0"
-source = "git+https://github.com/tensor4all/tcontract-rs.git?rev=26ed2a2a8c5eb9986b063dd2c91d43a88ddc208e#26ed2a2a8c5eb9986b063dd2c91d43a88ddc208e"
+source = "git+https://github.com/tensor4all/tcontract-rs.git?rev=ba57736b16ae7f5e5985f3893a58565b98829bf0#ba57736b16ae7f5e5985f3893a58565b98829bf0"
 dependencies = [
  "faer",
  "num-complex",
@@ -1297,9 +1307,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "tcontract-capi"
+version = "0.1.0"
+source = "git+https://github.com/tensor4all/tcontract-rs.git?rev=ba57736b16ae7f5e5985f3893a58565b98829bf0#ba57736b16ae7f5e5985f3893a58565b98829bf0"
+dependencies = [
+ "num-complex",
+ "rayon",
+ "strided-view",
+ "tcontract",
+ "tcontract-exec",
+]
+
+[[package]]
 name = "tcontract-exec"
 version = "0.2.0"
-source = "git+https://github.com/tensor4all/tcontract-rs.git?rev=26ed2a2a8c5eb9986b063dd2c91d43a88ddc208e#26ed2a2a8c5eb9986b063dd2c91d43a88ddc208e"
+source = "git+https://github.com/tensor4all/tcontract-rs.git?rev=ba57736b16ae7f5e5985f3893a58565b98829bf0#ba57736b16ae7f5e5985f3893a58565b98829bf0"
 dependencies = [
  "rayon",
  "strided-basic",
@@ -1309,7 +1331,7 @@ dependencies = [
 [[package]]
 name = "tcontract-kernel"
 version = "0.2.0"
-source = "git+https://github.com/tensor4all/tcontract-rs.git?rev=26ed2a2a8c5eb9986b063dd2c91d43a88ddc208e#26ed2a2a8c5eb9986b063dd2c91d43a88ddc208e"
+source = "git+https://github.com/tensor4all/tcontract-rs.git?rev=ba57736b16ae7f5e5985f3893a58565b98829bf0#ba57736b16ae7f5e5985f3893a58565b98829bf0"
 dependencies = [
  "num-complex",
 ]

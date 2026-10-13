@@ -1,0 +1,29 @@
+[package]
+name = "cpueinsum-capi"
+description = "libcpueinsum_capi: the C ABI over cpueinsum (plans built from labels, caller-owned operand buffers)"
+version = "0.2.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+# The Rust crate is the product here; the C surface is an extension of it and is
+# published with the workspace, so this stays private like tcontract-capi.
+publish = false
+
+[lib]
+# `cpueinsum_capi` (not `cpueinsum`) so a consumer can link both.
+name = "cpueinsum_capi"
+crate-type = ["cdylib", "staticlib", "rlib"]
+
+[dependencies]
+cpueinsum = { workspace = true }
+# The TAPP executor handle this ABI accepts, resolved to its pool.
+tcontract-capi = { workspace = true }
+num-complex = { workspace = true }
+strided-view = { workspace = true }
+
+[dev-dependencies]
+num-complex = { workspace = true }
+
+[lints]
+workspace = true
