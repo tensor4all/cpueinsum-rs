@@ -1177,8 +1177,8 @@ dependencies = [
 
 [[package]]
 name = "strided-basic"
-version = "0.4.8"
-source = "git+https://github.com/tensor4all/strided-rs.git?rev=4373ba0bcb4bdc02f4c03a8a2d4896b84a47dd7c#4373ba0bcb4bdc02f4c03a8a2d4896b84a47dd7c"
+version = "0.5.0"
+source = "git+https://github.com/tensor4all/strided-rs.git?rev=49dd63aac7af12a9a3e7de90cffb0337f26025c8#49dd63aac7af12a9a3e7de90cffb0337f26025c8"
 dependencies = [
  "num-complex",
  "num-traits",
@@ -1190,8 +1190,8 @@ dependencies = [
 
 [[package]]
 name = "strided-perm"
-version = "0.4.8"
-source = "git+https://github.com/tensor4all/strided-rs.git?rev=4373ba0bcb4bdc02f4c03a8a2d4896b84a47dd7c#4373ba0bcb4bdc02f4c03a8a2d4896b84a47dd7c"
+version = "0.5.0"
+source = "git+https://github.com/tensor4all/strided-rs.git?rev=49dd63aac7af12a9a3e7de90cffb0337f26025c8#49dd63aac7af12a9a3e7de90cffb0337f26025c8"
 dependencies = [
  "rayon",
  "strided-view",
@@ -1200,8 +1200,8 @@ dependencies = [
 
 [[package]]
 name = "strided-traits"
-version = "0.4.8"
-source = "git+https://github.com/tensor4all/strided-rs.git?rev=4373ba0bcb4bdc02f4c03a8a2d4896b84a47dd7c#4373ba0bcb4bdc02f4c03a8a2d4896b84a47dd7c"
+version = "0.5.0"
+source = "git+https://github.com/tensor4all/strided-rs.git?rev=49dd63aac7af12a9a3e7de90cffb0337f26025c8#49dd63aac7af12a9a3e7de90cffb0337f26025c8"
 dependencies = [
  "num-complex",
  "num-traits",
@@ -1209,8 +1209,8 @@ dependencies = [
 
 [[package]]
 name = "strided-view"
-version = "0.4.8"
-source = "git+https://github.com/tensor4all/strided-rs.git?rev=4373ba0bcb4bdc02f4c03a8a2d4896b84a47dd7c#4373ba0bcb4bdc02f4c03a8a2d4896b84a47dd7c"
+version = "0.5.0"
+source = "git+https://github.com/tensor4all/strided-rs.git?rev=49dd63aac7af12a9a3e7de90cffb0337f26025c8#49dd63aac7af12a9a3e7de90cffb0337f26025c8"
 dependencies = [
  "num-complex",
  "num-traits",
@@ -1285,7 +1285,7 @@ dependencies = [
 [[package]]
 name = "tcontract"
 version = "0.1.0"
-source = "git+https://github.com/tensor4all/tcontract-rs.git?rev=8abfa38aa1de3bd0f55d65751afa8ce6c0a4e590#8abfa38aa1de3bd0f55d65751afa8ce6c0a4e590"
+source = "git+https://github.com/tensor4all/tcontract-rs.git?rev=c2252629a8f99d3bc7bc5dd43b298b53e6003ede#c2252629a8f99d3bc7bc5dd43b298b53e6003ede"
 dependencies = [
  "faer",
  "num-complex",
@@ -1299,7 +1299,7 @@ dependencies = [
 [[package]]
 name = "tcontract-exec"
 version = "0.1.0"
-source = "git+https://github.com/tensor4all/tcontract-rs.git?rev=8abfa38aa1de3bd0f55d65751afa8ce6c0a4e590#8abfa38aa1de3bd0f55d65751afa8ce6c0a4e590"
+source = "git+https://github.com/tensor4all/tcontract-rs.git?rev=c2252629a8f99d3bc7bc5dd43b298b53e6003ede#c2252629a8f99d3bc7bc5dd43b298b53e6003ede"
 dependencies = [
  "rayon",
  "strided-basic",
@@ -1309,7 +1309,7 @@ dependencies = [
 [[package]]
 name = "tcontract-kernel"
 version = "0.1.0"
-source = "git+https://github.com/tensor4all/tcontract-rs.git?rev=8abfa38aa1de3bd0f55d65751afa8ce6c0a4e590#8abfa38aa1de3bd0f55d65751afa8ce6c0a4e590"
+source = "git+https://github.com/tensor4all/tcontract-rs.git?rev=c2252629a8f99d3bc7bc5dd43b298b53e6003ede#c2252629a8f99d3bc7bc5dd43b298b53e6003ede"
 dependencies = [
  "num-complex",
 ]
