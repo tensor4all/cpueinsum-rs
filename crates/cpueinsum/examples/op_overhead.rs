@@ -1,6 +1,13 @@
 //! What the view wrapper costs a host per call: the same warm binary plan
 //! executed through `StridedView`s built per call, against `execute_slices`.
 //!
+//! It also reports what the three views alone cost, which is the whole of the
+//! difference. Configuration is explicit 1T (no pool, no BLAS provider,
+//! `Exec::budget()` is 1) and the timed boundary is one call on an already
+//! prepared plan with preallocated operands; see
+//! `docs/worklogs/2026-10-12-strided-0.5.0-view-cost.md` for the recorded
+//! numbers.
+//!
 //! ```text
 //! taskset -c 2 cargo run --release -p cpueinsum --example op_overhead
 //! ```
@@ -58,8 +65,14 @@ fn main() {
 
         let t = Instant::now();
         for _ in 0..N {
-            plan.execute_slices(&exec, 1.0, (black_box(&a), 0), (black_box(&b), 0), (black_box(&mut c), 0))
-                .unwrap();
+            plan.execute_slices(
+                &exec,
+                1.0,
+                (black_box(&a), 0),
+                (black_box(&b), 0),
+                (black_box(&mut c), 0),
+            )
+            .unwrap();
             black_box(&c);
         }
         let slices = ns(t);
