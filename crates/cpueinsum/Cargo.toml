@@ -5,8 +5,7 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
-# tcontract is not on crates.io yet (tcontract-rs#62).
-publish = false
+publish = true
 description = "CPU einsum over tcontract: integer labels, caller-supplied contraction order, BLAS through a separate backend crate"
 
 [dependencies]
