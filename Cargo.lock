@@ -126,7 +126,7 @@ checksum = "4e7648175b45a9a48536d676f68d918270699102aa8dab5496df06904c914600"
 
 [[package]]
 name = "cpueinsum"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "num-complex",
  "rand",
@@ -140,7 +140,7 @@ dependencies = [
 
 [[package]]
 name = "cpueinsum-blas"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "blas-src",
  "cblas-sys",
@@ -1284,8 +1284,8 @@ dependencies = [
 
 [[package]]
 name = "tcontract"
-version = "0.1.0"
-source = "git+https://github.com/tensor4all/tcontract-rs.git?rev=c2252629a8f99d3bc7bc5dd43b298b53e6003ede#c2252629a8f99d3bc7bc5dd43b298b53e6003ede"
+version = "0.2.0"
+source = "git+https://github.com/tensor4all/tcontract-rs.git?rev=26ed2a2a8c5eb9986b063dd2c91d43a88ddc208e#26ed2a2a8c5eb9986b063dd2c91d43a88ddc208e"
 dependencies = [
  "faer",
  "num-complex",
@@ -1298,8 +1298,8 @@ dependencies = [
 
 [[package]]
 name = "tcontract-exec"
-version = "0.1.0"
-source = "git+https://github.com/tensor4all/tcontract-rs.git?rev=c2252629a8f99d3bc7bc5dd43b298b53e6003ede#c2252629a8f99d3bc7bc5dd43b298b53e6003ede"
+version = "0.2.0"
+source = "git+https://github.com/tensor4all/tcontract-rs.git?rev=26ed2a2a8c5eb9986b063dd2c91d43a88ddc208e#26ed2a2a8c5eb9986b063dd2c91d43a88ddc208e"
 dependencies = [
  "rayon",
  "strided-basic",
@@ -1308,8 +1308,8 @@ dependencies = [
 
 [[package]]
 name = "tcontract-kernel"
-version = "0.1.0"
-source = "git+https://github.com/tensor4all/tcontract-rs.git?rev=c2252629a8f99d3bc7bc5dd43b298b53e6003ede#c2252629a8f99d3bc7bc5dd43b298b53e6003ede"
+version = "0.2.0"
+source = "git+https://github.com/tensor4all/tcontract-rs.git?rev=26ed2a2a8c5eb9986b063dd2c91d43a88ddc208e#26ed2a2a8c5eb9986b063dd2c91d43a88ddc208e"
 dependencies = [
  "num-complex",
 ]
