@@ -1,12 +1,11 @@
 [package]
 name = "cpueinsum-blas"
-version = "0.1.0"
+version = "0.2.0"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
-# cpueinsum is not on crates.io yet.
-publish = false
+# cpueinsum 0.2.0 is on crates.io, so this crate publishes now.
 description = "A CBLAS step backend for cpueinsum: binary steps on the linked BLAS"
 
 [dependencies]
