@@ -14,10 +14,10 @@ repository = "https://github.com/tensor4all/cpueinsum-rs"
 # atop #71/#72's caller-owned resources and safe prepared output boundary (the
 # tprims-to-tcontract rename landed in tcontract-rs#108).
 # Use published strided v0.4.8, retaining #290's safety fixes; keep tcontract pins coherent.
-tcontract = { git = "https://github.com/tensor4all/tcontract-rs.git", rev = "6aeb2a0a339bae9cc4acb24fabc1f63b763fbfe6" }
-tcontract-exec = { git = "https://github.com/tensor4all/tcontract-rs.git", rev = "6aeb2a0a339bae9cc4acb24fabc1f63b763fbfe6" }
-strided-view = { git = "https://github.com/tensor4all/strided-rs.git", rev = "e6241732e9c445d5be7b97c15dfb142fd14737ea", version = "=0.5.0" }
-strided-perm = { git = "https://github.com/tensor4all/strided-rs.git", rev = "e6241732e9c445d5be7b97c15dfb142fd14737ea", version = "=0.5.0" }
+tcontract = { git = "https://github.com/tensor4all/tcontract-rs.git", rev = "c2252629a8f99d3bc7bc5dd43b298b53e6003ede }
+tcontract-exec = { git = "https://github.com/tensor4all/tcontract-rs.git", rev = "c2252629a8f99d3bc7bc5dd43b298b53e6003ede-exec }
+strided-view = { git = "https://github.com/tensor4all/strided-rs.git", rev = "49dd63aac7af12a9a3e7de90cffb0337f26025c8", version = "=0.5.0" }
+strided-perm = { git = "https://github.com/tensor4all/strided-rs.git", rev = "49dd63aac7af12a9a3e7de90cffb0337f26025c8", version = "=0.5.0" }
 cpueinsum = { path = "crates/cpueinsum" }
 # CBLAS declarations only; a provider is linked by the final binary
 # (blas-src, or any crate that links a CBLAS library).
