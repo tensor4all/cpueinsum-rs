@@ -13,16 +13,16 @@ repository = "https://github.com/tensor4all/cpueinsum-rs"
 # tcontract #73 adds a persistent wrapper for the host's selected shared Rayon pool
 # atop #71/#72's caller-owned resources and safe prepared output boundary (the
 # tprims-to-tcontract rename landed in tcontract-rs#108).
-# strided 0.5.0 and tcontract 0.2.0: the view metadata change reaches this
+# strided 0.5.x and tcontract 0.2.1: the view metadata change reaches this
 # crate's public API, so the pins move together.
-tcontract = { git = "https://github.com/tensor4all/tcontract-rs.git", rev = "ba57736b16ae7f5e5985f3893a58565b98829bf0", version = "=0.2.0" }
-tcontract-exec = { git = "https://github.com/tensor4all/tcontract-rs.git", rev = "ba57736b16ae7f5e5985f3893a58565b98829bf0", version = "=0.2.0" }
-strided-view = { git = "https://github.com/tensor4all/strided-rs.git", rev = "49dd63aac7af12a9a3e7de90cffb0337f26025c8", version = "=0.5.0" }
-strided-perm = { git = "https://github.com/tensor4all/strided-rs.git", rev = "49dd63aac7af12a9a3e7de90cffb0337f26025c8", version = "=0.5.0" }
-cpueinsum = { version = "=0.2.0", path = "crates/cpueinsum" }
+tcontract = { git = "https://github.com/tensor4all/tcontract-rs.git", rev = "eff101a5965b2aeedc326b0c753a1c5907390bb9", version = "=0.2.1" }
+tcontract-exec = { git = "https://github.com/tensor4all/tcontract-rs.git", rev = "eff101a5965b2aeedc326b0c753a1c5907390bb9", version = "=0.2.1" }
+strided-view = { git = "https://github.com/tensor4all/strided-rs.git", rev = "493acacfe4a156cb7455c8c37abcfa70e6bcda47", version = "=0.5.0" }
+strided-perm = { git = "https://github.com/tensor4all/strided-rs.git", rev = "493acacfe4a156cb7455c8c37abcfa70e6bcda47", version = "=0.5.0" }
+cpueinsum = { version = "=0.2.1", path = "crates/cpueinsum" }
 # publish = false, so this is a git-only dependency, at the same revision as the
 # tcontract pins above (the executor handle types must be one source).
-tcontract-capi = { git = "https://github.com/tensor4all/tcontract-rs.git", rev = "ba57736b16ae7f5e5985f3893a58565b98829bf0" }
+tcontract-capi = { git = "https://github.com/tensor4all/tcontract-rs.git", rev = "eff101a5965b2aeedc326b0c753a1c5907390bb9" }
 # CBLAS declarations only; a provider is linked by the final binary
 # (blas-src, or any crate that links a CBLAS library).
 cblas-sys = "0.1"
