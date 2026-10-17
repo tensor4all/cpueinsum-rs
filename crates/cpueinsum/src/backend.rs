@@ -19,7 +19,14 @@ pub type BackendError = Box<dyn std::error::Error + Send + Sync>;
 /// the step, returning the state it needs to run it, or declines it
 /// (`None`), and a declined step is planned and run by tcontract as
 /// without a backend. The backend owns the routing decision, including the
-/// size below which it declines. Execution never declines.
+/// size below which it declines.
+///
+/// The one exception is the caller's [`BatchPolicy`](crate::BatchPolicy), which
+/// is an [`Exec`] property and only known at execution: a step that is a serial
+/// loop of per-item calls ([`vendor_loop`](Self::vendor_loop)) is routed by the
+/// shared [`VendorLoopRoute`](crate::VendorLoopRoute) rule before any write, so a
+/// forced lane strategy runs the tcontract alternative planned beside it and a
+/// forced whole-batch vendor route is refused.
 ///
 /// The plan is generic over the backend, so routing costs one branch per step
 /// and no dynamic call. The default backend, [`Tcontract`], declines every step.
@@ -71,6 +78,26 @@ pub trait StepBackend<T: Scalar>: Debug {
 
     /// Elements of work space the step needs during execution.
     fn work_len(step: &Self::Step) -> usize;
+
+    /// Whether [`execute`](Self::execute) runs the step as a **serial loop of
+    /// per-item calls**: one library call at a time on the calling thread, with
+    /// no outer lanes, no item threads and no whole-batch call.
+    ///
+    /// Such a step cannot honour a forced lane strategy or a forced whole-batch
+    /// vendor route, so the plan resolves the executor's batch policy with
+    /// [`VendorLoopRoute::resolve`](crate::VendorLoopRoute::resolve) before any
+    /// write: a forced lane strategy runs the tcontract alternative prepared
+    /// beside the step, and a forced `WholeBatchVendor` is refused with
+    /// [`Error::Contract`](crate::Error::Contract) carrying tcontract's
+    /// `ExecError::StrategyUnavailable`. The alternative is planned only for a
+    /// step that reports `true`, and it costs no execution-time branch.
+    ///
+    /// The default, `false`, is for a backend whose step resolves the batch
+    /// policy itself (or is not a batch at all) and therefore serves every
+    /// policy.
+    fn vendor_loop(_step: &Self::Step) -> bool {
+        false
+    }
 
     /// Run a step this backend took.
     ///
