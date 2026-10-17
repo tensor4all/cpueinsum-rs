@@ -288,3 +288,59 @@ fn zero_alpha_uses_prepared_native_no_read_route() {
     assert!(matches!(route, ExecutionRoute::Native(_)));
     assert_eq!(out, &[0.0; 4]);
 }
+
+#[test]
+fn prepared_binary_refuses_forced_whole_batch_vendor_before_shortcuts() {
+    use cpueinsum::{BatchPolicy, BatchStrategy};
+    // This route is a per-job GEMM loop, not one vendor batch call. A forced
+    // WholeBatchVendor must be refused through both the initialized and the
+    // fresh entry, before the vendor/native shortcut, and nothing may be
+    // written.
+    let plan = BinaryPlan::<f64>::new(
+        &problem::<f64>([false; 3], CSpec::Absent, &[1, 2]),
+        &PlanConfig::default(),
+    )
+    .unwrap();
+    let thread_pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(2)
+        .build()
+        .unwrap();
+    let pool = cpueinsum::Pool::borrow(&thread_pool);
+    let exec =
+        Exec::rayon(&pool).with_batch_policy(BatchPolicy::new(BatchStrategy::WholeBatchVendor));
+    let a = [1.0; 6];
+    let b = [1.0; 6];
+    for alpha in [1.0, 0.0] {
+        let mut out = [77.0; 4];
+        let mut work = vec![0.0; plan.work_len()];
+        let error = plan
+            .execute_slices_accum(
+                &exec,
+                alpha,
+                (&a, 0),
+                (&b, 0),
+                0.0,
+                SliceAccumulationSource::Absent,
+                (&mut out, 0),
+                &mut work,
+            )
+            .unwrap_err();
+        assert!(matches!(error, BlasError::StrategyUnavailable), "{error:?}");
+        assert_eq!(out, [77.0; 4], "alpha={alpha} wrote output");
+
+        let mut fresh = [MaybeUninit::uninit(); 4];
+        let error = plan
+            .execute_uninit_slices(
+                &exec,
+                alpha,
+                (&a, 0),
+                (&b, 0),
+                0.0,
+                SliceAccumulationSource::Absent,
+                (&mut fresh, 0),
+                &mut work,
+            )
+            .unwrap_err();
+        assert!(matches!(error, BlasError::StrategyUnavailable), "{error:?}");
+    }
+}

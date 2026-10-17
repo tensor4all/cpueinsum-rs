@@ -235,7 +235,11 @@ fn pack_in<T: BlasScalar>(
     let mut w =
         RawStridedMut::<T>::new(&mut work[p.offset..p.offset + p.len], &p.dims, &p.inner, 0)
             .map_err(err)?;
-    p.to_packed.execute(&mut w, &s).map_err(err)
+    p.to_packed
+        .as_ref()
+        .expect("an input pack compiles the operand-to-packed plan")
+        .execute(&mut w, &s)
+        .map_err(err)
 }
 
 fn run<T: BlasScalar>(

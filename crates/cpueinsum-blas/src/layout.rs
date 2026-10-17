@@ -29,8 +29,9 @@ pub(crate) struct Pack {
     pub(crate) outer: Vec<isize>,
     /// Strides in work space (column-major).
     pub(crate) inner: Vec<isize>,
-    /// Operand -> packed work space.
-    pub(crate) to_packed: CopyPlan,
+    /// Operand -> packed work space; only the input packs carry it, because the
+    /// output pack is only ever read back.
+    pub(crate) to_packed: Option<CopyPlan>,
     /// Packed work space -> operand, for the output write-back; only the
     /// output pack carries it, because an input operand need not be injective.
     pub(crate) from_packed: Option<CopyPlan>,
@@ -245,7 +246,12 @@ impl Work {
         }
         let offset = self.len;
         self.len = self.len.checked_add(s)?;
-        let to_packed = CopyPlan::compile(&dims, &inner, &outer).ok()?;
+        let to_packed = if reverse {
+            // The output pack is only read back, never packed forward.
+            None
+        } else {
+            Some(CopyPlan::compile(&dims, &inner, &outer).ok()?)
+        };
         let from_packed = if reverse {
             Some(CopyPlan::compile(&dims, &outer, &inner).ok()?)
         } else {

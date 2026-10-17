@@ -61,10 +61,10 @@ fn operand(dims: &[usize], strides: &[isize]) -> OperandSpec {
 fn problem(b_strides: &[isize]) -> Problem {
     Problem::from_labels(
         DType::F64,
-        operand(&[16, 16], &[1, 16]),
-        operand(&[16, 16], b_strides),
+        operand(&[4, 4], &[1, 4]),
+        operand(&[4, 4], b_strides),
         CSpec::Absent,
-        operand(&[16, 16], &[1, 16]),
+        operand(&[4, 4], &[1, 4]),
         &Labels::new(&[0, 2], &[2, 1], &[0, 1]),
     )
     .unwrap()
@@ -72,13 +72,20 @@ fn problem(b_strides: &[isize]) -> Problem {
 
 #[test]
 fn blas_vendor_steady_state_allocates_no_rust_memory() {
-    let a: Vec<f64> = (0..256).map(|i| (i % 7) as f64).collect();
-    let b: Vec<f64> = (0..256).map(|i| (i % 5) as f64).collect();
+    let a: Vec<f64> = (0..16).map(|i| (i % 7) as f64).collect();
+    // B with strides [2, 5]: no unit stride on either axis, so BLAS can read it
+    // neither in place nor transposed and the plan-time CopyPlan packing path
+    // runs. Its span is 21, hence 22 elements.
+    let packed_b: Vec<f64> = (0..22).map(|i| (i % 5) as f64).collect();
 
-    // G3 contiguous, G4 a packed (row-major) B whose copy-back-free step packs.
-    for (name, b_strides) in [("contiguous", &[1isize, 16][..]), ("packed", &[16, 1][..])] {
+    // G3 contiguous, G4 a genuinely (non-BLAS-readable) packed B.
+    for (name, b_strides, expect_packing) in [
+        ("contiguous", &[1isize, 4][..], false),
+        ("packed", &[2, 5][..], true),
+    ] {
         let plan = BinaryPlan::<f64>::new(&problem(b_strides), &PlanConfig::default()).unwrap();
-        let mut d = vec![0.0; 256];
+        assert_eq!(plan.work_len() > 0, expect_packing, "work_len for {name}");
+        let mut d = vec![0.0; 16];
         let mut work = vec![0.0; plan.work_len()];
         let exec = Exec::serial();
         // Warm the plan's own (exec-independent) state.
@@ -86,7 +93,7 @@ fn blas_vendor_steady_state_allocates_no_rust_memory() {
             &exec,
             1.0,
             (&a, 0),
-            (&b, 0),
+            (&packed_b, 0),
             0.0,
             SliceAccumulationSource::Absent,
             (&mut d, 0),
@@ -98,7 +105,7 @@ fn blas_vendor_steady_state_allocates_no_rust_memory() {
                 &exec,
                 1.0,
                 (&a, 0),
-                (&b, 0),
+                (&packed_b, 0),
                 0.0,
                 SliceAccumulationSource::Absent,
                 (&mut d, 0),
@@ -110,6 +117,8 @@ fn blas_vendor_steady_state_allocates_no_rust_memory() {
     }
 
     // G8: the grouped vendor coordinator loop.
+    let a16: Vec<f64> = (0..256).map(|i| (i % 7) as f64).collect();
+    let b16: Vec<f64> = (0..256).map(|i| (i % 5) as f64).collect();
     let jobs = [
         GroupedGemmJob::new(0, 0, 0, 16, 16, 16),
         GroupedGemmJob::new(0, 0, 256, 16, 16, 16),
@@ -119,12 +128,12 @@ fn blas_vendor_steady_state_allocates_no_rust_memory() {
     let mut work = vec![0.0; plan.work_len()];
     let exec = Exec::serial();
     assert_eq!(
-        plan.execute_into(&exec, 1.0, &a, &b, &mut out, &mut work)
+        plan.execute_into(&exec, 1.0, &a16, &b16, &mut out, &mut work)
             .unwrap(),
         GroupedRoute::Vendor { jobs: 2 }
     );
     let allocations = measure(|| {
-        plan.execute_into(&exec, 1.0, &a, &b, &mut out, &mut work)
+        plan.execute_into(&exec, 1.0, &a16, &b16, &mut out, &mut work)
             .unwrap();
     });
     assert_eq!(allocations, 0, "grouped vendor");
