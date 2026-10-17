@@ -2,7 +2,7 @@
 
 use cpueinsum::tcontract::api::{CSpec, Labels, LayoutSpec, Op, OperandSpec, Problem};
 use cpueinsum::tcontract::{PlanConfig, SliceAccumulationSource};
-use cpueinsum::{BatchStrategy, Exec, GroupedGemmJob};
+use cpueinsum::{Exec, GroupedGemmJob};
 
 use crate::prepared::VendorPlan;
 use crate::{BlasError, BlasScalar};
@@ -156,9 +156,15 @@ impl<T: BlasScalar> GroupedPlan<T> {
 
     /// Accumulate into each initialized job output, preserving untouched gaps.
     ///
+    /// The executor's batch policy resolves with
+    /// [`VendorLoopRoute`](cpueinsum::VendorLoopRoute): `Auto` and `Sequential`
+    /// keep the vendor loop, a forced `Outer`/`Inner`/`Split` uses the native
+    /// alternative, and a forced `WholeBatchVendor` is refused.
+    ///
     /// # Errors
     ///
-    /// Returns [`BlasError::Native`] for a selected native failure or
+    /// Returns [`BlasError::StrategyUnavailable`] for a forced whole-batch
+    /// vendor route, [`BlasError::Native`] for a selected native failure, or
     /// [`BlasError::Grouped`] retaining the original job ID and vendor bounds,
     /// workspace or packing-view error. All jobs are preflighted before writes.
     pub fn execute_into_accum(
@@ -186,18 +192,15 @@ impl<T: BlasScalar> GroupedPlan<T> {
         work: &mut [T],
     ) -> Result<GroupedRoute, BlasError> {
         // Resolve forced-strategy admission before every shortcut and before
-        // any write. This route is a coordinator loop, not one vendor batch
-        // call, so it never claims `WholeBatchVendor`; the forced route is
-        // refused here even when alpha is zero or the group is empty.
-        let strategy = exec.batch_policy().strategy;
-        if let BatchStrategy::WholeBatchVendor = strategy {
-            return Err(BlasError::StrategyUnavailable);
-        }
-        // Auto keeps today's preferred vendor loop. A forced route that grants
-        // outer lanes or item threads cannot be honored by the serial loop, so
-        // it goes to the native alternative, which resolves the same policy.
-        // `Sequential` is exactly one serial coordinator, so the loop serves it.
-        let vendor_route = matches!(strategy, BatchStrategy::Auto | BatchStrategy::Sequential);
+        // any write, with the same rule the prepared binary adapter and the
+        // N-ary BLAS backend use. This route is a coordinator loop, not one
+        // vendor batch call, so a forced `WholeBatchVendor` is refused here even
+        // when alpha is zero or the group is empty; a forced lane strategy that
+        // grants outer lanes or item threads cannot be honored by the serial
+        // loop, so it goes to the native alternative, which resolves the same
+        // policy. `Auto` keeps today's preferred vendor loop and `Sequential` is
+        // exactly one serial coordinator, so the loop serves both.
+        let vendor_route = crate::vendor_loop_route(exec)?;
         let Some(jobs) = self
             .vendor
             .as_ref()

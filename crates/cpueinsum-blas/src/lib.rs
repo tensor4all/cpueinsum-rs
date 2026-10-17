@@ -8,6 +8,17 @@
 //! read, else after packing the operands that do not into work space (and
 //! copying the output back) with strided-rs.
 //!
+//! # Batch policy
+//!
+//! Every route in this crate (this backend, the prepared
+//! [`BinaryPlan`] and the grouped [`GroupedPlan`]) runs a batch as a serial
+//! loop of one library call per item, which
+//! [`VendorLoopRoute`] resolves against the
+//! caller's [`BatchPolicy`](cpueinsum::BatchPolicy): `Auto` and `Sequential`
+//! keep the loop, a forced `Outer`/`Inner`/`Split` runs the route's tcontract
+//! alternative, and a forced `WholeBatchVendor` is refused before any write
+//! because no route here has one batch call for the whole batch.
+//!
 //! The crate declares the CBLAS symbols (through `cblas-sys`) and links no
 //! provider: the final binary links one, for example with
 //! `blas-src = { version = "0.14", features = ["openblas"] }` and
@@ -48,7 +59,7 @@ mod layout;
 mod prepared;
 
 use cpueinsum::tcontract::api::{OperandId, Problem};
-use cpueinsum::{BackendError, Exec, StepBackend};
+use cpueinsum::{BackendError, Exec, StepBackend, VendorLoopRoute};
 use strided_view::{RawStridedMut, RawStridedRef};
 
 pub use ffi::BlasScalar;
@@ -143,13 +154,15 @@ pub enum BlasError {
     /// Fresh output storage is not exactly covered by the prepared output domain.
     #[error("fresh output requires exact physical coverage without gaps or padding")]
     FreshCoverage,
-    /// A forced whole-batch vendor route this backend cannot provide.
+    /// A forced whole-batch vendor route this crate cannot provide.
     ///
-    /// The grouped BLAS route is a coordinator loop of one CBLAS GEMM per job,
-    /// not the single vendor call `WholeBatchVendor` describes, so it reports
-    /// `vendor_batch = false` and refuses the forced route before any write.
+    /// No route here is the single vendor call `WholeBatchVendor` describes:
+    /// the grouped and prepared adapters are coordinator loops of one CBLAS
+    /// GEMM per job, and the bare step backend is one GEMM per batch item. Each
+    /// reports `vendor_batch = false` and refuses the forced route before any
+    /// write.
     #[error(
-        "forced whole-batch vendor is unavailable: the grouped BLAS route is a per-job GEMM loop"
+        "forced whole-batch vendor is unavailable: no BLAS route here is a single whole-batch call"
     )]
     StrategyUnavailable,
     /// An operand slice does not hold the elements the step addresses.
@@ -192,7 +205,16 @@ impl<T: BlasScalar> StepBackend<T> for Blas {
         step.work_len
     }
 
+    fn vendor_loop(_: &BlasStep) -> bool {
+        true
+    }
+
     /// Runs on the BLAS library's own threads; `exec` is not used.
+    ///
+    /// Every step is a serial loop of one CBLAS GEMM per batch item, which is
+    /// what [`vendor_loop`](Self::vendor_loop) reports: the plan routes a forced
+    /// lane strategy to the tcontract alternative and refuses a forced
+    /// whole-batch vendor route before reaching this entry.
     fn execute(
         &self,
         step: &BlasStep,
@@ -203,6 +225,19 @@ impl<T: BlasScalar> StepBackend<T> for Blas {
         work: &mut [T],
     ) -> Result<(), BackendError> {
         run(step, a, b, d, work).map_err(Into::into)
+    }
+}
+
+/// Resolve a serial per-item vendor loop against `exec`'s batch policy, for the
+/// prepared adapters that keep a whole-group native alternative instead.
+///
+/// `Ok(true)` runs the loop, `Ok(false)` runs the native alternative, and a
+/// forced whole-batch vendor route is the typed refusal this crate reports.
+pub(crate) fn vendor_loop_route(exec: &Exec<'_>) -> Result<bool, BlasError> {
+    match VendorLoopRoute::resolve(exec.batch_policy().strategy) {
+        Ok(VendorLoopRoute::Loop) => Ok(true),
+        Ok(VendorLoopRoute::Native) => Ok(false),
+        Err(_) => Err(BlasError::StrategyUnavailable),
     }
 }
 
