@@ -35,20 +35,41 @@ fn operand(dims: &[usize], strides: &[isize]) -> OperandSpec {
 fn problem(b_strides: &[isize]) -> Problem {
     Problem::from_labels(
         DType::F64,
-        operand(&[16, 16], &[1, 16]),
-        operand(&[16, 16], b_strides),
+        operand(&[4, 4], &[1, 4]),
+        operand(&[4, 4], b_strides),
         CSpec::Absent,
-        operand(&[16, 16], &[1, 16]),
+        operand(&[4, 4], &[1, 4]),
         &Labels::new(&[0, 2], &[2, 1], &[0, 1]),
     )
     .unwrap()
 }
 
-fn c2_ns(b_strides: &[isize]) -> f64 {
+/// The linked provider's effective worker count, or -1 where it cannot be
+/// queried. OpenBLAS reads `OPENBLAS_NUM_THREADS` at initialization; `Exec::serial`
+/// does not control it, so the CI gate pins it to one and this reports whether
+/// that took effect.
+#[cfg(target_os = "linux")]
+fn provider_threads() -> i32 {
+    extern "C" {
+        fn openblas_get_num_threads() -> i32;
+    }
+    // SAFETY: the linked provider exports this query, which only reads a counter.
+    unsafe { openblas_get_num_threads() }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn provider_threads() -> i32 {
+    -1
+}
+
+fn c2_ns(b_strides: &[isize], expect_packing: bool) -> f64 {
     let plan = BinaryPlan::<f64>::new(&problem(b_strides), &PlanConfig::default()).unwrap();
-    let a: Vec<f64> = (0..256).map(|i| (i % 7) as f64).collect();
-    let b: Vec<f64> = (0..256).map(|i| (i % 5) as f64).collect();
-    let mut d = vec![0.0; 256];
+    assert_eq!(plan.work_len() > 0, expect_packing, "work_len");
+    let a: Vec<f64> = (0..16).map(|i| (i % 7) as f64).collect();
+    // B strides [2, 5] are not BLAS-readable in either orientation; its span is
+    // 21, so 22 elements.
+    let b: Vec<f64> = (0..22).map(|i| (i % 5) as f64).collect();
+    let mut d = vec![0.0; 16];
     let mut work = vec![0.0; plan.work_len()];
     let exec = Exec::serial();
     let route = plan
@@ -81,11 +102,16 @@ fn c2_ns(b_strides: &[isize]) -> f64 {
 
 fn main() {
     let gate = std::env::var("OVERHEAD_GATE").is_ok_and(|value| value == "1");
+    let threads = provider_threads();
+    println!(
+        "C2  provider threads         {threads:>10}  OPENBLAS_NUM_THREADS={:?}",
+        std::env::var("OPENBLAS_NUM_THREADS").ok()
+    );
     let mut passed = false;
     let mut last_ratio = f64::INFINITY;
     for _ in 0..ATTEMPTS {
-        let contiguous = c2_ns(&[1, 16]);
-        let packed = c2_ns(&[16, 1]);
+        let contiguous = c2_ns(&[1, 4], false);
+        let packed = c2_ns(&[2, 5], true);
         let ratio = packed / contiguous.max(1.0);
         last_ratio = ratio;
         println!(

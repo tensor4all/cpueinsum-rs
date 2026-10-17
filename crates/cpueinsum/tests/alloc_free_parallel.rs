@@ -55,13 +55,16 @@ fn measure(body: impl FnOnce()) -> usize {
 #[test]
 fn parallel_grouped_allocation_bound_scales_with_lanes() {
     use cpueinsum::tcontract::PlanConfig;
-    let jobs: Vec<_> = (0..4)
-        .map(|i| GroupedGemmJob::new(i * 4096, i * 4096, i * 4096, 64, 64, 64))
+    // A large job count at a fixed lane budget: an allocation that grew with the
+    // batch (one per job) would blow the lane-parameterized bound at 256 jobs
+    // even though it passed at four.
+    let jobs: Vec<_> = (0..256)
+        .map(|i| GroupedGemmJob::new(i * 256, i * 256, i * 256, 16, 16, 16))
         .collect();
-    let plan = GroupedPlan::<f64>::new(&jobs, &PlanConfig::default()).unwrap();
-    let lhs = vec![1.0; 4 * 4096];
-    let rhs = vec![1.0; 4 * 4096];
-    let mut out = vec![0.0; 4 * 4096];
+    let plan = GroupedPlan::<f64>::new(&jobs, &PlanConfig::packed()).unwrap();
+    let lhs = vec![1.0; 256 * 256];
+    let rhs = vec![1.0; 256 * 256];
+    let mut out = vec![0.0; 256 * 256];
     let thread_pool = rayon::ThreadPoolBuilder::new()
         .num_threads(4)
         .build()
@@ -80,9 +83,11 @@ fn parallel_grouped_allocation_bound_scales_with_lanes() {
         plan.execute_into(&exec, 1.0, &lhs, &rhs, &mut out).unwrap();
     });
     // One heap-backed rayon scope task per lane, plus the lane-chunk vector and
-    // a few dispatch bookkeeping allocations.
+    // a few dispatch bookkeeping allocations. The bound does not grow with the
+    // 256 jobs.
     assert!(
         allocations <= 8 + 2 * lanes,
-        "{allocations} allocations for {lanes} lanes"
+        "{allocations} allocations for {lanes} lanes and {} jobs",
+        jobs.len()
     );
 }

@@ -10,7 +10,6 @@
 use std::mem::MaybeUninit;
 use std::time::Instant;
 
-use cpueinsum::strided_view::{StridedView, StridedViewMut};
 use cpueinsum::tcontract::api::{CSpec, DType, Labels, LayoutSpec, Op, OperandSpec, Problem};
 use cpueinsum::tcontract::{OutputContract, PlanConfig, SliceAccumulationSource};
 use cpueinsum::{BinaryPlan, Exec, GroupedGemmJob, GroupedPlan, Workspace};
@@ -173,28 +172,6 @@ fn c4_ns(n: usize) -> (f64, f64) {
     (binary_ns, grouped_ns)
 }
 
-/// A report-only case using borrowed einsum views, to keep the view path warm.
-fn view_report(n: usize) -> f64 {
-    use cpueinsum::{EinsumPlan, EinsumSpec, Layout, Scratch};
-    let spec = EinsumSpec::new(&[&[0, 1], &[1, 2]], &[0, 2], &[[0, 1]]).unwrap();
-    let dims = [n, n];
-    let strides = [1isize, n as isize];
-    let cm = Layout::new(&dims, &strides).unwrap();
-    let plan = EinsumPlan::<f64>::new(&spec, &[cm, cm], cm).unwrap();
-    let a: Vec<f64> = (0..n * n).map(|i| (i % 7) as f64).collect();
-    let b: Vec<f64> = (0..n * n).map(|i| (i % 5) as f64).collect();
-    let mut d = vec![0.0; n * n];
-    let mut scratch = Scratch::new();
-    let exec = Exec::serial();
-    time_ns(200, || {
-        let av = StridedView::new(&a, &[n, n], &[1, n as isize], 0).unwrap();
-        let bv = StridedView::new(&b, &[n, n], &[1, n as isize], 0).unwrap();
-        let mut dv = StridedViewMut::new(&mut d, &[n, n], &[1, n as isize], 0).unwrap();
-        plan.execute_into(&exec, &[av, bv], &mut dv, &mut scratch)
-            .unwrap();
-    })
-}
-
 fn main() {
     let gate = std::env::var("OVERHEAD_GATE").is_ok_and(|value| value == "1");
     let mut failed = false;
@@ -221,7 +198,6 @@ fn main() {
             grouped_ns / binary_ns.max(1.0)
         );
     }
-    let _ = view_report(8);
 
     if gate && failed {
         std::process::exit(1);
