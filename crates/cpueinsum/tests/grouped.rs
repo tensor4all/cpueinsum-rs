@@ -497,16 +497,31 @@ fn forced_inner_runs_the_child_with_the_granted_width() {
 #[test]
 fn split_rejects_worker_incompatible_child_routes_before_dispatch() {
     use core::num::NonZeroUsize;
+    use cpueinsum::tcontract::api::{CSpec, DType, Labels, LayoutSpec, OperandSpec, Problem};
+    use cpueinsum::tcontract::{ExecutionRoute, OutputContract, PackedRoute, Partition, Plan};
     use cpueinsum::{BatchPolicy, BatchStrategy};
-    // Two packed 64^3 jobs whose budget-2 child wants an SPMD team. That team is
-    // available from the coordinator (so preflight passes) but not from the pool
-    // worker each Split lane runs on. The refusal must happen before dispatch,
-    // so a job in another lane can never have written first.
+    // Two packed 64^3 jobs whose budget-2 child must want an SPMD team. That
+    // team is available from the coordinator (so preflight passes) but not from
+    // the pool worker each Split lane runs on. The refusal must happen before
+    // dispatch, so a job in another lane can never have written first.
+    //
+    // The child's route is host- and profile-dependent: the planner's own cost
+    // model may prefer a non-SPMD cells grid on some ISAs. Pin the child's
+    // static team grid to (2, 1) so the precondition is guaranteed on every
+    // host. The planner's default family reads B packed (never direct) on every
+    // host, so the pinned grid is not collapsed into a cells grid.
+    let config = PlanConfig {
+        partition: Some(Partition::StaticGrid {
+            pin: Some((2, 1)),
+            align_c_lines: false,
+        }),
+        ..PlanConfig::packed()
+    };
     let jobs = [
         GroupedGemmJob::new(0, 0, 0, 64, 64, 64),
         GroupedGemmJob::new(0, 0, 4096, 64, 64, 64),
     ];
-    let plan = GroupedPlan::<f64>::new(&jobs, &PlanConfig::packed()).unwrap();
+    let plan = GroupedPlan::<f64>::new(&jobs, &config).unwrap();
     let lhs = vec![1.0; 2 * 4096];
     let rhs = vec![1.0; 2 * 4096];
     let mut out = vec![77.0; 2 * 4096];
@@ -521,6 +536,46 @@ fn split_rejects_worker_incompatible_child_routes_before_dispatch() {
         .with_batch_policy(BatchPolicy::new(BatchStrategy::Split {
             lanes: NonZeroUsize::new(2).unwrap(),
         }));
+
+    // Precondition: at budget two the child route really is an SPMD team, so a
+    // future route change fails here with a clear message instead of the
+    // production check silently never triggering. Rebuild the child plan the
+    // grouped plan prepares (the same problem and config, fresh_output cleared)
+    // and resolve it on the child context a Split lane runs on.
+    let mut child_config = config.clone();
+    child_config.fresh_output = false;
+    let layout = |dims: &[usize], strides: &[isize]| {
+        OperandSpec::new(LayoutSpec::new(dims, strides, 0).expect("valid layout"))
+            .with_op(Op::Identity)
+    };
+    let problem = Problem::from_labels(
+        DType::F64,
+        layout(&[64, 64], &[1, 64]),
+        layout(&[64, 64], &[1, 64]),
+        CSpec::Output(Op::Identity),
+        layout(&[64, 64], &[1, 64]),
+        &Labels::new(&[0, 1], &[1, 2], &[0, 2]),
+    )
+    .expect("valid 64^3 problem");
+    let child = Plan::<f64>::new(&problem, &child_config).expect("child plan");
+    let child_exec = exec
+        .with_budget(2)
+        .expect("budget two")
+        .with_batch_policy(BatchPolicy::new(BatchStrategy::Inner));
+    match child
+        .execution_route(&child_exec, 1.0, OutputContract::Initialized)
+        .expect("the child route resolves")
+    {
+        ExecutionRoute::Packed {
+            kind: PackedRoute::Spmd,
+            width,
+        } => assert_eq!(
+            width, 2,
+            "the SPMD team must use the budget-two child width"
+        ),
+        other => panic!("the child route must be an SPMD team at budget 2, got {other:?}"),
+    }
+
     pool.reset_stats();
     assert!(plan.execute_into(&exec, 1.0, &lhs, &rhs, &mut out).is_err());
     assert_eq!(
