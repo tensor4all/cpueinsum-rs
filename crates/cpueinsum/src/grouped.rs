@@ -8,7 +8,7 @@ use std::sync::Mutex;
 
 use tcontract::api::{CSpec, Labels, LayoutSpec, Op, OperandSpec, Problem};
 use tcontract::{OutputContract, Plan, PlanConfig, SliceAccumulationSource, NS_PER_FLOP};
-use tcontract_exec::{Exec, WidthPolicy};
+use tcontract_exec::{BatchPolicy, BatchQuery, BatchStrategy, Exec};
 
 use crate::{Error, Result, Scalar};
 
@@ -138,8 +138,10 @@ impl std::fmt::Display for GroupedOperand {
 
 /// The scheduler route selected for a grouped execution.
 ///
-/// `Outer` is the only parallel route: each child contraction is forced to a
-/// serial tcontract context and receives the outer context's reusable workspace.
+/// The route is resolved from the caller's [`Exec`] batch policy before any
+/// write: `Auto` keeps the legacy `width_for` decision, and a forced strategy
+/// is honored or refused up front. [`GroupedRoute::Outer`], `Inner` and `Split`
+/// report how many outer lanes and how many threads per item actually ran.
 ///
 /// # Examples
 ///
@@ -148,12 +150,24 @@ impl std::fmt::Display for GroupedOperand {
 pub enum GroupedRoute {
     /// There were no jobs.
     Empty,
-    /// All jobs ran on the calling thread.
+    /// All jobs ran on the calling thread, one thread per item.
     Serial,
-    /// Jobs were partitioned among this many outer lanes.
+    /// Jobs were partitioned among this many outer lanes, each item serial.
     Outer {
         /// Number of outer lanes.
         lanes: usize,
+    },
+    /// One outer lane, with `threads` threads granted to each item.
+    Inner {
+        /// Threads granted to each item.
+        threads: usize,
+    },
+    /// Jobs were partitioned among `lanes`, each item on `item_threads`.
+    Split {
+        /// Number of outer lanes.
+        lanes: usize,
+        /// Threads granted to each item.
+        item_threads: usize,
     },
 }
 
@@ -203,6 +217,7 @@ pub struct GroupedPlan<T: Scalar> {
     required_rhs: usize,
     required_out: usize,
     work: u128,
+    max_job_work: u128,
 }
 
 impl<T: Scalar> GroupedPlan<T> {
@@ -268,6 +283,7 @@ impl<T: Scalar> GroupedPlan<T> {
         let mut required_rhs = 0;
         let mut required_out = 0;
         let mut work = 0u128;
+        let mut max_job_work = 0u128;
 
         for (id, &job) in jobs.iter().enumerate() {
             let lhs_len = checked_product(id, job.rows, job.contracted, "lhs size")?;
@@ -302,6 +318,7 @@ impl<T: Scalar> GroupedPlan<T> {
                     what: "total work",
                 })
             })?;
+            max_job_work = max_job_work.max(job_work);
 
             isize_dim(id, job.rows, "rows")?;
             isize_dim(id, job.contracted, "contracted")?;
@@ -364,6 +381,7 @@ impl<T: Scalar> GroupedPlan<T> {
             required_rhs,
             required_out,
             work,
+            max_job_work,
         })
     }
 
@@ -460,6 +478,13 @@ impl<T: Scalar> GroupedPlan<T> {
         accumulate: bool,
         out: &mut [T],
     ) -> Result<GroupedRoute> {
+        // Resolve the route first, before bounds checks, the empty shortcut or
+        // any write: a forced `WholeBatchVendor` is refused here (this route has
+        // no single vendor batch call) and the outer width is fixed before the
+        // children run.
+        let (lanes, item_threads) = self.lane_decision(exec)?;
+        let child_exec = child_context(exec, item_threads)?;
+
         for job in &self.jobs {
             check_bounds(
                 job.meta.id,
@@ -483,9 +508,6 @@ impl<T: Scalar> GroupedPlan<T> {
                 out.len(),
             )?;
         }
-        let child_exec = exec
-            .workspace()
-            .map_or(Exec::serial(), Exec::serial_with_workspace);
         let source = if accumulate && beta != T::default() {
             SliceAccumulationSource::Output
         } else {
@@ -503,18 +525,7 @@ impl<T: Scalar> GroupedPlan<T> {
         if self.jobs.is_empty() {
             return Ok(GroupedRoute::Empty);
         }
-        let serial_ns =
-            2.0 * self.work as f64 * NS_PER_FLOP * if T::IS_COMPLEX { 4.0 } else { 1.0 };
-        let lanes = exec
-            .width_for(serial_ns, &WidthPolicy::default())
-            .min(exec.budget())
-            .min(self.jobs.len())
-            .max(1);
-        let route = if lanes == 1 {
-            GroupedRoute::Serial
-        } else {
-            GroupedRoute::Outer { lanes }
-        };
+        let route = grouped_route(lanes, item_threads);
 
         let mut items = Vec::with_capacity(self.jobs.len());
         let mut cursor = 0usize;
@@ -576,6 +587,84 @@ impl<T: Scalar> GroupedPlan<T> {
             .into_inner()
             .unwrap_or_else(|poison| poison.into_inner())
             .map_or(Ok(route), Err)
+    }
+
+    /// Resolve `(lanes, item_threads)` from the caller's batch policy.
+    ///
+    /// `Auto` keeps this route's historical decision exactly -- the total
+    /// estimated work narrowed through the Exec's [`WidthPolicy`](tcontract_exec::WidthPolicy),
+    /// clamped to the budget and the job count -- because neither the shared
+    /// generic `Auto` formula (which fans two tiny scalar jobs onto two lanes)
+    /// nor the packed balanced-lanes rule (which adds a near-even restriction
+    /// here absent) reproduces it. The `WidthPolicy` still comes from the Exec,
+    /// so a caller can configure it.
+    ///
+    /// Every forced strategy goes through [`Exec::batch_decision`] on the
+    /// original host budget, which clamps but never falls back; a forced
+    /// `WholeBatchVendor` is refused because this route has no single vendor
+    /// batch call.
+    fn lane_decision(&self, exec: &Exec<'_>) -> Result<(usize, usize)> {
+        if let BatchStrategy::Auto = exec.batch_policy().strategy {
+            let serial_ns =
+                2.0 * self.work as f64 * NS_PER_FLOP * if T::IS_COMPLEX { 4.0 } else { 1.0 };
+            let lanes = exec
+                .width_for(serial_ns, &exec.batch_policy().model.width)
+                .min(exec.budget())
+                .min(self.jobs.len())
+                .max(1);
+            return Ok((lanes, 1));
+        }
+        let query = BatchQuery::new(self.jobs.len(), self.max_job_work as f64)
+            .with_item_parallel(true)
+            .with_vendor_batch(false);
+        let decision = exec
+            .batch_decision(&query)
+            .map_err(|source| Error::Contract {
+                step: 0,
+                source: source.into(),
+            })?;
+        Ok((decision.lanes, decision.item_threads))
+    }
+}
+
+/// The child context every item of a grouped execution runs on.
+///
+/// With one thread per item this is the historical serial context that borrows
+/// the caller's workspace, so `Auto` (item-serial) is byte-for-byte what it was.
+/// A forced strategy that grants item threads gets a child with that width on
+/// the caller's pool; its own policy is reset to `Auto` because the outer forced
+/// strategy has already been consumed, so the child resolves its route within
+/// the width granted here rather than repeating the outer decision.
+fn child_context<'a>(exec: &Exec<'a>, item_threads: usize) -> Result<Exec<'a>> {
+    if item_threads <= 1 {
+        return Ok(exec
+            .workspace()
+            .map_or(Exec::serial(), Exec::serial_with_workspace));
+    }
+    let child = exec
+        .with_budget(item_threads)
+        .map_err(|source| Error::Contract {
+            step: 0,
+            source: source.into(),
+        })?;
+    Ok(child.with_batch_policy(BatchPolicy::default()))
+}
+
+/// The route a resolved `(lanes, item_threads)` pair describes.
+fn grouped_route(lanes: usize, item_threads: usize) -> GroupedRoute {
+    if lanes > 1 && item_threads > 1 {
+        GroupedRoute::Split {
+            lanes,
+            item_threads,
+        }
+    } else if lanes > 1 {
+        GroupedRoute::Outer { lanes }
+    } else if item_threads > 1 {
+        GroupedRoute::Inner {
+            threads: item_threads,
+        }
+    } else {
+        GroupedRoute::Serial
     }
 }
 

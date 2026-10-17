@@ -143,6 +143,15 @@ pub enum BlasError {
     /// Fresh output storage is not exactly covered by the prepared output domain.
     #[error("fresh output requires exact physical coverage without gaps or padding")]
     FreshCoverage,
+    /// A forced whole-batch vendor route this backend cannot provide.
+    ///
+    /// The grouped BLAS route is a coordinator loop of one CBLAS GEMM per job,
+    /// not the single vendor call `WholeBatchVendor` describes, so it reports
+    /// `vendor_batch = false` and refuses the forced route before any write.
+    #[error(
+        "forced whole-batch vendor is unavailable: the grouped BLAS route is a per-job GEMM loop"
+    )]
+    StrategyUnavailable,
     /// An operand slice does not hold the elements the step addresses.
     #[error("operand {operand} addresses elements outside its slice")]
     OutOfBounds {

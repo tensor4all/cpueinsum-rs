@@ -63,7 +63,10 @@ pub use prepared::BinaryPlan;
 pub use scalar::Scalar;
 pub use spec::EinsumSpec;
 pub use tcontract::{ExecutionRoute, OutputContract, SliceAccumulationSource};
-pub use tcontract_exec::{ArenaProvider, Exec, Pool, WorkspaceProvider};
+pub use tcontract_exec::{
+    ArenaProvider, BatchDecision, BatchPolicy, BatchQuery, BatchStrategy, Exec, Pool, WorkModel,
+    WorkspaceProvider,
+};
 
 pub use strided_view;
 pub use tcontract;

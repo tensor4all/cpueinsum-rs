@@ -2,6 +2,7 @@ mod common;
 
 use common::{close, naive, Elem, Operand};
 use cpueinsum::tcontract::{api::Op, PlanConfig};
+use cpueinsum::{BatchPolicy, BatchStrategy, Exec as BatchExec};
 use cpueinsum::{Error, Exec, GroupedError, GroupedGemmJob, GroupedPlan, GroupedRoute};
 use num_complex::{Complex32, Complex64};
 use rand::SeedableRng;
@@ -17,6 +18,148 @@ fn gemm(a: &[f64], b: &[f64], rows: usize, contracted: usize, cols: usize) -> Ve
             })
         })
         .collect()
+}
+
+#[test]
+fn tiny_scalar_jobs_stay_serial_under_auto() {
+    // The shared generic Auto would fan two one-multiply-add jobs onto two
+    // lanes; this route keeps today's width_for decision, which stays serial.
+    let jobs = [
+        GroupedGemmJob::new(0, 0, 0, 1, 1, 1),
+        GroupedGemmJob::new(0, 0, 1, 1, 1, 1),
+    ];
+    let plan = GroupedPlan::<f64>::new(&jobs, &PlanConfig::default()).unwrap();
+    let thread_pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(2)
+        .build()
+        .unwrap();
+    let pool = cpueinsum::Pool::borrow(&thread_pool);
+    let exec = Exec::rayon(&pool).with_budget(2).unwrap();
+    let route = plan
+        .execute_into(&exec, 1.0, &[3.0], &[4.0], &mut [0.0; 2])
+        .unwrap();
+    assert_eq!(route, GroupedRoute::Serial);
+}
+
+#[test]
+fn forced_strategies_are_honored_or_refused() {
+    use core::num::NonZeroUsize;
+    // Four 64x64x64 items: big enough that the Auto width_for decision leaves
+    // the serial threshold, small enough for a fast test. Offsets keep every
+    // job's ranges disjoint.
+    let jobs: Vec<_> = (0..4)
+        .map(|i| GroupedGemmJob::new(i * 4096, i * 4096, i * 4096, 64, 64, 64))
+        .collect();
+    let plan = GroupedPlan::<f64>::new(&jobs, &PlanConfig::default()).unwrap();
+    let lhs: Vec<f64> = (0..4 * 4096).map(|i| ((i % 7) as f64) - 3.0).collect();
+    let rhs: Vec<f64> = (0..4 * 4096).map(|i| ((i % 5) as f64) - 2.0).collect();
+    let thread_pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(4)
+        .build()
+        .unwrap();
+    let pool = cpueinsum::Pool::borrow(&thread_pool);
+
+    // The reference is the serial route (all item kernels serial, one lane).
+    let mut reference = vec![0.0; 4 * 4096];
+    assert_eq!(
+        plan.execute_into(&Exec::serial(), 1.0, &lhs, &rhs, &mut reference)
+            .unwrap(),
+        GroupedRoute::Serial
+    );
+
+    // Auto under four threads: outer lanes.
+    let mut auto = vec![0.0; 4 * 4096];
+    let exec = Exec::rayon(&pool).with_budget(4).unwrap();
+    let route = plan
+        .execute_into(&exec, 1.0, &lhs, &rhs, &mut auto)
+        .unwrap();
+    assert!(matches!(route, GroupedRoute::Outer { lanes } if lanes > 1));
+    close(&auto, &reference, 1e-12);
+
+    // Forced Outer: the per-item kernels are unchanged, so bitwise equal.
+    let mut outer = vec![0.0; 4 * 4096];
+    let exec = Exec::rayon(&pool).with_batch_policy(BatchPolicy::new(BatchStrategy::Outer));
+    assert_eq!(
+        plan.execute_into(&exec, 1.0, &lhs, &rhs, &mut outer)
+            .unwrap(),
+        GroupedRoute::Outer { lanes: 4 }
+    );
+    assert_eq!(outer, reference);
+
+    // Forced Sequential ignores the budget and is bitwise equal too.
+    let mut sequential = vec![0.0; 4 * 4096];
+    let exec = Exec::rayon(&pool).with_batch_policy(BatchPolicy::new(BatchStrategy::Sequential));
+    assert_eq!(
+        plan.execute_into(&exec, 1.0, &lhs, &rhs, &mut sequential)
+            .unwrap(),
+        GroupedRoute::Serial
+    );
+    assert_eq!(sequential, reference);
+
+    // Forced Split on the original budget: two lanes, two item threads each.
+    let mut split = vec![0.0; 4 * 4096];
+    let exec = Exec::rayon(&pool)
+        .with_budget(4)
+        .unwrap()
+        .with_batch_policy(BatchPolicy::new(BatchStrategy::Split {
+            lanes: NonZeroUsize::new(2).unwrap(),
+        }));
+    assert_eq!(
+        plan.execute_into(&exec, 1.0, &lhs, &rhs, &mut split)
+            .unwrap(),
+        GroupedRoute::Split {
+            lanes: 2,
+            item_threads: 2
+        }
+    );
+    // Item threads change the inner decomposition, so compare, do not require bits.
+    close(&split, &reference, 1e-12);
+
+    // Forced Inner: one lane, the whole budget per item.
+    let mut inner = vec![0.0; 4 * 4096];
+    let exec = Exec::rayon(&pool)
+        .with_budget(4)
+        .unwrap()
+        .with_batch_policy(BatchPolicy::new(BatchStrategy::Inner));
+    assert_eq!(
+        plan.execute_into(&exec, 1.0, &lhs, &rhs, &mut inner)
+            .unwrap(),
+        GroupedRoute::Inner { threads: 4 }
+    );
+    close(&inner, &reference, 1e-12);
+
+    // Forced WholeBatchVendor: this route has no single vendor batch call, so
+    // it is refused before any write -- even when alpha is zero.
+    for alpha in [1.0, 0.0] {
+        let mut refused = vec![77.0; 4 * 4096];
+        let exec =
+            Exec::rayon(&pool).with_batch_policy(BatchPolicy::new(BatchStrategy::WholeBatchVendor));
+        let error = plan
+            .execute_into(&exec, alpha, &lhs, &rhs, &mut refused)
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            Error::Contract {
+                source: cpueinsum::tcontract::Error::Exec(_),
+                ..
+            }
+        ));
+        assert!(refused.iter().all(|&x| x == 77.0));
+    }
+
+    // The serial context carries a policy too, so a forced route at one thread
+    // resolves there as well.
+    let exec =
+        BatchExec::serial().with_batch_policy(BatchPolicy::new(BatchStrategy::WholeBatchVendor));
+    assert!(plan
+        .execute_into(&exec, 1.0, &lhs, &rhs, &mut vec![0.0; 4 * 4096])
+        .is_err());
+    let exec = BatchExec::serial().with_batch_policy(BatchPolicy::new(BatchStrategy::Inner));
+    let mut one = vec![0.0; 4 * 4096];
+    assert_eq!(
+        plan.execute_into(&exec, 1.0, &lhs, &rhs, &mut one).unwrap(),
+        GroupedRoute::Serial
+    );
 }
 
 #[test]

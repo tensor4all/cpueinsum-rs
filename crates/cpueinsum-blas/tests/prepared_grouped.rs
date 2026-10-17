@@ -83,6 +83,127 @@ fn modes<T: Elem + BlasScalar>(tolerance: f64) {
 }
 
 #[test]
+fn forced_whole_batch_vendor_is_refused_before_any_write() {
+    use cpueinsum::{BatchPolicy, BatchStrategy};
+    let jobs = [GroupedGemmJob::new(0, 0, 0, 4, 4, 4)];
+    let plan = GroupedPlan::<f64>::new(&jobs, &PlanConfig::default()).unwrap();
+    let thread_pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(2)
+        .build()
+        .unwrap();
+    let pool = cpueinsum::Pool::borrow(&thread_pool);
+    let exec = cpueinsum::Exec::rayon(&pool)
+        .with_batch_policy(BatchPolicy::new(BatchStrategy::WholeBatchVendor));
+    // Alpha nonzero, alpha zero and an empty group are all refused the same way:
+    // this route is a per-job GEMM loop, not one vendor batch call.
+    for alpha in [1.0, 0.0] {
+        let mut out = [7.0; 16];
+        let error = plan
+            .execute_into(
+                &exec,
+                alpha,
+                &[1.0; 16],
+                &[1.0; 16],
+                &mut out,
+                &mut vec![0.0; plan.work_len()],
+            )
+            .unwrap_err();
+        assert!(matches!(error, BlasError::StrategyUnavailable));
+        assert!(out.iter().all(|&x| x == 7.0));
+    }
+    let empty: [GroupedGemmJob; 0] = [];
+    let plan = GroupedPlan::<f64>::new(&empty, &PlanConfig::default()).unwrap();
+    assert!(matches!(
+        plan.execute_into(&exec, 1.0, &[], &[], &mut [], &mut []),
+        Err(BlasError::StrategyUnavailable)
+    ));
+}
+
+#[test]
+fn auto_keeps_the_vendor_loop_and_forced_lanes_use_the_native_route() {
+    use core::num::NonZeroUsize;
+    use cpueinsum::{BatchPolicy, BatchStrategy};
+    let jobs = [
+        GroupedGemmJob::new(0, 0, 0, 16, 16, 16),
+        GroupedGemmJob::new(0, 0, 256, 16, 16, 16),
+    ];
+    let plan = GroupedPlan::<f64>::new(&jobs, &PlanConfig::default()).unwrap();
+    let a: Vec<f64> = (0..256).map(|i| ((i % 7) as f64) - 3.0).collect();
+    let b: Vec<f64> = (0..256).map(|i| ((i % 5) as f64) - 2.0).collect();
+    let thread_pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(4)
+        .build()
+        .unwrap();
+    let pool = cpueinsum::Pool::borrow(&thread_pool);
+
+    // Auto uses the coordinator vendor loop.
+    let mut vendor = vec![0.0; 512];
+    let exec = cpueinsum::Exec::rayon(&pool);
+    assert_eq!(
+        plan.execute_into(
+            &exec,
+            1.0,
+            &a,
+            &b,
+            &mut vendor,
+            &mut vec![0.0; plan.work_len()]
+        )
+        .unwrap(),
+        GroupedRoute::Vendor { jobs: 2 }
+    );
+
+    // Forced lanes cannot be served by the serial loop, so the native
+    // alternative takes them; the arithmetic route changes, so compare.
+    for strategy in [
+        BatchStrategy::Outer,
+        BatchStrategy::Split {
+            lanes: NonZeroUsize::new(2).unwrap(),
+        },
+        BatchStrategy::Inner,
+    ] {
+        let mut native = vec![0.0; 512];
+        let exec = cpueinsum::Exec::rayon(&pool)
+            .with_budget(4)
+            .unwrap()
+            .with_batch_policy(BatchPolicy::new(strategy));
+        let route = plan
+            .execute_into(
+                &exec,
+                1.0,
+                &a,
+                &b,
+                &mut native,
+                &mut vec![0.0; plan.work_len()],
+            )
+            .unwrap();
+        assert!(
+            matches!(route, GroupedRoute::Native(_)),
+            "{strategy:?} -> {route:?}"
+        );
+        close(&native, &vendor, 1e-12);
+    }
+
+    // Forced Sequential is exactly one serial coordinator, which the loop
+    // already is, so it stays on the vendor route (and is bitwise equal).
+    let mut sequential = vec![0.0; 512];
+    let exec = cpueinsum::Exec::rayon(&pool)
+        .with_batch_policy(BatchPolicy::new(BatchStrategy::Sequential));
+    assert_eq!(
+        plan.execute_into(
+            &exec,
+            1.0,
+            &a,
+            &b,
+            &mut sequential,
+            &mut vec![0.0; plan.work_len()]
+        )
+        .unwrap(),
+        GroupedRoute::Vendor { jobs: 2 }
+    );
+    assert_eq!(sequential, vendor);
+}
+
+#[test]
 fn heterogeneous_jobs_shared_inputs_gaps_and_all_four_dtype_conjugations() {
     modes::<f32>(2e-5);
     modes::<f64>(1e-12);

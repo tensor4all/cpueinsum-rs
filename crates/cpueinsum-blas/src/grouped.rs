@@ -2,7 +2,7 @@
 
 use cpueinsum::tcontract::api::{CSpec, Labels, LayoutSpec, Op, OperandSpec, Problem};
 use cpueinsum::tcontract::{PlanConfig, SliceAccumulationSource};
-use cpueinsum::{Exec, GroupedGemmJob};
+use cpueinsum::{BatchStrategy, Exec, GroupedGemmJob};
 
 use crate::prepared::VendorPlan;
 use crate::{BlasError, BlasScalar};
@@ -185,7 +185,24 @@ impl<T: BlasScalar> GroupedPlan<T> {
         out: &mut [T],
         work: &mut [T],
     ) -> Result<GroupedRoute, BlasError> {
-        let Some(jobs) = self.vendor.as_ref().filter(|_| alpha != T::default()) else {
+        // Resolve forced-strategy admission before every shortcut and before
+        // any write. This route is a coordinator loop, not one vendor batch
+        // call, so it never claims `WholeBatchVendor`; the forced route is
+        // refused here even when alpha is zero or the group is empty.
+        let strategy = exec.batch_policy().strategy;
+        if let BatchStrategy::WholeBatchVendor = strategy {
+            return Err(BlasError::StrategyUnavailable);
+        }
+        // Auto keeps today's preferred vendor loop. A forced route that grants
+        // outer lanes or item threads cannot be honored by the serial loop, so
+        // it goes to the native alternative, which resolves the same policy.
+        // `Sequential` is exactly one serial coordinator, so the loop serves it.
+        let vendor_route = matches!(strategy, BatchStrategy::Auto | BatchStrategy::Sequential);
+        let Some(jobs) = self
+            .vendor
+            .as_ref()
+            .filter(|_| alpha != T::default() && vendor_route)
+        else {
             let result = if accumulate {
                 self.native
                     .execute_into_accum(exec, alpha, lhs, rhs, beta, out)
