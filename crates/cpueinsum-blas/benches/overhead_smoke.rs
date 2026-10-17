@@ -1,8 +1,17 @@
 //! The BLAS half of the overhead smoke test (#23 comment, case C2).
 //!
+//! C2's gate starts loose and is set from the slowest machine seen: the
+//! packed case now runs a genuine strided `CopyPlan` packing pass (#28), so the
+//! ratio is inherently above 1. Measured 1.84 on the reference EPYC host and
+//! 2.29-2.59 on the GitHub-hosted runner, hence 3.4 (about 1.3x the worst);
+//! tighten from CI history.
+//!
 //! Compares a vendor step with a contiguous operand against one whose operand
 //! must be packed, so a regression in plan-time packing shows up as a ratio.
 //! Run `OVERHEAD_GATE=1 cargo bench -p cpueinsum-blas --bench overhead_smoke`.
+
+/// C2 gate (packed/contiguous), see the module docs.
+const C2_GATE: f64 = 3.4;
 
 extern crate blas_src as _;
 
@@ -115,11 +124,11 @@ fn main() {
         let ratio = packed / contiguous.max(1.0);
         last_ratio = ratio;
         println!(
-            "C2  packed/contiguous      {:>10.1}  ratio {ratio:.3} <= 2.0 {}",
+            "C2  packed/contiguous      {:>10.1}  ratio {ratio:.3} <= {C2_GATE} {}",
             packed,
-            if ratio <= 2.0 { "ok" } else { "FAIL" }
+            if ratio <= C2_GATE { "ok" } else { "FAIL" }
         );
-        if ratio <= 2.0 {
+        if ratio <= C2_GATE {
             passed = true;
             break;
         }
