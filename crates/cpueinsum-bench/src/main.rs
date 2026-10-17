@@ -71,13 +71,52 @@ fn main() -> ExitCode {
         Err(message) => return die(&message),
     };
     match args.command {
-        Command::Info => {
-            print_environment();
-            print_evidence_keys(args.threads);
-            ExitCode::SUCCESS
-        }
+        Command::Info => match print_info(args.threads) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(message) => die(&message),
+        },
         Command::Run | Command::Verify => measure(&args),
     }
+}
+
+fn print_info(requested: Option<usize>) -> Result<(), String> {
+    print_environment();
+    let effective = match requested {
+        Some(threads) => Some(observed_pool_size(threads)?),
+        None => None,
+    };
+    print_evidence_keys(requested, effective);
+    Ok(())
+}
+
+/// Refuse a request above Rayon's soft limit, which a pool build would silently
+/// clamp.
+fn check_rayon_limit(requested: usize) -> Result<(), String> {
+    let max = rayon::max_num_threads();
+    if requested > max {
+        return Err(format!(
+            "requested {requested} thread(s) but this Rayon build clamps a pool to {max}"
+        ));
+    }
+    Ok(())
+}
+
+/// The worker count a pool of `requested` threads actually gets. Rayon
+/// soft-limits a pool, so a request above that limit would be silently clamped
+/// and must be refused instead of reported as effective.
+fn observed_pool_size(requested: usize) -> Result<usize, String> {
+    check_rayon_limit(requested)?;
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(requested)
+        .build()
+        .map_err(|e| format!("cannot create a {requested}-worker pool: {e}"))?;
+    let size = pool.current_num_threads();
+    if size != requested {
+        return Err(format!(
+            "requested {requested} thread(s) but the rayon pool has {size} worker(s)"
+        ));
+    }
+    Ok(size)
 }
 
 fn parse(argv: &[String]) -> Result<Args, String> {
@@ -99,7 +138,7 @@ fn parse(argv: &[String]) -> Result<Args, String> {
         rows: Vec::new(),
         engines: Vec::new(),
         rotate: 0,
-        statistic: Statistic::Best,
+        statistic: Statistic::Median,
         reps: 5,
         prime_ms: 250,
         csv: None,
@@ -117,22 +156,35 @@ fn parse(argv: &[String]) -> Result<Args, String> {
         match flag {
             "--threads" => args.threads = Some(parse_usize(&next(argv, i, flag)?, flag)?),
             "--instances" => args.instances = Some(next(argv, i, flag)?),
-            "--n" => args.n_specs = split_list(&next(argv, i, flag)?),
-            "--family" => args.families = split_list(&next(argv, i, flag)?),
+            "--n" => {
+                args.n_specs = list(&next(argv, i, flag)?, flag)?;
+                dedup(&mut args.n_specs);
+            }
+            "--family" => {
+                args.families = list(&next(argv, i, flag)?, flag)?;
+                dedup(&mut args.families);
+            }
             "--case" => args.case = Some(next(argv, i, flag)?),
-            "--dtype" => args.dtypes = split_list(&next(argv, i, flag)?),
+            "--dtype" => {
+                args.dtypes = list(&next(argv, i, flag)?, flag)?;
+                dedup(&mut args.dtypes);
+            }
             "--batch" => {
-                args.batches = split_list(&next(argv, i, flag)?)
+                let mut batches = list(&next(argv, i, flag)?, flag)?
                     .iter()
                     .map(|v| v.parse::<u32>().map_err(|_| format!("bad --batch {v:?}")))
-                    .collect::<Result<_, _>>()?;
+                    .collect::<Result<Vec<_>, _>>()?;
+                dedup_values(&mut batches);
+                args.batches = batches;
             }
             "--rows" => {
-                args.rows = split_list(&next(argv, i, flag)?);
+                args.rows = list(&next(argv, i, flag)?, flag)?;
+                dedup(&mut args.rows);
                 rows_given = true;
             }
             "--engines" => {
-                args.engines = split_list(&next(argv, i, flag)?);
+                args.engines = list(&next(argv, i, flag)?, flag)?;
+                dedup(&mut args.engines);
                 engines_given = true;
             }
             "--rotate-rows" => args.rotate = parse_usize(&next(argv, i, flag)?, flag)?,
@@ -155,14 +207,17 @@ fn parse(argv: &[String]) -> Result<Args, String> {
         // Every accepted flag takes exactly one value.
         i += 2;
     }
+    if let Some(0) = args.threads {
+        return Err("--threads must be positive".to_string());
+    }
     if command == Command::Info {
         return Ok(args);
     }
     if args.reps == 0 {
         return Err("--reps must be positive".to_string());
     }
-    if let Some(0) = args.threads {
-        return Err("--threads must be positive".to_string());
+    if command == Command::Run && args.reps < 2 {
+        return Err("--reps must be at least 2 for a timing-v2 run".to_string());
     }
     if args.batches.iter().any(|&b| b != 1) {
         return Err("--batch: this corpus has unit batch; every value must be 1".to_string());
@@ -184,6 +239,16 @@ fn parse(argv: &[String]) -> Result<Args, String> {
         args.rows = args.engines.clone();
     } else {
         args.rows = known.iter().map(|s| (*s).to_string()).collect();
+    }
+    if args.rows.is_empty() {
+        return Err("the selection names no engine row".to_string());
+    }
+    if command == Command::Verify && args.rows.len() < 2 {
+        return Err(
+            "verify needs at least two engine rows: a single-row selection has no independent \
+             result to compare against"
+                .to_string(),
+        );
     }
     if args.command == Command::Run && args.csv.is_none() {
         return Err("run needs --csv PATH".to_string());
@@ -241,6 +306,31 @@ fn measure(args: &Args) -> ExitCode {
         let len = rows.len();
         rows.rotate_left(args.rotate % len);
     }
+
+    // Build the pool and the executor first, then report the counts the runtime
+    // actually granted, never the request. A clamped pool or budget fails.
+    let requested = args.threads.unwrap_or(1);
+    if let Err(message) = check_rayon_limit(requested) {
+        return die(&message);
+    }
+    let thread_pool = match rayon::ThreadPoolBuilder::new()
+        .num_threads(requested)
+        .build()
+    {
+        Ok(pool) => pool,
+        Err(e) => return die(&format!("cannot create a {requested}-worker pool: {e}")),
+    };
+    let pool = Pool::borrow(&thread_pool);
+    let rayon_threads = pool.size();
+    let exec = match Exec::rayon(&pool).with_budget(requested) {
+        Ok(exec) => exec,
+        Err(e) => return die(&format!("cannot set a {requested}-thread budget: {e}")),
+    };
+    let vendor_threads = exec.budget();
+    if let Err(message) = harness::thread_readback(requested, rayon_threads, vendor_threads) {
+        return die(&message);
+    }
+
     let config = Config {
         regime: args.regime.clone(),
         n_specs,
@@ -250,37 +340,24 @@ fn measure(args: &Args) -> ExitCode {
         statistic: args.statistic,
         reps: args.reps,
         prime_ms: args.prime_ms,
-        threads: args.threads.unwrap_or(1),
+        threads: requested,
+        rayon_threads,
+        vendor_threads,
         mode: match args.command {
             Command::Verify => Mode::Verify,
             _ => Mode::Run,
         },
     };
 
-    let pool = match rayon::ThreadPoolBuilder::new()
-        .num_threads(config.threads)
-        .build()
-    {
-        Ok(pool) => pool,
-        Err(e) => {
-            return die(&format!(
-                "cannot create a {}-worker pool: {e}",
-                config.threads
-            ))
-        }
-    };
-    let pool = Pool::borrow(&pool);
-    let exec = match Exec::rayon(&pool).with_budget(config.threads) {
-        Ok(exec) => exec,
-        Err(e) => {
-            return die(&format!(
-                "cannot set a {}-thread budget: {e}",
-                config.threads
-            ))
-        }
-    };
-
-    let (records, all_ok) = harness::run_grid(&selected, &config, &exec);
+    let (records, all_ok, compared) = harness::run_grid(&selected, &config, &exec);
+    // A verify run that made no cross-row comparison checked nothing; refuse it
+    // even though every declared cell is "ok" or "skipped".
+    if args.command == Command::Verify && !compared {
+        return die(
+            "verify made no comparison: every declared row was skipped or only one reached \
+             execution, so there is no second independent result to check",
+        );
+    }
     println!(
         "{}: {} declared cell(s), {} ok, {} skipped, {} failed",
         match args.command {
@@ -358,6 +435,28 @@ fn split_list(value: &str) -> Vec<String> {
         .filter(|s| !s.is_empty())
         .map(String::from)
         .collect()
+}
+
+/// A list-valued flag must name at least one value; an explicitly empty request
+/// is refused rather than silently becoming a default or an empty selection.
+fn list(value: &str, flag: &str) -> Result<Vec<String>, String> {
+    let values = split_list(value);
+    if values.is_empty() {
+        return Err(format!("{flag} needs at least one value"));
+    }
+    Ok(values)
+}
+
+/// Collapse repeated values, keeping the first occurrence, so a repeated flag
+/// declares each cell exactly once.
+fn dedup(values: &mut Vec<String>) {
+    let mut seen = std::collections::BTreeSet::new();
+    values.retain(|v| seen.insert(v.clone()));
+}
+
+fn dedup_values<T: Ord + Copy>(values: &mut Vec<T>) {
+    let mut seen = std::collections::BTreeSet::new();
+    values.retain(|v| seen.insert(*v));
 }
 
 fn next(argv: &[String], i: usize, flag: &str) -> Result<String, String> {

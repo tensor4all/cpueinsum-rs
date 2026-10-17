@@ -222,6 +222,12 @@ impl Parser<'_> {
                         }
                     }
                 }
+                byte if byte < 0x20 => {
+                    return Err(format!(
+                        "unescaped control character {byte:#04x} in string at byte {}",
+                        self.at - 1
+                    ))
+                }
                 _ => out.push(byte),
             }
         }
@@ -264,18 +270,70 @@ impl Parser<'_> {
         Ok(value)
     }
 
+    /// Parse one JSON number, enforcing the JSON grammar so a malformed extent
+    /// (`+2`, `02`, `.5e1`) fails closed instead of reaching the f64 parser.
     fn number(&mut self) -> Result<Json, String> {
         let start = self.at;
-        while let Some(byte) = self.peek() {
-            if byte.is_ascii_digit() || matches!(byte, b'-' | b'+' | b'.' | b'e' | b'E') {
+        let bad = || format!("invalid number at byte {start}");
+        if self.peek() == Some(b'-') {
+            self.at += 1;
+        }
+        match self.peek() {
+            Some(b'0') => self.at += 1,
+            Some(b'1'..=b'9') => {
+                while matches!(self.peek(), Some(b'0'..=b'9')) {
+                    self.at += 1;
+                }
+            }
+            _ => return Err(bad()),
+        }
+        if self.peek() == Some(b'.') {
+            self.at += 1;
+            if !matches!(self.peek(), Some(b'0'..=b'9')) {
+                return Err(bad());
+            }
+            while matches!(self.peek(), Some(b'0'..=b'9')) {
                 self.at += 1;
-            } else {
-                break;
+            }
+        }
+        if matches!(self.peek(), Some(b'e' | b'E')) {
+            self.at += 1;
+            if matches!(self.peek(), Some(b'+' | b'-')) {
+                self.at += 1;
+            }
+            if !matches!(self.peek(), Some(b'0'..=b'9')) {
+                return Err(bad());
+            }
+            while matches!(self.peek(), Some(b'0'..=b'9')) {
+                self.at += 1;
             }
         }
         let text = std::str::from_utf8(&self.bytes[start..self.at]).map_err(|e| e.to_string())?;
         text.parse::<f64>()
             .map(Json::Num)
             .map_err(|_| format!("invalid number {text:?} at byte {start}"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rejects_non_json_numbers() {
+        for text in [
+            "[+2,3]", "[02,3]", "[.5e1,3]", "[1.,3]", "[1e,3]", "[1e+,3]",
+        ] {
+            assert!(parse(text).is_err(), "{text:?} must be rejected");
+        }
+        // The grammar still accepts what the corpus declares.
+        assert_eq!(parse("[0,10,1.5e2,-3]").unwrap().as_arr().unwrap().len(), 4);
+    }
+
+    #[test]
+    fn rejects_unescaped_control_characters_in_strings() {
+        assert!(parse("\"a\nb\"").is_err());
+        assert!(parse("\"a\tb\"").is_err());
+        assert_eq!(parse(r#""a\nb""#).unwrap().as_str(), Some("a\nb"));
     }
 }

@@ -42,14 +42,16 @@ pub fn print_environment() {
     println!("provider    : cpueinsum {VERSION}");
 }
 
-/// The `key=value` lines the toolkit reads. `threads` is empty when `info` was
-/// called without `--threads`.
-pub fn print_evidence_keys(threads: Option<usize>) {
+/// The `key=value` lines the toolkit reads. `threads` and `threads_effective`
+/// are empty when `info` was called without `--threads`; with `--threads` the
+/// former is the request and the latter is the pool size the runtime created.
+pub fn print_evidence_keys(threads: Option<usize>, effective: Option<usize>) {
     let requested = threads.map(|n| n.to_string()).unwrap_or_default();
+    let effective = effective.map(|n| n.to_string()).unwrap_or_default();
     println!("provider=cpueinsum");
     println!("provider_version={VERSION}");
     println!("threads={requested}");
-    println!("threads_effective={requested}");
+    println!("threads_effective={effective}");
     // cpueinsum links no vendor library; there is no TBLIS version to report.
     println!("tblis=");
 }
