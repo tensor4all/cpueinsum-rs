@@ -12,7 +12,7 @@ description = "A CBLAS step backend for cpueinsum: binary steps on the linked BL
 cblas-sys = { workspace = true }
 cpueinsum = { workspace = true }
 num-complex = { workspace = true }
-strided-perm = { workspace = true }
+strided-basic = { workspace = true }
 strided-view = { workspace = true }
 thiserror = { workspace = true }
 

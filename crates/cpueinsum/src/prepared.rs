@@ -7,7 +7,7 @@ use tcontract::api::{AccumulationSource, Problem};
 use tcontract::{
     ExecutionRoute, OutputContract, Plan, PlanConfig, PlanReport, SliceAccumulationSource,
 };
-use tcontract_exec::Exec;
+use tcontract_exec::{Exec, WorkspaceReq};
 
 use crate::error::{Error, Result};
 use crate::scalar::Scalar;
@@ -139,6 +139,26 @@ impl<T: Scalar> BinaryPlan<T> {
     /// ```
     pub fn report(&self) -> &PlanReport {
         self.plan.report()
+    }
+
+    /// Elements of the caller-owned intermediate arena this plan needs.
+    ///
+    /// A binary contraction has no cpueinsum intermediate, so this is always
+    /// zero; the native tcontract workspace is separate and component-wise, as
+    /// [`native_workspace_req`](Self::native_workspace_req) reports.
+    pub fn workspace_len(&self) -> usize {
+        0
+    }
+
+    /// The component-wise workspace the prepared tcontract plan needs on `exec`
+    /// for an `output` storage contract.
+    ///
+    /// Prepare a [`Workspace`](tcontract_exec::Workspace) with this bound and
+    /// warm every worker the executor may use before executing, or tcontract
+    /// grows the arena on first use; see
+    /// [`EinsumPlan::native_workspace_req`](crate::EinsumPlan::native_workspace_req).
+    pub fn native_workspace_req(&self, exec: &Exec<'_>, output: OutputContract) -> WorkspaceReq {
+        self.plan.workspace_req(exec, output)
     }
 
     /// Resolve the numerical route before writes, then return it on success.

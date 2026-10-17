@@ -159,7 +159,7 @@ dependencies = [
  "rand",
  "rand_chacha",
  "rayon",
- "strided-perm",
+ "strided-basic",
  "strided-view",
  "thiserror 1.0.69",
 ]

@@ -1,15 +1,15 @@
 //! N-ary einsum: a plan of binary steps over an intermediate arena.
 
 use strided_view::{StridedView, StridedViewMut};
-use tcontract::{Plan, PlanConfig};
-use tcontract_exec::Exec;
+use tcontract::{OutputContract, Plan, PlanConfig};
+use tcontract_exec::{Exec, WorkspaceReq};
 
 use crate::backend::{StepBackend, Tcontract};
 use crate::binary::step_problem;
 use crate::error::{Error, Result, ShapeError};
 use crate::layout::Layout;
 use crate::scalar::Scalar;
-use crate::spec::EinsumSpec;
+use crate::spec::{EinsumSpec, EinsumSpecRef};
 
 /// Where a step reads an operand from.
 #[derive(Clone, Copy, Debug)]
@@ -160,6 +160,56 @@ impl<T: Scalar> EinsumPlan<T> {
 
 impl<T: Scalar, B: StepBackend<T>> EinsumPlan<T, B> {
     /// Plan `spec` for inputs and an output of these layouts, offering every
+    /// step to `backend` first, with every tcontract step under the default
+    /// [`PlanConfig`].
+    ///
+    /// # Errors
+    ///
+    /// As [`compile`](Self::compile).
+    pub fn with_backend(
+        backend: B,
+        spec: &EinsumSpec,
+        inputs: &[Layout<'_>],
+        output: Layout<'_>,
+    ) -> Result<Self> {
+        Self::build(backend, spec, inputs, output, &PlanConfig::default())
+    }
+
+    /// Compile a plan from a borrowed [`EinsumSpecRef`], copying the
+    /// description once, and plan every tcontract step under `config`.
+    ///
+    /// # Errors
+    ///
+    /// [`ShapeError`] when the number of inputs differs from the description,
+    /// an operand's rank differs from its number of labels, a label has two
+    /// extents, or an intermediate's size overflows; [`Error::Contract`] when
+    /// tcontract rejects a step (for example an output whose axes
+    /// alias).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cpueinsum::{EinsumPlan, EinsumSpecRef, Layout, Tcontract};
+    /// use cpueinsum::tcontract::PlanConfig;
+    /// let inputs: &[&[i64]] = &[&[0, 1], &[1, 2]];
+    /// let spec = EinsumSpecRef { inputs, output: &[0, 2], path: &[[0, 1]] };
+    /// let cm = Layout::new(&[2, 2], &[1, 2]).unwrap();
+    /// let plan = EinsumPlan::<f64, Tcontract>::compile(
+    ///     spec, &[cm, cm], cm, Tcontract, &PlanConfig::default()).unwrap();
+    /// assert_eq!(plan.steps(), 1);
+    /// ```
+    pub fn compile(
+        spec: EinsumSpecRef<'_>,
+        inputs: &[Layout<'_>],
+        output: Layout<'_>,
+        backend: B,
+        config: &PlanConfig,
+    ) -> Result<Self> {
+        let owned = EinsumSpec::new(spec.inputs, spec.output, spec.path)?;
+        Self::build(backend, &owned, inputs, output, config)
+    }
+
+    /// Plan `spec` for inputs and an output of these layouts, offering every
     /// step to `backend` first.
     ///
     /// # Errors
@@ -169,11 +219,12 @@ impl<T: Scalar, B: StepBackend<T>> EinsumPlan<T, B> {
     /// extents, or an intermediate's size overflows; [`Error::Contract`] when
     /// tcontract rejects a step (for example an output whose axes
     /// alias).
-    pub fn with_backend(
+    fn build(
         backend: B,
         spec: &EinsumSpec,
         inputs: &[Layout<'_>],
         output: Layout<'_>,
+        config: &PlanConfig,
     ) -> Result<Self> {
         let n = spec.inputs().len();
         if inputs.len() != n {
@@ -274,7 +325,7 @@ impl<T: Scalar, B: StepBackend<T>> EinsumPlan<T, B> {
                       scratch_len: &mut usize|
          -> Result<Kernel<T, B::Step>> {
             let Some(s) = backend.plan(&problem) else {
-                return Plan::<T>::from_problem(problem, &PlanConfig::default())
+                return Plan::<T>::from_problem(problem, config)
                     .map(Kernel::Tcontract)
                     .map_err(|source| Error::Contract { step, source });
             };
@@ -393,6 +444,51 @@ impl<T: Scalar, B: StepBackend<T>> EinsumPlan<T, B> {
     /// Elements of scratch the plan needs for its intermediates.
     pub fn scratch_len(&self) -> usize {
         self.scratch_len
+    }
+
+    /// Elements of the caller-owned intermediate arena the plan needs.
+    ///
+    /// This is the same element count as [`scratch_len`](Self::scratch_len): a
+    /// plan keeps every intermediate and every [`StepBackend`](crate::StepBackend)
+    /// work slot in one element-disjoint arena. It is deliberately **not** a
+    /// scalar for the whole workspace, because the native tcontract steps need
+    /// a separate, component-wise
+    /// [`WorkspaceReq`](tcontract_exec::WorkspaceReq); see
+    /// [`native_workspace_req`](Self::native_workspace_req).
+    ///
+    /// A caller that executes a plan many times sizes a [`Scratch`] once with
+    /// `Scratch::with_len(plan.workspace_len())` and reuses it, so the steady
+    /// state allocates nothing for the arena.
+    pub fn workspace_len(&self) -> usize {
+        self.scratch_len
+    }
+
+    /// The component-wise workspace the native tcontract steps need on `exec`
+    /// for an `output` storage contract.
+    ///
+    /// Each native step's [`Plan::workspace_req`](tcontract::Plan::workspace_req)
+    /// is folded field by field with a maximum: the steps run one after another,
+    /// so their arenas are reused, and a large A block of one step must not stand
+    /// in for a missing B panel of another. A backend step runs from the element
+    /// arena and contributes nothing here. The result is a conservative bound:
+    /// prepare a [`Workspace`](tcontract_exec::Workspace) with it and warm every
+    /// worker the executor may use (`Workspace::prepare_for`) before executing
+    /// through [`Exec::serial_with_workspace`] or a pool, or tcontract grows the
+    /// arena on first use.
+    pub fn native_workspace_req(&self, exec: &Exec<'_>, output: OutputContract) -> WorkspaceReq {
+        let mut req = WorkspaceReq::default();
+        for step in &self.steps {
+            if let Kernel::Tcontract(plan) = &step.kernel {
+                let r = plan.workspace_req(exec, output);
+                req.a_bytes = req.a_bytes.max(r.a_bytes);
+                req.tile_bytes = req.tile_bytes.max(r.tile_bytes);
+                req.worker_scatter = req.worker_scatter.max(r.worker_scatter);
+                req.b_bytes = req.b_bytes.max(r.b_bytes);
+                req.team_scatter = req.team_scatter.max(r.team_scatter);
+                req.barriers = req.barriers.max(r.barriers);
+            }
+        }
+        req
     }
 
     /// Number of binary steps (one for a single input).

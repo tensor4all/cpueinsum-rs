@@ -61,11 +61,11 @@ pub use layout::Layout;
 pub use plan::{einsum_into, EinsumPlan, Scratch};
 pub use prepared::BinaryPlan;
 pub use scalar::Scalar;
-pub use spec::EinsumSpec;
+pub use spec::{EinsumSpec, EinsumSpecRef};
 pub use tcontract::{ExecutionRoute, OutputContract, SliceAccumulationSource};
 pub use tcontract_exec::{
     ArenaProvider, BatchDecision, BatchPolicy, BatchQuery, BatchStrategy, Exec, Pool, WorkModel,
-    WorkspaceProvider,
+    Workspace, WorkspaceProvider, WorkspaceReq,
 };
 
 pub use strided_view;

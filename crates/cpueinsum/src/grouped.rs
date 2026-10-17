@@ -8,7 +8,7 @@ use std::sync::Mutex;
 
 use tcontract::api::{CSpec, Labels, LayoutSpec, Op, OperandSpec, Problem};
 use tcontract::{OutputContract, Plan, PlanConfig, SliceAccumulationSource, NS_PER_FLOP};
-use tcontract_exec::{BatchPolicy, BatchQuery, BatchStrategy, Exec};
+use tcontract_exec::{BatchPolicy, BatchQuery, BatchStrategy, Exec, WorkspaceReq};
 
 use crate::{Error, Result, Scalar};
 
@@ -403,6 +403,40 @@ impl<T: Scalar> GroupedPlan<T> {
         self.required_out
     }
 
+    /// Elements of the caller-owned intermediate arena this grouped plan needs.
+    ///
+    /// A grouped plan keeps no cpueinsum intermediate: each job is one tcontract
+    /// plan that runs from the executor's workspace. This is therefore zero, and
+    /// the native requirement is separate and component-wise; see
+    /// [`native_workspace_req`](Self::native_workspace_req).
+    pub fn workspace_len(&self) -> usize {
+        0
+    }
+
+    /// The component-wise workspace the jobs' native plans need on `exec` for an
+    /// `output` storage contract, folded field by field with a maximum.
+    ///
+    /// This is a conservative bound on the outer `exec`; each job also runs on
+    /// the child context [`GroupedPlan::execute_into`] derives (one thread per
+    /// item under `Auto`), so callers that size a
+    /// [`Workspace`](tcontract_exec::Workspace) directly should use the item
+    /// width the chosen policy grants. See
+    /// [`EinsumPlan::native_workspace_req`](crate::EinsumPlan::native_workspace_req)
+    /// for the workspace-preparation contract.
+    pub fn native_workspace_req(&self, exec: &Exec<'_>, output: OutputContract) -> WorkspaceReq {
+        let mut req = WorkspaceReq::default();
+        for job in &self.jobs {
+            let r = job.plan.workspace_req(exec, output);
+            req.a_bytes = req.a_bytes.max(r.a_bytes);
+            req.tile_bytes = req.tile_bytes.max(r.tile_bytes);
+            req.worker_scatter = req.worker_scatter.max(r.worker_scatter);
+            req.b_bytes = req.b_bytes.max(r.b_bytes);
+            req.team_scatter = req.team_scatter.max(r.team_scatter);
+            req.barriers = req.barriers.max(r.barriers);
+        }
+        req
+    }
+
     /// Overwrite all jobs with `alpha * A B`, reading no previous output.
     ///
     /// # Examples
@@ -527,55 +561,95 @@ impl<T: Scalar> GroupedPlan<T> {
         }
         let route = grouped_route(lanes, item_threads);
 
-        let mut items = Vec::with_capacity(self.jobs.len());
-        let mut cursor = 0usize;
-        let mut remaining = out;
-        for job in &self.jobs {
-            let d = if job.meta.out_len == 0 {
-                &mut [][..]
-            } else {
-                let start = job.meta.out_offset;
-                let end = start + job.meta.out_len;
-                let current = core::mem::take(&mut remaining);
-                let (_, rest) = current.split_at_mut(start - cursor);
-                let (slice, tail) = rest.split_at_mut(end - start);
-                remaining = tail;
-                cursor = end;
-                slice
-            };
-            items.push(JobItem {
-                id: job.meta.id,
-                plan: &job.plan,
-                lhs: &lhs[job.meta.lhs_offset..job.meta.lhs_offset + job.meta.lhs_len],
-                rhs: &rhs[job.meta.rhs_offset..job.meta.rhs_offset + job.meta.rhs_len],
-                out: d,
-            });
-        }
-
         if lanes == 1 {
-            for item in &mut items {
-                run_item(item, &child_exec, alpha, beta, source)?;
+            // Serial: drive the jobs by index and carve each output slice in
+            // turn. Nothing is collected, so this path allocates none of its
+            // own (tcontract's own workspace aside).
+            let mut cursor = 0usize;
+            let mut remaining: &mut [T] = out;
+            for job in &self.jobs {
+                let d = if job.meta.out_len == 0 {
+                    &mut [][..]
+                } else {
+                    let start = job.meta.out_offset;
+                    let end = start + job.meta.out_len;
+                    let current = core::mem::take(&mut remaining);
+                    let (_, rest) = current.split_at_mut(start - cursor);
+                    let (slice, tail) = rest.split_at_mut(end - start);
+                    remaining = tail;
+                    cursor = end;
+                    slice
+                };
+                let mut item = JobItem {
+                    id: job.meta.id,
+                    plan: &job.plan,
+                    lhs: &lhs[job.meta.lhs_offset..job.meta.lhs_offset + job.meta.lhs_len],
+                    rhs: &rhs[job.meta.rhs_offset..job.meta.rhs_offset + job.meta.rhs_len],
+                    out: d,
+                };
+                run_item(&mut item, &child_exec, alpha, beta, source)?;
             }
             return Ok(route);
         }
 
-        let item_count = items.len();
-        let mut remaining_items = items.as_mut_slice();
-        let mut lane_items = Vec::with_capacity(lanes);
+        // Parallel: one contiguous job range per lane, each owning the output
+        // chunk that covers its jobs' ranges. Only `lanes` (already clamped to
+        // the budget) chunks are collected -- never one slot per job, and no
+        // Mutex per lane either, since each lane holds its own range.
+        let item_count = self.jobs.len();
+        let lane_range = |lane: usize| {
+            let base = item_count / lanes;
+            let rem = item_count % lanes;
+            let lo = lane * base + lane.min(rem);
+            (lo, lo + base + usize::from(lane < rem))
+        };
+        let region_start = |lane: usize| self.jobs[lane_range(lane).0].meta.out_offset;
+        let mut lane_chunks = Vec::with_capacity(lanes);
+        let out_len = out.len();
+        let mut remaining: &mut [T] = out;
+        let mut cursor = 0usize;
         for lane in 0..lanes {
-            let count = item_count / lanes + usize::from(lane < item_count % lanes);
-            let current = core::mem::take(&mut remaining_items);
-            let (part, tail) = current.split_at_mut(count);
-            remaining_items = tail;
-            lane_items.push(Mutex::new(part));
+            let base_offset = if lane == 0 { 0 } else { region_start(lane) };
+            let end = if lane + 1 < lanes {
+                region_start(lane + 1)
+            } else {
+                out_len
+            };
+            let current = core::mem::take(&mut remaining);
+            let (chunk, tail) = current.split_at_mut(end - cursor);
+            remaining = tail;
+            cursor = end;
+            lane_chunks.push(Mutex::new((base_offset, chunk)));
         }
         let failure = Mutex::new(None);
         exec.for_each_partition(lanes, &|lane| {
-            let mut jobs = lane_items[lane]
+            let (lo, hi) = lane_range(lane);
+            let mut guard = lane_chunks[lane]
                 .lock()
                 .unwrap_or_else(|poison| poison.into_inner());
-            for item in jobs.iter_mut() {
-                if let Err(error) = run_item(item, &child_exec, alpha, beta, source) {
+            let (base_offset, chunk) = &mut *guard;
+            let base_offset = *base_offset;
+            let mut lane_cursor = 0usize;
+            for job in &self.jobs[lo..hi] {
+                let d = if job.meta.out_len == 0 {
+                    &mut [][..]
+                } else {
+                    let start = job.meta.out_offset - base_offset;
+                    let current = core::mem::take(chunk);
+                    let (_, rest) = current.split_at_mut(start - lane_cursor);
+                    let (slice, tail) = rest.split_at_mut(job.meta.out_len);
+                    *chunk = tail;
+                    lane_cursor = start + job.meta.out_len;
+                    slice
+                };
+                let mut item = JobItem {
+                    id: job.meta.id,
+                    plan: &job.plan,
+                    lhs: &lhs[job.meta.lhs_offset..job.meta.lhs_offset + job.meta.lhs_len],
+                    rhs: &rhs[job.meta.rhs_offset..job.meta.rhs_offset + job.meta.rhs_len],
+                    out: d,
+                };
+                if let Err(error) = run_item(&mut item, &child_exec, alpha, beta, source) {
                     let mut first = failure.lock().unwrap_or_else(|poison| poison.into_inner());
                     if first.is_none() {
                         *first = Some(error);

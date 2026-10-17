@@ -22,12 +22,11 @@ repository = "https://github.com/tensor4all/cpueinsum-rs"
 # come from crates.io.
 tcontract = { git = "https://github.com/tensor4all/tcontract-rs.git", rev = "3239c86de62262586854c9dc4fc18095b00916df", version = "=0.3.0" }
 tcontract-exec = { git = "https://github.com/tensor4all/tcontract-rs.git", rev = "3239c86de62262586854c9dc4fc18095b00916df", version = "=0.3.0" }
-# One strided release train (basic/view/perm): cpueinsum-blas compiles
+# One strided release train (basic/view): cpueinsum-blas compiles
 # `strided_basic::CopyPlan` for its packing; the view metadata must be one
 # `StridedView` type across the stack.
 strided-basic = { version = "=0.6.0", default-features = false }
 strided-view = "=0.6.0"
-strided-perm = "=0.6.0"
 cpueinsum = { version = "=0.2.4", path = "crates/cpueinsum" }
 # publish = false: a git-only dependency at the same 0.3.0 revision as above.
 tcontract-capi = { git = "https://github.com/tensor4all/tcontract-rs.git", rev = "3239c86de62262586854c9dc4fc18095b00916df" }
