@@ -139,6 +139,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cpueinsum-bench"
+version = "0.2.4"
+dependencies = [
+ "cpueinsum",
+ "num-complex",
+ "rayon",
+]
+
+[[package]]
 name = "cpueinsum-blas"
 version = "0.2.4"
 dependencies = [

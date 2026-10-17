@@ -37,6 +37,12 @@
 #![warn(missing_docs)]
 #![warn(missing_debug_implementations)]
 
+/// The crate version, as this crate's `Cargo.toml` declares it.
+///
+/// Additive for the benchmark harness, which reports it as the measured
+/// provider's version on its `info` contract; the library itself never reads it.
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
 mod backend;
 mod binary;
 mod error;
