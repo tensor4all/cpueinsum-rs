@@ -27,7 +27,7 @@ tcontract-exec = { git = "https://github.com/tensor4all/tcontract-rs.git", rev =
 # `StridedView` type across the stack.
 strided-basic = { version = "=0.6.0", default-features = false }
 strided-view = "=0.6.0"
-cpueinsum = { version = "=0.2.4", path = "crates/cpueinsum" }
+cpueinsum = { version = "=0.3.0", path = "crates/cpueinsum" }
 # publish = false: a git-only dependency at the same 0.3.0 revision as above.
 tcontract-capi = { git = "https://github.com/tensor4all/tcontract-rs.git", rev = "3239c86de62262586854c9dc4fc18095b00916df" }
 # CBLAS declarations only; a provider is linked by the final binary

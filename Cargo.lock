@@ -126,7 +126,7 @@ checksum = "4e7648175b45a9a48536d676f68d918270699102aa8dab5496df06904c914600"
 
 [[package]]
 name = "cpueinsum"
-version = "0.2.4"
+version = "0.3.0"
 dependencies = [
  "num-complex",
  "rand",
@@ -140,7 +140,7 @@ dependencies = [
 
 [[package]]
 name = "cpueinsum-bench"
-version = "0.2.4"
+version = "0.3.0"
 dependencies = [
  "cpueinsum",
  "num-complex",
@@ -149,7 +149,7 @@ dependencies = [
 
 [[package]]
 name = "cpueinsum-blas"
-version = "0.2.4"
+version = "0.3.0"
 dependencies = [
  "blas-src",
  "cblas-sys",
@@ -166,7 +166,7 @@ dependencies = [
 
 [[package]]
 name = "cpueinsum-capi"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "cpueinsum",
  "num-complex",

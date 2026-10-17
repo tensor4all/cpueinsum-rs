@@ -1,11 +1,11 @@
 [package]
 name = "cpueinsum"
-version = "0.2.4"
+version = "0.3.0"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
-# tcontract 0.2.0 is on crates.io, so this crate publishes now.
+# The tcontract 0.3.0 stack is released, so this crate publishes now.
 description = "CPU einsum over tcontract: integer labels, caller-supplied contraction order, BLAS through a separate backend crate"
 
 [dependencies]
