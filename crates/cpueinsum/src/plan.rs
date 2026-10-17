@@ -2,7 +2,7 @@
 
 use strided_view::{StridedView, StridedViewMut};
 use tcontract::{OutputContract, Plan, PlanConfig};
-use tcontract_exec::{Exec, WorkspaceReq};
+use tcontract_exec::{Exec, Workspace, WorkspaceReq};
 
 use crate::backend::{StepBackend, Tcontract};
 use crate::binary::step_problem;
@@ -528,6 +528,61 @@ impl<T: Scalar, B: StepBackend<T>> EinsumPlan<T, B> {
         out: &mut StridedViewMut<'_, T>,
         scratch: &mut Scratch<T>,
     ) -> Result<()> {
+        self.check_shapes(inputs, out)?;
+        let buf = scratch.reserve(self.scratch_len);
+        self.run_steps(exec, inputs, out, buf)
+    }
+
+    /// A bounded, allocation-free replay from a caller-owned workspace and arena.
+    ///
+    /// `work` holds the plan's intermediates and backend work (exactly
+    /// [`workspace_len`](Self::workspace_len) elements) and `workspace` is sized
+    /// and warmed for the plan's native steps (see
+    /// [`native_workspace_req`](Self::native_workspace_req)). Both are checked
+    /// before the first write: a short arena returns [`Error::Workspace`] and a
+    /// native workspace that does not cover the requirement returns
+    /// [`Error::Contract`] carrying tcontract's `Workspace` shortage, so nothing
+    /// is written and the arena is never grown. This is the serial bounded entry;
+    /// a caller with a pool lends its own workspace through [`Exec`].
+    ///
+    /// # Errors
+    ///
+    /// [`ShapeError`] for views that do not match the plan, [`Error::Workspace`]
+    /// for a short arena, [`Error::Contract`] for a short native workspace or a
+    /// lower-layer failure, and [`Error::Backend`] for a backend step.
+    pub fn execute_bounded(
+        &self,
+        workspace: &Workspace,
+        inputs: &[StridedView<'_, T>],
+        out: &mut StridedViewMut<'_, T>,
+        work: &mut [T],
+    ) -> Result<()> {
+        self.check_shapes(inputs, out)?;
+        if work.len() < self.scratch_len {
+            return Err(Error::Workspace {
+                needed: self.scratch_len,
+                have: work.len(),
+            });
+        }
+        let exec = Exec::serial_with_workspace(workspace.as_provider());
+        let required = self.native_workspace_req(&exec, OutputContract::Initialized);
+        if !required.covered_by(workspace.req()) || workspace.slots() < 1 {
+            return Err(Error::Contract {
+                step: 0,
+                source: tcontract::Error::Workspace {
+                    needed: required.bytes(),
+                    have: workspace.have(),
+                },
+            });
+        }
+        self.run_steps(&exec, inputs, out, &mut work[..self.scratch_len])
+    }
+
+    fn check_shapes(
+        &self,
+        inputs: &[StridedView<'_, T>],
+        out: &mut StridedViewMut<'_, T>,
+    ) -> Result<()> {
         if inputs.len() != self.inputs.len() {
             return Err(ShapeError::InputCount {
                 expected: self.inputs.len(),
@@ -546,7 +601,16 @@ impl<T: Scalar, B: StepBackend<T>> EinsumPlan<T, B> {
             }
             .into());
         }
-        let buf = scratch.reserve(self.scratch_len);
+        Ok(())
+    }
+
+    fn run_steps(
+        &self,
+        exec: &Exec<'_>,
+        inputs: &[StridedView<'_, T>],
+        out: &mut StridedViewMut<'_, T>,
+        buf: &mut [T],
+    ) -> Result<()> {
         let one = [T::ONE];
 
         // Intermediates are passed as slices of the scratch buffer, not views:
