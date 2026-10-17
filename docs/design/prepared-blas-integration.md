@@ -72,3 +72,26 @@ remote revision; no merge or publication is authorized. Independent
 pre-review required concrete preflight/full-write contracts and accepted this
 owning-layer direction; independent post-review must cover the finished diff.
 No speedup or allocation-free claim follows from the architecture alone.
+
+## Batch policy on every BLAS route
+
+Every route here — the bare `StepBackend`, the prepared binary adapter and the
+grouped adapter — is a serial loop of one library call per item. Such a loop has
+no outer lanes, no item threads and no whole-batch call, so all three resolve
+the caller's `BatchPolicy` with one rule, `cpueinsum::VendorLoopRoute`:
+`Auto` and `Sequential` keep the loop (the historical choice, and exactly one
+serial coordinator), a forced `Outer`/`Inner`/`Split` runs the route's tcontract
+alternative, which resolves the same policy (and can still refuse a `Split` it
+cannot honour), and a forced `WholeBatchVendor` is refused typed before any
+write. The rule lives in one place because the same policy must not resolve
+three different ways.
+
+The batch policy is an `Exec` property, so it is resolved at execution, not at
+planning: a `StepBackend` step declares the same serial-loop shape with the
+defaulted `StepBackend::vendor_loop`, and the N-ary driver keeps the tcontract
+alternative planned beside every such step. A forced lane strategy then runs
+that alternative (bitwise the all-tcontract route), and the driver refuses a
+forced whole-batch vendor route before the first step of the plan. For a step
+that is not such a loop (the default), the backend serves every policy and no
+alternative is planned. A backend step contributes the alternative's
+`WorkspaceReq` to `native_workspace_req` only under a policy that routes to it.

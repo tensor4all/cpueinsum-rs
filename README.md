@@ -112,6 +112,15 @@ A group is entirely vendor or entirely native, not mixed after mutation.
 Executable examples live in the adapters' rustdoc; see the
 [prepared BLAS design](docs/design/prepared-blas-integration.md).
 
+Every BLAS route here runs a batch as a serial loop of one call per item, and
+all of them resolve the caller's `Exec` batch policy with the same rule
+(`cpueinsum::VendorLoopRoute`): `Auto` and `Sequential` keep the loop, a forced
+`Outer`/`Inner`/`Split` runs the route's tcontract alternative, and a forced
+`WholeBatchVendor` is refused before any write because no route here is one
+whole-batch call. A `StepBackend` declares such a loop with
+`StepBackend::vendor_loop`, so the same rule reaches binary steps of an N-ary
+`EinsumPlan`.
+
 The default backend, `Tcontract`, takes no step, so `EinsumPlan<T>` runs exactly
 as without backends.
 
