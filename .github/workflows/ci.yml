@@ -84,6 +84,23 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libopenblas-dev
       - run: cargo test --release --workspace
 
+  # The allocation gates catch allocation regressions only. The overhead smoke
+  # is a second, cheap layer (#23 comment): ratios measured in one run, never
+  # absolute times, so a noisy runner cannot fail it spuriously. Small sizes,
+  # release, single thread.
+  overhead:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.event_name == 'push' }}
+      - name: System BLAS
+        run: sudo apt-get update && sudo apt-get install -y libopenblas-dev
+      - run: OVERHEAD_GATE=1 cargo bench -p cpueinsum --bench overhead_smoke
+      - run: OVERHEAD_GATE=1 cargo bench -p cpueinsum-blas --bench overhead_smoke
+
   # The workspace declares `rust-version = "1.89"` (tprims-contract's MSRV, whose
   # packed driver uses AVX-512 intrinsics). Nothing else checks that claim, so it
   # would drift silently on the next dependency bump.

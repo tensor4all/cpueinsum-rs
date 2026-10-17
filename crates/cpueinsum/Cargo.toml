@@ -20,5 +20,9 @@ rand = { workspace = true }
 rand_chacha = { workspace = true }
 rayon = { workspace = true }
 
+[[bench]]
+name = "overhead_smoke"
+harness = false
+
 [lints]
 workspace = true
