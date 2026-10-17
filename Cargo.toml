@@ -1,6 +1,11 @@
 [workspace]
 resolver = "2"
-members = ["crates/cpueinsum", "crates/cpueinsum-blas", "crates/cpueinsum-capi"]
+members = [
+    "crates/cpueinsum",
+    "crates/cpueinsum-bench",
+    "crates/cpueinsum-blas",
+    "crates/cpueinsum-capi",
+]
 
 [workspace.package]
 edition = "2021"
