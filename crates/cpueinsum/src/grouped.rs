@@ -7,8 +7,11 @@
 use std::sync::Mutex;
 
 use tcontract::api::{CSpec, Labels, LayoutSpec, Op, OperandSpec, Problem};
-use tcontract::{OutputContract, Plan, PlanConfig, SliceAccumulationSource, NS_PER_FLOP};
-use tcontract_exec::{BatchPolicy, BatchQuery, BatchStrategy, Exec, WorkspaceReq};
+use tcontract::{
+    ExecutionRoute, OutputContract, PackedRoute, Plan, PlanConfig, SliceAccumulationSource,
+    NS_PER_FLOP,
+};
+use tcontract_exec::{BatchPolicy, BatchQuery, BatchStrategy, Exec, ExecError, WorkspaceReq};
 
 use crate::{Error, Result, Scalar};
 
@@ -548,12 +551,30 @@ impl<T: Scalar> GroupedPlan<T> {
             SliceAccumulationSource::Absent
         };
         for job in &self.jobs {
-            job.plan
+            let route = job
+                .plan
                 .execution_route(&child_exec, alpha, OutputContract::Initialized)
                 .map_err(|source| Error::Contract {
                     step: job.meta.id,
                     source,
                 })?;
+            // A multi-lane dispatch runs each child on a pool worker, where a
+            // packed SPMD team (a pool broadcast) is unavailable. The coordinator
+            // preflight above resolves it as available; refuse it here, before any
+            // lane writes, rather than letting it fail mid-dispatch after another
+            // lane may already have written.
+            if lanes > 1 {
+                if let ExecutionRoute::Packed {
+                    kind: PackedRoute::Spmd,
+                    ..
+                } = route
+                {
+                    return Err(Error::Contract {
+                        step: job.meta.id,
+                        source: ExecError::Unavailable.into(),
+                    });
+                }
+            }
         }
 
         if self.jobs.is_empty() {
@@ -596,6 +617,10 @@ impl<T: Scalar> GroupedPlan<T> {
         // chunk that covers its jobs' ranges. Only `lanes` (already clamped to
         // the budget) chunks are collected -- never one slot per job, and no
         // Mutex per lane either, since each lane holds its own range.
+        //
+        // Boundaries are monotone even though empty jobs sort last and may carry
+        // a smaller offset: an empty job contributes no output, so it must never
+        // pull a boundary back and leave an earlier non-empty job without room.
         let item_count = self.jobs.len();
         let lane_range = |lane: usize| {
             let base = item_count / lanes;
@@ -603,23 +628,30 @@ impl<T: Scalar> GroupedPlan<T> {
             let lo = lane * base + lane.min(rem);
             (lo, lo + base + usize::from(lane < rem))
         };
-        let region_start = |lane: usize| self.jobs[lane_range(lane).0].meta.out_offset;
         let mut lane_chunks = Vec::with_capacity(lanes);
         let out_len = out.len();
         let mut remaining: &mut [T] = out;
         let mut cursor = 0usize;
         for lane in 0..lanes {
-            let base_offset = if lane == 0 { 0 } else { region_start(lane) };
-            let end = if lane + 1 < lanes {
-                region_start(lane + 1)
-            } else {
-                out_len
-            };
+            let (lo, hi) = lane_range(lane);
+            // End of this lane's chunk: the furthest non-empty output end among
+            // its jobs, never before the previous boundary. Empty jobs add
+            // nothing, so a lane at or after the transition to empty jobs gets an
+            // empty chunk.
+            let mut end = cursor;
+            for job in &self.jobs[lo..hi] {
+                if job.meta.out_len != 0 {
+                    end = end.max(job.meta.out_offset + job.meta.out_len);
+                }
+            }
+            if lane + 1 == lanes {
+                end = out_len;
+            }
             let current = core::mem::take(&mut remaining);
             let (chunk, tail) = current.split_at_mut(end - cursor);
             remaining = tail;
+            lane_chunks.push(Mutex::new((cursor, chunk)));
             cursor = end;
-            lane_chunks.push(Mutex::new((base_offset, chunk)));
         }
         let failure = Mutex::new(None);
         exec.for_each_partition(lanes, &|lane| {
@@ -705,10 +737,11 @@ impl<T: Scalar> GroupedPlan<T> {
 ///
 /// With one thread per item this is the historical serial context that borrows
 /// the caller's workspace, so `Auto` (item-serial) is byte-for-byte what it was.
-/// A forced strategy that grants item threads gets a child with that width on
-/// the caller's pool; its own policy is reset to `Auto` because the outer forced
-/// strategy has already been consumed, so the child resolves its route within
-/// the width granted here rather than repeating the outer decision.
+/// A forced strategy that grants item threads gets a child bounded to that width
+/// on the caller's pool, with its own policy forced to [`BatchStrategy::Inner`]
+/// so the granted width is actually executed: a reset to `Auto` would let a
+/// small item fall back below the Auto threshold and run serially while the
+/// route still reported several threads.
 fn child_context<'a>(exec: &Exec<'a>, item_threads: usize) -> Result<Exec<'a>> {
     if item_threads <= 1 {
         return Ok(exec
@@ -721,7 +754,7 @@ fn child_context<'a>(exec: &Exec<'a>, item_threads: usize) -> Result<Exec<'a>> {
             step: 0,
             source: source.into(),
         })?;
-    Ok(child.with_batch_policy(BatchPolicy::default()))
+    Ok(child.with_batch_policy(BatchPolicy::new(BatchStrategy::Inner)))
 }
 
 /// The route a resolved `(lanes, item_threads)` pair describes.

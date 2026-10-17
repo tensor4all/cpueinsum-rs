@@ -419,3 +419,113 @@ fn grouped_all_dtypes_conjugation_empty_k_and_warm_workspace() {
     scalar_group::<Complex32>(|x| x.conj(), 3e-5);
     scalar_group::<Complex64>(|x| x.conj(), 1e-12);
 }
+
+#[test]
+fn empty_jobs_do_not_move_parallel_chunk_boundaries_backwards() {
+    use cpueinsum::{BatchPolicy, BatchStrategy};
+    // A scalar output at offset 0, then an empty job whose (0, 0) descriptor
+    // sorts last. Under forced Outer the first lane takes the scalar and the
+    // second the empty job; before the fix the empty job's offset became the
+    // first lane's chunk end, so the scalar had no room and the lane panicked.
+    let jobs = [
+        GroupedGemmJob::new(0, 0, 0, 1, 1, 1),
+        GroupedGemmJob::new(0, 0, 0, 0, 1, 1),
+    ];
+    let plan = GroupedPlan::<f64>::new(&jobs, &PlanConfig::default()).unwrap();
+    let thread_pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(2)
+        .build()
+        .unwrap();
+    let pool = cpueinsum::Pool::borrow(&thread_pool);
+    let exec = Exec::rayon(&pool)
+        .with_budget(2)
+        .unwrap()
+        .with_batch_policy(BatchPolicy::new(BatchStrategy::Outer));
+    let mut out = [0.0; 1];
+    let route = plan
+        .execute_into(&exec, 1.0, &[3.0], &[4.0], &mut out)
+        .unwrap();
+    assert_eq!(route, GroupedRoute::Outer { lanes: 2 });
+    assert_eq!(out, [12.0]);
+}
+
+#[test]
+fn forced_inner_runs_the_child_with_the_granted_width() {
+    use cpueinsum::{BatchPolicy, BatchStrategy};
+    // A 64^3 packed item is large enough for a team when the whole budget is
+    // forced, but its ~26 us of work falls below Auto's 50 us serial threshold:
+    // the pre-fix Auto child stayed serial while the route reported four
+    // threads. The test isolates the child by comparing against forced
+    // Sequential at the same budget.
+    let n = 64;
+    let jobs = [GroupedGemmJob::new(0, 0, 0, n, n, n)];
+    let plan = GroupedPlan::<f64>::new(&jobs, &PlanConfig::packed()).unwrap();
+    let lhs = vec![1.0; n * n];
+    let rhs = vec![1.0; n * n];
+    let mut out = vec![0.0; n * n];
+    let thread_pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(4)
+        .build()
+        .unwrap();
+    let pool = cpueinsum::Pool::borrow(&thread_pool);
+
+    // Forced Sequential: one lane, serial child, the pool is never entered.
+    let exec = Exec::rayon(&pool)
+        .with_budget(4)
+        .unwrap()
+        .with_batch_policy(BatchPolicy::new(BatchStrategy::Sequential));
+    plan.execute_into(&exec, 1.0, &lhs, &rhs, &mut out).unwrap();
+    let sequential_uses = pool.stats().entries + pool.stats().broadcasts;
+
+    pool.reset_stats();
+    // Forced Inner: the item is granted the whole budget, and the child must
+    // actually execute at that width. The pre-fix Auto child fell below Auto's
+    // 50 us threshold and stayed serial while the route reported four threads.
+    let exec = Exec::rayon(&pool)
+        .with_budget(4)
+        .unwrap()
+        .with_batch_policy(BatchPolicy::new(BatchStrategy::Inner));
+    let route = plan.execute_into(&exec, 1.0, &lhs, &rhs, &mut out).unwrap();
+    assert_eq!(route, GroupedRoute::Inner { threads: 4 });
+    let inner_uses = pool.stats().entries + pool.stats().broadcasts;
+    assert!(
+        inner_uses > sequential_uses,
+        "forced Inner did not exercise its granted width: sequential={sequential_uses}, inner={inner_uses}"
+    );
+}
+
+#[test]
+fn split_rejects_worker_incompatible_child_routes_before_dispatch() {
+    use core::num::NonZeroUsize;
+    use cpueinsum::{BatchPolicy, BatchStrategy};
+    // Two packed 64^3 jobs whose budget-2 child wants an SPMD team. That team is
+    // available from the coordinator (so preflight passes) but not from the pool
+    // worker each Split lane runs on. The refusal must happen before dispatch,
+    // so a job in another lane can never have written first.
+    let jobs = [
+        GroupedGemmJob::new(0, 0, 0, 64, 64, 64),
+        GroupedGemmJob::new(0, 0, 4096, 64, 64, 64),
+    ];
+    let plan = GroupedPlan::<f64>::new(&jobs, &PlanConfig::packed()).unwrap();
+    let lhs = vec![1.0; 2 * 4096];
+    let rhs = vec![1.0; 2 * 4096];
+    let mut out = vec![77.0; 2 * 4096];
+    let thread_pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(4)
+        .build()
+        .unwrap();
+    let pool = cpueinsum::Pool::borrow(&thread_pool);
+    let exec = Exec::rayon(&pool)
+        .with_budget(4)
+        .unwrap()
+        .with_batch_policy(BatchPolicy::new(BatchStrategy::Split {
+            lanes: NonZeroUsize::new(2).unwrap(),
+        }));
+    pool.reset_stats();
+    assert!(plan.execute_into(&exec, 1.0, &lhs, &rhs, &mut out).is_err());
+    assert_eq!(
+        pool.stats().entries,
+        0,
+        "a worker-incompatible child route must be refused before dispatch"
+    );
+}
