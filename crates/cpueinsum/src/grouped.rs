@@ -485,7 +485,7 @@ impl<T: Scalar> GroupedPlan<T> {
         }
         let child_exec = exec
             .workspace()
-            .map_or(Exec::Serial, Exec::serial_with_workspace);
+            .map_or(Exec::serial(), Exec::serial_with_workspace);
         let source = if accumulate && beta != T::default() {
             SliceAccumulationSource::Output
         } else {

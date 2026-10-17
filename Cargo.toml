@@ -15,22 +15,22 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/tensor4all/cpueinsum-rs"
 
 [workspace.dependencies]
-# tcontract #73 adds a persistent wrapper for the host's selected shared Rayon pool
-# atop #71/#72's caller-owned resources and safe prepared output boundary (the
-# tprims-to-tcontract rename landed in tcontract-rs#108).
-# strided 0.5.x and tcontract 0.2.3: the view metadata change reaches this
-# crate's public API, so the pins move together. tcontract 0.2.4 takes
-# strided-basic 0.5.4 and its strided crates
-# from crates.io, so the strided pins here come from crates.io too (one
-# StridedView type); strided-view stays =0.5.0 to match tlinalg 0.2.0.
-tcontract = { git = "https://github.com/tensor4all/tcontract-rs.git", rev = "4b2b964005f6b668716edf7072e38ab564a7f204", version = "=0.2.4" }
-tcontract-exec = { git = "https://github.com/tensor4all/tcontract-rs.git", rev = "4b2b964005f6b668716edf7072e38ab564a7f204", version = "=0.2.4" }
-strided-view = "=0.5.0"
-strided-perm = "=0.5.0"
+# The 0.3.0 chain: tcontract and its executor/capi crates share one batch lane
+# policy (#123) and the allocation-free raw API (#121). As AGENTS.md requires,
+# the tcontract crates stay git dependencies at the 0.3.0 release revision so
+# the executor handle types are one source across the stack; their strided deps
+# come from crates.io.
+tcontract = { git = "https://github.com/tensor4all/tcontract-rs.git", rev = "3239c86de62262586854c9dc4fc18095b00916df", version = "=0.3.0" }
+tcontract-exec = { git = "https://github.com/tensor4all/tcontract-rs.git", rev = "3239c86de62262586854c9dc4fc18095b00916df", version = "=0.3.0" }
+# One strided release train (basic/view/perm): cpueinsum-blas compiles
+# `strided_basic::CopyPlan` for its packing; the view metadata must be one
+# `StridedView` type across the stack.
+strided-basic = { version = "=0.6.0", default-features = false }
+strided-view = "=0.6.0"
+strided-perm = "=0.6.0"
 cpueinsum = { version = "=0.2.4", path = "crates/cpueinsum" }
-# publish = false, so this is a git-only dependency, at the same revision as the
-# tcontract pins above (the executor handle types must be one source).
-tcontract-capi = { git = "https://github.com/tensor4all/tcontract-rs.git", rev = "4b2b964005f6b668716edf7072e38ab564a7f204" }
+# publish = false: a git-only dependency at the same 0.3.0 revision as above.
+tcontract-capi = { git = "https://github.com/tensor4all/tcontract-rs.git", rev = "3239c86de62262586854c9dc4fc18095b00916df" }
 # CBLAS declarations only; a provider is linked by the final binary
 # (blas-src, or any crate that links a CBLAS library).
 cblas-sys = "0.1"

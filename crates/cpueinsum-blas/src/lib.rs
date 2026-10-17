@@ -213,7 +213,7 @@ fn check(
 }
 
 /// Copy `src` (strides `outer`, from `origin`) into its packed form.
-fn pack_in<T: Copy>(
+fn pack_in<T: Copy + 'static>(
     p: &Pack,
     src: &[T],
     origin: isize,
