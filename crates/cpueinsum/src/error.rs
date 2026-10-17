@@ -29,6 +29,14 @@ pub enum Error {
         /// The backend's error.
         source: crate::BackendError,
     },
+    /// Too little caller-owned intermediate arena for the plan.
+    #[error("intermediate arena of {have} elements, {needed} needed")]
+    Workspace {
+        /// Elements the plan needs.
+        needed: usize,
+        /// Elements supplied.
+        have: usize,
+    },
 }
 
 /// An invalid einsum description.

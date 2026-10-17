@@ -9,13 +9,16 @@
 //! Batch axes are looped over, never fused.
 
 use cpueinsum::tcontract::api::{is_injective_layout, OperandId, Problem, RoleAxis};
+use strided_basic::CopyPlan;
 
 use crate::ffi::{BlasScalar, Gemm, Trans};
 
 /// A copy between an operand and its packed form in work space.
 ///
-/// Axes are in the packed (column-major) order.
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// Axes are in the packed (column-major) order. The two [`CopyPlan`]s are
+/// compiled once here, at plan time, so execution replays borrowed raw views
+/// instead of rebuilding an HPTT plan per call.
+#[derive(Clone, Debug)]
 pub(crate) struct Pack {
     /// Start in the step's work space.
     pub(crate) offset: usize,
@@ -26,10 +29,16 @@ pub(crate) struct Pack {
     pub(crate) outer: Vec<isize>,
     /// Strides in work space (column-major).
     pub(crate) inner: Vec<isize>,
+    /// Operand -> packed work space; only the input packs carry it, because the
+    /// output pack is only ever read back.
+    pub(crate) to_packed: Option<CopyPlan>,
+    /// Packed work space -> operand, for the output write-back; only the
+    /// output pack carries it, because an input operand need not be injective.
+    pub(crate) from_packed: Option<CopyPlan>,
 }
 
 /// Where the GEMM finds one of its three matrices.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug)]
 pub(crate) struct Side {
     /// The step operand it comes from (A, B or D).
     pub(crate) from: OperandId,
@@ -40,7 +49,7 @@ pub(crate) struct Side {
 }
 
 /// A step taken by [`Blas`](crate::Blas): one GEMM per batch item.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug)]
 pub struct BlasStep {
     pub(crate) gemm: Gemm,
     pub(crate) left: Side,
@@ -209,10 +218,16 @@ struct Work {
 impl Work {
     /// A column-major pack of `axes` (`(extent, stride in the operand)`, the
     /// matrix's axes first), and the strides of the batch axes in it.
+    ///
+    /// `reverse` compiles the packed -> operand plan as well, for the output
+    /// write-back. Input packs leave it `None`: an input operand need not be
+    /// injective, so only the operand -> packed direction is guaranteed to
+    /// compile.
     fn pack(
         &mut self,
         axes: Vec<(usize, isize)>,
         h: &[(usize, isize)],
+        reverse: bool,
     ) -> Option<(Pack, Vec<isize>)> {
         let mut dims = Vec::with_capacity(axes.len() + h.len());
         let mut outer = Vec::with_capacity(dims.capacity());
@@ -231,12 +246,25 @@ impl Work {
         }
         let offset = self.len;
         self.len = self.len.checked_add(s)?;
+        let to_packed = if reverse {
+            // The output pack is only read back, never packed forward.
+            None
+        } else {
+            Some(CopyPlan::compile(&dims, &inner, &outer).ok()?)
+        };
+        let from_packed = if reverse {
+            Some(CopyPlan::compile(&dims, &outer, &inner).ok()?)
+        } else {
+            None
+        };
         let pack = Pack {
             offset,
             len: s,
             dims,
             outer,
             inner,
+            to_packed,
+            from_packed,
         };
         Some((pack, hs))
     }
@@ -279,7 +307,7 @@ fn input(
             rows.extent.max(1),
         )
     };
-    let (pack, hs) = work.pack(axes, &hax)?;
+    let (pack, hs) = work.pack(axes, &hax, false)?;
     let side = Side {
         from: o,
         pack: Some(pack),
@@ -369,7 +397,7 @@ fn plan_impl<T: BlasScalar>(p: &Problem, allow_output_c: bool) -> Option<BlasSte
         (true, out, ld)
     } else {
         let hax: Vec<_> = h.iter().map(|x| (x.extent(), x.stride(D))).collect();
-        let (pack, hs) = work.pack(m.axes(D).chain(n.axes(D)).collect(), &hax)?;
+        let (pack, hs) = work.pack(m.axes(D).chain(n.axes(D)).collect(), &hax, true)?;
         let out = Side {
             from: D,
             pack: Some(pack),

@@ -4,7 +4,7 @@ use core::mem::MaybeUninit;
 
 use cpueinsum::tcontract::api::{CSpec, OperandId, Problem};
 use cpueinsum::tcontract::{ExecutionRoute as NativeRoute, PlanConfig, SliceAccumulationSource};
-use cpueinsum::Exec;
+use cpueinsum::{BatchStrategy, Exec};
 
 use crate::{BlasError, BlasScalar, BlasStep, Side};
 
@@ -109,6 +109,13 @@ impl<T: BlasScalar> BinaryPlan<T> {
         d: (&mut [T], isize),
         work: &mut [T],
     ) -> Result<ExecutionRoute, BlasError> {
+        // A forced whole-batch vendor route is never available here: this is a
+        // per-job GEMM loop, not one vendor call. Refuse it before the
+        // vendor/native shortcut, so a nonzero alpha cannot slip through the loop
+        // while alpha zero is refused by the native alternative.
+        if let BatchStrategy::WholeBatchVendor = exec.batch_policy().strategy {
+            return Err(BlasError::StrategyUnavailable);
+        }
         let Some(plan) = self.vendor.as_ref().filter(|_| alpha != T::default()) else {
             return self
                 .native
@@ -140,6 +147,9 @@ impl<T: BlasScalar> BinaryPlan<T> {
         d: (&'d mut [MaybeUninit<T>], isize),
         work: &mut [T],
     ) -> Result<(&'d mut [T], ExecutionRoute), BlasError> {
+        if let BatchStrategy::WholeBatchVendor = exec.batch_policy().strategy {
+            return Err(BlasError::StrategyUnavailable);
+        }
         let Some(plan) = self.vendor.as_ref().filter(|_| alpha != T::default()) else {
             return self
                 .native

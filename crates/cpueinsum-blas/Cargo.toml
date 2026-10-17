@@ -1,18 +1,18 @@
 [package]
 name = "cpueinsum-blas"
-version = "0.2.4"
+version = "0.3.0"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
-# cpueinsum 0.2.0 is on crates.io, so this crate publishes now.
+# cpueinsum 0.3.0 is released with it, so this crate publishes now.
 description = "A CBLAS step backend for cpueinsum: binary steps on the linked BLAS"
 
 [dependencies]
 cblas-sys = { workspace = true }
 cpueinsum = { workspace = true }
 num-complex = { workspace = true }
-strided-perm = { workspace = true }
+strided-basic = { workspace = true }
 strided-view = { workspace = true }
 thiserror = { workspace = true }
 
@@ -28,6 +28,10 @@ openblas-src = { workspace = true, features = ["cblas", "system"] }
 rand = { workspace = true }
 rand_chacha = { workspace = true }
 rayon = { workspace = true }
+
+[[bench]]
+name = "overhead_smoke"
+harness = false
 
 [lints]
 workspace = true

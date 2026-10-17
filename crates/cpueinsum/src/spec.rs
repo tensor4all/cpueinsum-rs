@@ -2,6 +2,33 @@
 
 use crate::error::{Result, SpecError};
 
+/// A borrowed einsum description.
+///
+/// This is the shape [`EinsumPlan::compile`](crate::EinsumPlan::compile) takes:
+/// the caller keeps ownership of the labels and the order, and the plan copies
+/// them once at compile time. [`EinsumSpec`] stays the owning form for a caller
+/// that builds the description once and keeps it.
+///
+/// # Examples
+///
+/// ```
+/// use cpueinsum::{EinsumPlan, EinsumSpecRef, Layout};
+/// let inputs: &[&[i64]] = &[&[0, 1], &[1, 2]];
+/// let spec = EinsumSpecRef { inputs, output: &[0, 2], path: &[[0, 1]] };
+/// let cm = Layout::new(&[2, 2], &[1, 2]).unwrap();
+/// let plan = EinsumPlan::<f64>::compile(spec, &[cm, cm], cm, Default::default(), &Default::default()).unwrap();
+/// assert_eq!(plan.steps(), 1);
+/// ```
+#[derive(Clone, Copy, Debug)]
+pub struct EinsumSpecRef<'a> {
+    /// Labels of each input.
+    pub inputs: &'a [&'a [i64]],
+    /// Labels of the output.
+    pub output: &'a [i64],
+    /// The contraction order in SSA form.
+    pub path: &'a [[usize; 2]],
+}
+
 /// Integer labels of every input and of the output, and the order in which the
 /// inputs are contracted.
 ///

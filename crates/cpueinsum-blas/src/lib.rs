@@ -49,7 +49,7 @@ mod prepared;
 
 use cpueinsum::tcontract::api::{OperandId, Problem};
 use cpueinsum::{BackendError, Exec, StepBackend};
-use strided_view::{StridedView, StridedViewMut};
+use strided_view::{RawStridedMut, RawStridedRef};
 
 pub use ffi::BlasScalar;
 pub use grouped::{GroupedPlan, GroupedRoute};
@@ -143,6 +143,15 @@ pub enum BlasError {
     /// Fresh output storage is not exactly covered by the prepared output domain.
     #[error("fresh output requires exact physical coverage without gaps or padding")]
     FreshCoverage,
+    /// A forced whole-batch vendor route this backend cannot provide.
+    ///
+    /// The grouped BLAS route is a coordinator loop of one CBLAS GEMM per job,
+    /// not the single vendor call `WholeBatchVendor` describes, so it reports
+    /// `vendor_batch = false` and refuses the forced route before any write.
+    #[error(
+        "forced whole-batch vendor is unavailable: the grouped BLAS route is a per-job GEMM loop"
+    )]
+    StrategyUnavailable,
     /// An operand slice does not hold the elements the step addresses.
     #[error("operand {operand} addresses elements outside its slice")]
     OutOfBounds {
@@ -212,8 +221,9 @@ fn check(
     }
 }
 
-/// Copy `src` (strides `outer`, from `origin`) into its packed form.
-fn pack_in<T: Copy>(
+/// Copy `src` (strides `outer`, from `origin`) into its packed form, replaying
+/// the [`CopyPlan`](strided_basic::CopyPlan) compiled at plan time.
+fn pack_in<T: BlasScalar>(
     p: &Pack,
     src: &[T],
     origin: isize,
@@ -221,10 +231,15 @@ fn pack_in<T: Copy>(
     operand: OperandId,
 ) -> Result<(), BlasError> {
     let err = |source| BlasError::Pack { operand, source };
-    let s = StridedView::<T>::new(src, &p.dims, &p.outer, origin).map_err(err)?;
-    let mut w = StridedViewMut::new(&mut work[p.offset..p.offset + p.len], &p.dims, &p.inner, 0)
-        .map_err(err)?;
-    strided_perm::copy_into(&mut w, &s).map_err(err)
+    let s = RawStridedRef::<T>::new(src, &p.dims, &p.outer, origin).map_err(err)?;
+    let mut w =
+        RawStridedMut::<T>::new(&mut work[p.offset..p.offset + p.len], &p.dims, &p.inner, 0)
+            .map_err(err)?;
+    p.to_packed
+        .as_ref()
+        .expect("an input pack compiles the operand-to-packed plan")
+        .execute(&mut w, &s)
+        .map_err(err)
 }
 
 fn run<T: BlasScalar>(
@@ -274,10 +289,17 @@ fn run<T: BlasScalar>(
 
     if let Some(p) = &step.out.pack {
         let err = |source| BlasError::Pack { operand: D, source };
-        let s = StridedView::<T>::new(&work[p.offset..p.offset + p.len], &p.dims, &p.inner, 0)
+        // The opposite direction to the input packs: packed work space back
+        // into the strided operand. The plan was compiled for the output pack
+        // only, where the operand is injective.
+        let s = RawStridedRef::<T>::new(&work[p.offset..p.offset + p.len], &p.dims, &p.inner, 0)
             .map_err(err)?;
-        let mut o = StridedViewMut::new(dslice, &p.dims, &p.outer, dorigin).map_err(err)?;
-        strided_perm::copy_into(&mut o, &s).map_err(err)?;
+        let mut o = RawStridedMut::<T>::new(dslice, &p.dims, &p.outer, dorigin).map_err(err)?;
+        p.from_packed
+            .as_ref()
+            .expect("the output pack compiles the write-back plan")
+            .execute(&mut o, &s)
+            .map_err(err)?;
     }
     Ok(())
 }
@@ -294,8 +316,11 @@ fn gemms<T: BlasScalar>(
     let g = &step.gemm;
     let (ha, hb, hd) = (&step.left.h, &step.right.h, &step.out.h);
     let rank = step.h.len();
-    // Odometer over the batch axes.
-    let mut idx = vec![0usize; rank];
+    // Odometer over the batch axes. `AxisVec` is inline through
+    // `strided_view::INLINE_RANK` (8) axes and spills above, so the planner's
+    // dynamic batch rank is not capped at eight and the common case does not
+    // allocate.
+    let mut idx: strided_view::AxisVec = (0..rank).map(|_| 0usize).collect();
     let (mut oa, mut ob, mut od) = (0isize, 0isize, 0isize);
     let items = step.batch_items;
 

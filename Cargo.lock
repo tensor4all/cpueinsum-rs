@@ -126,7 +126,7 @@ checksum = "4e7648175b45a9a48536d676f68d918270699102aa8dab5496df06904c914600"
 
 [[package]]
 name = "cpueinsum"
-version = "0.2.4"
+version = "0.3.0"
 dependencies = [
  "num-complex",
  "rand",
@@ -140,7 +140,7 @@ dependencies = [
 
 [[package]]
 name = "cpueinsum-bench"
-version = "0.2.4"
+version = "0.3.0"
 dependencies = [
  "cpueinsum",
  "num-complex",
@@ -149,7 +149,7 @@ dependencies = [
 
 [[package]]
 name = "cpueinsum-blas"
-version = "0.2.4"
+version = "0.3.0"
 dependencies = [
  "blas-src",
  "cblas-sys",
@@ -159,14 +159,14 @@ dependencies = [
  "rand",
  "rand_chacha",
  "rayon",
- "strided-perm",
+ "strided-basic",
  "strided-view",
  "thiserror 1.0.69",
 ]
 
 [[package]]
 name = "cpueinsum-capi"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "cpueinsum",
  "num-complex",
@@ -1196,34 +1196,35 @@ dependencies = [
 
 [[package]]
 name = "strided-basic"
-version = "0.5.4"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cee653e92971b79791eacc08580f099d64ddde3fe124f2122b0c4e92d2cbb1d2"
+checksum = "3be6bcd77df92dafe92bec863b100b0e8a80fe4a636f9851d896641b4700db64"
 dependencies = [
  "num-complex",
  "num-traits",
  "rayon",
- "smallvec",
  "strided-perm",
  "strided-view",
+ "tinyvec",
 ]
 
 [[package]]
 name = "strided-perm"
-version = "0.5.0"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d725621c0f6b770cb95e52f71dc8c733b16ccff606b053b6bdefda2efdf14670"
+checksum = "724fa2fe7e48f162f7cae5ed1b9beca17a2eefdc7ecadfe0354170f93922087c"
 dependencies = [
  "rayon",
  "strided-view",
  "thiserror 1.0.69",
+ "tinyvec",
 ]
 
 [[package]]
 name = "strided-traits"
-version = "0.5.0"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8ecd7739b22992f432a78f4b40410bd807954f0ffe7ba5ec527f1890cb910280"
+checksum = "50459313ee40ab577f84e490320988dd47586776b2efb989668e4c9d0830bc4e"
 dependencies = [
  "num-complex",
  "num-traits",
@@ -1231,14 +1232,15 @@ dependencies = [
 
 [[package]]
 name = "strided-view"
-version = "0.5.0"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e205924e7789cae356b4e4b33e90852ad33f8399e24e3306293a8803c18dc169"
+checksum = "4dc4c6d2efe67712642c648a4e0ff75f2c1db1b191e512520cec681f332f9d0d"
 dependencies = [
  "num-complex",
  "num-traits",
  "strided-traits",
  "thiserror 1.0.69",
+ "tinyvec",
 ]
 
 [[package]]
@@ -1307,22 +1309,24 @@ dependencies = [
 
 [[package]]
 name = "tcontract"
-version = "0.2.4"
-source = "git+https://github.com/tensor4all/tcontract-rs.git?rev=4b2b964005f6b668716edf7072e38ab564a7f204#4b2b964005f6b668716edf7072e38ab564a7f204"
+version = "0.3.0"
+source = "git+https://github.com/tensor4all/tcontract-rs.git?rev=3239c86de62262586854c9dc4fc18095b00916df#3239c86de62262586854c9dc4fc18095b00916df"
 dependencies = [
  "faer",
  "num-complex",
+ "num-traits",
  "strided-basic",
  "strided-view",
  "tcontract-exec",
  "tcontract-kernel",
  "thiserror 1.0.69",
+ "tinyvec",
 ]
 
 [[package]]
 name = "tcontract-capi"
 version = "0.1.0"
-source = "git+https://github.com/tensor4all/tcontract-rs.git?rev=4b2b964005f6b668716edf7072e38ab564a7f204#4b2b964005f6b668716edf7072e38ab564a7f204"
+source = "git+https://github.com/tensor4all/tcontract-rs.git?rev=3239c86de62262586854c9dc4fc18095b00916df#3239c86de62262586854c9dc4fc18095b00916df"
 dependencies = [
  "num-complex",
  "rayon",
@@ -1333,8 +1337,8 @@ dependencies = [
 
 [[package]]
 name = "tcontract-exec"
-version = "0.2.4"
-source = "git+https://github.com/tensor4all/tcontract-rs.git?rev=4b2b964005f6b668716edf7072e38ab564a7f204#4b2b964005f6b668716edf7072e38ab564a7f204"
+version = "0.3.0"
+source = "git+https://github.com/tensor4all/tcontract-rs.git?rev=3239c86de62262586854c9dc4fc18095b00916df#3239c86de62262586854c9dc4fc18095b00916df"
 dependencies = [
  "rayon",
  "strided-basic",
@@ -1343,8 +1347,8 @@ dependencies = [
 
 [[package]]
 name = "tcontract-kernel"
-version = "0.2.4"
-source = "git+https://github.com/tensor4all/tcontract-rs.git?rev=4b2b964005f6b668716edf7072e38ab564a7f204#4b2b964005f6b668716edf7072e38ab564a7f204"
+version = "0.3.0"
+source = "git+https://github.com/tensor4all/tcontract-rs.git?rev=3239c86de62262586854c9dc4fc18095b00916df#3239c86de62262586854c9dc4fc18095b00916df"
 dependencies = [
  "num-complex",
 ]
@@ -1397,6 +1401,12 @@ checksum = "1ad99c4c6d32803332c548b1af0540b357b3f5fc0be8f6c6bfe8b2e6ae784070"
 dependencies = [
  "cfg-if",
 ]
+
+[[package]]
+name = "tinyvec"
+version = "1.13.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fd3ca314f692efd6c868f8408f53fe444634a845f96c028b97d35f6a1f79f0ee"
 
 [[package]]
 name = "tracing"

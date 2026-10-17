@@ -59,19 +59,25 @@ algorithm. Neither binary nor grouped plans retain executors or data buffers.
 
 [`GroupedPlan`](crates/cpueinsum/src/grouped.rs) prepares heterogeneous compact
 column-major jobs over shared flat buffers. It checks every job before writing,
-rejects overlapping output ranges, and uses one bounded outer scheduler with
-serial children. Grouped output is initialized; output holes stay unchanged.
-Serial callers can retain `ArenaProvider`, and parallel callers retain `Pool`.
+rejects overlapping output ranges, and resolves its scheduler from the caller's
+`Exec` batch policy: `Auto` keeps the historical lane decision, a forced
+`Sequential`/`Outer`/`Inner`/`Split` is honored (clamped to the items and the
+budget, never silently downgraded), and a forced `WholeBatchVendor` is refused
+before anything is written because this route has no single vendor batch call.
+Children run with the decided item width. Grouped output is initialized; output
+holes stay unchanged. Serial callers can retain `ArenaProvider`, and parallel
+callers retain `Pool`.
 
 The shared-input overwrite/accumulation example lives in
 [`GroupedPlan`'s executable rustdoc](crates/cpueinsum/src/grouped.rs), checked
 with `cargo test -p cpueinsum --doc`; there is no duplicate snippet to drift.
 
 See the [design and boundary constraints](docs/design/2026-10-06-prepared-binary-and-grouped.md).
-Grouped dispatch currently allocates borrow-only job metadata (one item vector,
-and one lane vector for parallel execution); it creates no per-job arena, view
-metadata, or product buffer. This is not an allocation-free boundary or a
-measured speedup claim.
+Grouped dispatch allocates no per-job metadata: the serial route drives the jobs
+by index and the parallel route gives each lane a contiguous job range with its
+own output chunk. A `tests/alloc_free.rs` gate holds zero Rust-owned allocations
+on the warmed serial steady state, and the parallel bound is parameterized by
+the decided lane count, never by the batch size.
 
 ## BLAS
 
@@ -113,14 +119,34 @@ Element types: `f32`, `f64`, `Complex<f32>`, `Complex<f64>`. Strides may be
 arbitrary, including negative; a label repeated within an input selects a
 diagonal.
 
+## 0.3 changes
+
+The 0.3.0 release tracks tcontract 0.3.0 and strided 0.6.0. Breaking changes:
+
+- `cpueinsum::Exec` now carries a tcontract-exec `BatchPolicy`; force a
+  scheduler with `Exec::with_batch_policy(BatchPolicy::new(BatchStrategy::…))`.
+  `BatchPolicy`/`BatchQuery`/`BatchDecision` are re-exported from `cpueinsum`.
+- `GroupedRoute` gained `Inner { threads }` and `Split { lanes, item_threads }`.
+- `EinsumPlan`, `BinaryPlan` and `GroupedPlan` expose `workspace_len()` (the
+  intermediate/backend element arena) and `native_workspace_req()` (the native
+  tcontract `WorkspaceReq`, folded component-wise over the steps).
+- `EinsumSpecRef` and `EinsumPlan::compile` plan from a borrowed description;
+  `EinsumPlan::execute_bounded` replays from a caller `Workspace` and arena and
+  refuses a short one before writing.
+- `cpueinsum-blas` compiles `strided_basic::CopyPlan` for packing and no longer
+depends on `strided-perm`, so its workspace layout is plan-time metadata.
+
+See [`docs/worklogs/2026-10-18-cpueinsum-0.3.md`](docs/worklogs/2026-10-18-cpueinsum-0.3.md)
+for the recorded measurements and the allocation/overhead gates.
+
 ## Status
 
 Early. The plan, layering and gates are in
 [tensor4all/tcontract-rs#62](https://github.com/tensor4all/tcontract-rs/issues/62);
 the BLAS backend in
 [tensor4all/cpueinsum-rs#1](https://github.com/tensor4all/cpueinsum-rs/issues/1).
-Not published to crates.io; tcontract is a git dependency at a pinned rev.
-MSRV 1.89.
+The 0.3.0 release is prepared; the tcontract crates are git dependencies at a
+pinned rev. MSRV 1.89.
 
 ## License
 

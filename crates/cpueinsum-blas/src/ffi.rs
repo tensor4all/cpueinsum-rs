@@ -64,7 +64,7 @@ mod sealed {
 /// assert!(!<f64 as BlasScalar>::COMPLEX);
 /// assert!(<num_complex::Complex32 as BlasScalar>::COMPLEX);
 /// ```
-pub trait BlasScalar: cpueinsum::Scalar + sealed::Sealed {
+pub trait BlasScalar: cpueinsum::Scalar + sealed::Sealed + 'static {
     /// Whether conjugation changes a value (for a real type it is ignored).
     const COMPLEX: bool;
 

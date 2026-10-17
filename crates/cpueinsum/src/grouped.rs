@@ -7,8 +7,11 @@
 use std::sync::Mutex;
 
 use tcontract::api::{CSpec, Labels, LayoutSpec, Op, OperandSpec, Problem};
-use tcontract::{OutputContract, Plan, PlanConfig, SliceAccumulationSource, NS_PER_FLOP};
-use tcontract_exec::{Exec, WidthPolicy};
+use tcontract::{
+    ExecutionRoute, OutputContract, PackedRoute, Plan, PlanConfig, SliceAccumulationSource,
+    NS_PER_FLOP,
+};
+use tcontract_exec::{BatchPolicy, BatchQuery, BatchStrategy, Exec, ExecError, WorkspaceReq};
 
 use crate::{Error, Result, Scalar};
 
@@ -138,8 +141,10 @@ impl std::fmt::Display for GroupedOperand {
 
 /// The scheduler route selected for a grouped execution.
 ///
-/// `Outer` is the only parallel route: each child contraction is forced to a
-/// serial tcontract context and receives the outer context's reusable workspace.
+/// The route is resolved from the caller's [`Exec`] batch policy before any
+/// write: `Auto` keeps the legacy `width_for` decision, and a forced strategy
+/// is honored or refused up front. [`GroupedRoute::Outer`], `Inner` and `Split`
+/// report how many outer lanes and how many threads per item actually ran.
 ///
 /// # Examples
 ///
@@ -148,12 +153,24 @@ impl std::fmt::Display for GroupedOperand {
 pub enum GroupedRoute {
     /// There were no jobs.
     Empty,
-    /// All jobs ran on the calling thread.
+    /// All jobs ran on the calling thread, one thread per item.
     Serial,
-    /// Jobs were partitioned among this many outer lanes.
+    /// Jobs were partitioned among this many outer lanes, each item serial.
     Outer {
         /// Number of outer lanes.
         lanes: usize,
+    },
+    /// One outer lane, with `threads` threads granted to each item.
+    Inner {
+        /// Threads granted to each item.
+        threads: usize,
+    },
+    /// Jobs were partitioned among `lanes`, each item on `item_threads`.
+    Split {
+        /// Number of outer lanes.
+        lanes: usize,
+        /// Threads granted to each item.
+        item_threads: usize,
     },
 }
 
@@ -203,6 +220,7 @@ pub struct GroupedPlan<T: Scalar> {
     required_rhs: usize,
     required_out: usize,
     work: u128,
+    max_job_work: u128,
 }
 
 impl<T: Scalar> GroupedPlan<T> {
@@ -268,6 +286,7 @@ impl<T: Scalar> GroupedPlan<T> {
         let mut required_rhs = 0;
         let mut required_out = 0;
         let mut work = 0u128;
+        let mut max_job_work = 0u128;
 
         for (id, &job) in jobs.iter().enumerate() {
             let lhs_len = checked_product(id, job.rows, job.contracted, "lhs size")?;
@@ -302,6 +321,7 @@ impl<T: Scalar> GroupedPlan<T> {
                     what: "total work",
                 })
             })?;
+            max_job_work = max_job_work.max(job_work);
 
             isize_dim(id, job.rows, "rows")?;
             isize_dim(id, job.contracted, "contracted")?;
@@ -364,6 +384,7 @@ impl<T: Scalar> GroupedPlan<T> {
             required_rhs,
             required_out,
             work,
+            max_job_work,
         })
     }
 
@@ -383,6 +404,40 @@ impl<T: Scalar> GroupedPlan<T> {
     /// See [`Self::new`] for a runnable example.
     pub fn required_out_len(&self) -> usize {
         self.required_out
+    }
+
+    /// Elements of the caller-owned intermediate arena this grouped plan needs.
+    ///
+    /// A grouped plan keeps no cpueinsum intermediate: each job is one tcontract
+    /// plan that runs from the executor's workspace. This is therefore zero, and
+    /// the native requirement is separate and component-wise; see
+    /// [`native_workspace_req`](Self::native_workspace_req).
+    pub fn workspace_len(&self) -> usize {
+        0
+    }
+
+    /// The component-wise workspace the jobs' native plans need on `exec` for an
+    /// `output` storage contract, folded field by field with a maximum.
+    ///
+    /// This is a conservative bound on the outer `exec`; each job also runs on
+    /// the child context [`GroupedPlan::execute_into`] derives (one thread per
+    /// item under `Auto`), so callers that size a
+    /// [`Workspace`](tcontract_exec::Workspace) directly should use the item
+    /// width the chosen policy grants. See
+    /// [`EinsumPlan::native_workspace_req`](crate::EinsumPlan::native_workspace_req)
+    /// for the workspace-preparation contract.
+    pub fn native_workspace_req(&self, exec: &Exec<'_>, output: OutputContract) -> WorkspaceReq {
+        let mut req = WorkspaceReq::default();
+        for job in &self.jobs {
+            let r = job.plan.workspace_req(exec, output);
+            req.a_bytes = req.a_bytes.max(r.a_bytes);
+            req.tile_bytes = req.tile_bytes.max(r.tile_bytes);
+            req.worker_scatter = req.worker_scatter.max(r.worker_scatter);
+            req.b_bytes = req.b_bytes.max(r.b_bytes);
+            req.team_scatter = req.team_scatter.max(r.team_scatter);
+            req.barriers = req.barriers.max(r.barriers);
+        }
+        req
     }
 
     /// Overwrite all jobs with `alpha * A B`, reading no previous output.
@@ -460,6 +515,13 @@ impl<T: Scalar> GroupedPlan<T> {
         accumulate: bool,
         out: &mut [T],
     ) -> Result<GroupedRoute> {
+        // Resolve the route first, before bounds checks, the empty shortcut or
+        // any write: a forced `WholeBatchVendor` is refused here (this route has
+        // no single vendor batch call) and the outer width is fixed before the
+        // children run.
+        let (lanes, item_threads) = self.lane_decision(exec)?;
+        let child_exec = child_context(exec, item_threads)?;
+
         for job in &self.jobs {
             check_bounds(
                 job.meta.id,
@@ -483,88 +545,143 @@ impl<T: Scalar> GroupedPlan<T> {
                 out.len(),
             )?;
         }
-        let child_exec = exec
-            .workspace()
-            .map_or(Exec::Serial, Exec::serial_with_workspace);
         let source = if accumulate && beta != T::default() {
             SliceAccumulationSource::Output
         } else {
             SliceAccumulationSource::Absent
         };
         for job in &self.jobs {
-            job.plan
+            let route = job
+                .plan
                 .execution_route(&child_exec, alpha, OutputContract::Initialized)
                 .map_err(|source| Error::Contract {
                     step: job.meta.id,
                     source,
                 })?;
+            // A multi-lane dispatch runs each child on a pool worker, where a
+            // packed SPMD team (a pool broadcast) is unavailable. The coordinator
+            // preflight above resolves it as available; refuse it here, before any
+            // lane writes, rather than letting it fail mid-dispatch after another
+            // lane may already have written.
+            if lanes > 1 {
+                if let ExecutionRoute::Packed {
+                    kind: PackedRoute::Spmd,
+                    ..
+                } = route
+                {
+                    return Err(Error::Contract {
+                        step: job.meta.id,
+                        source: ExecError::Unavailable.into(),
+                    });
+                }
+            }
         }
 
         if self.jobs.is_empty() {
             return Ok(GroupedRoute::Empty);
         }
-        let serial_ns =
-            2.0 * self.work as f64 * NS_PER_FLOP * if T::IS_COMPLEX { 4.0 } else { 1.0 };
-        let lanes = exec
-            .width_for(serial_ns, &WidthPolicy::default())
-            .min(exec.budget())
-            .min(self.jobs.len())
-            .max(1);
-        let route = if lanes == 1 {
-            GroupedRoute::Serial
-        } else {
-            GroupedRoute::Outer { lanes }
-        };
-
-        let mut items = Vec::with_capacity(self.jobs.len());
-        let mut cursor = 0usize;
-        let mut remaining = out;
-        for job in &self.jobs {
-            let d = if job.meta.out_len == 0 {
-                &mut [][..]
-            } else {
-                let start = job.meta.out_offset;
-                let end = start + job.meta.out_len;
-                let current = core::mem::take(&mut remaining);
-                let (_, rest) = current.split_at_mut(start - cursor);
-                let (slice, tail) = rest.split_at_mut(end - start);
-                remaining = tail;
-                cursor = end;
-                slice
-            };
-            items.push(JobItem {
-                id: job.meta.id,
-                plan: &job.plan,
-                lhs: &lhs[job.meta.lhs_offset..job.meta.lhs_offset + job.meta.lhs_len],
-                rhs: &rhs[job.meta.rhs_offset..job.meta.rhs_offset + job.meta.rhs_len],
-                out: d,
-            });
-        }
+        let route = grouped_route(lanes, item_threads);
 
         if lanes == 1 {
-            for item in &mut items {
-                run_item(item, &child_exec, alpha, beta, source)?;
+            // Serial: drive the jobs by index and carve each output slice in
+            // turn. Nothing is collected, so this path allocates none of its
+            // own (tcontract's own workspace aside).
+            let mut cursor = 0usize;
+            let mut remaining: &mut [T] = out;
+            for job in &self.jobs {
+                let d = if job.meta.out_len == 0 {
+                    &mut [][..]
+                } else {
+                    let start = job.meta.out_offset;
+                    let end = start + job.meta.out_len;
+                    let current = core::mem::take(&mut remaining);
+                    let (_, rest) = current.split_at_mut(start - cursor);
+                    let (slice, tail) = rest.split_at_mut(end - start);
+                    remaining = tail;
+                    cursor = end;
+                    slice
+                };
+                let mut item = JobItem {
+                    id: job.meta.id,
+                    plan: &job.plan,
+                    lhs: &lhs[job.meta.lhs_offset..job.meta.lhs_offset + job.meta.lhs_len],
+                    rhs: &rhs[job.meta.rhs_offset..job.meta.rhs_offset + job.meta.rhs_len],
+                    out: d,
+                };
+                run_item(&mut item, &child_exec, alpha, beta, source)?;
             }
             return Ok(route);
         }
 
-        let item_count = items.len();
-        let mut remaining_items = items.as_mut_slice();
-        let mut lane_items = Vec::with_capacity(lanes);
+        // Parallel: one contiguous job range per lane, each owning the output
+        // chunk that covers its jobs' ranges. Only `lanes` (already clamped to
+        // the budget) chunks are collected -- never one slot per job, and no
+        // Mutex per lane either, since each lane holds its own range.
+        //
+        // Boundaries are monotone even though empty jobs sort last and may carry
+        // a smaller offset: an empty job contributes no output, so it must never
+        // pull a boundary back and leave an earlier non-empty job without room.
+        let item_count = self.jobs.len();
+        let lane_range = |lane: usize| {
+            let base = item_count / lanes;
+            let rem = item_count % lanes;
+            let lo = lane * base + lane.min(rem);
+            (lo, lo + base + usize::from(lane < rem))
+        };
+        let mut lane_chunks = Vec::with_capacity(lanes);
+        let out_len = out.len();
+        let mut remaining: &mut [T] = out;
+        let mut cursor = 0usize;
         for lane in 0..lanes {
-            let count = item_count / lanes + usize::from(lane < item_count % lanes);
-            let current = core::mem::take(&mut remaining_items);
-            let (part, tail) = current.split_at_mut(count);
-            remaining_items = tail;
-            lane_items.push(Mutex::new(part));
+            let (lo, hi) = lane_range(lane);
+            // End of this lane's chunk: the furthest non-empty output end among
+            // its jobs, never before the previous boundary. Empty jobs add
+            // nothing, so a lane at or after the transition to empty jobs gets an
+            // empty chunk.
+            let mut end = cursor;
+            for job in &self.jobs[lo..hi] {
+                if job.meta.out_len != 0 {
+                    end = end.max(job.meta.out_offset + job.meta.out_len);
+                }
+            }
+            if lane + 1 == lanes {
+                end = out_len;
+            }
+            let current = core::mem::take(&mut remaining);
+            let (chunk, tail) = current.split_at_mut(end - cursor);
+            remaining = tail;
+            lane_chunks.push(Mutex::new((cursor, chunk)));
+            cursor = end;
         }
         let failure = Mutex::new(None);
         exec.for_each_partition(lanes, &|lane| {
-            let mut jobs = lane_items[lane]
+            let (lo, hi) = lane_range(lane);
+            let mut guard = lane_chunks[lane]
                 .lock()
                 .unwrap_or_else(|poison| poison.into_inner());
-            for item in jobs.iter_mut() {
-                if let Err(error) = run_item(item, &child_exec, alpha, beta, source) {
+            let (base_offset, chunk) = &mut *guard;
+            let base_offset = *base_offset;
+            let mut lane_cursor = 0usize;
+            for job in &self.jobs[lo..hi] {
+                let d = if job.meta.out_len == 0 {
+                    &mut [][..]
+                } else {
+                    let start = job.meta.out_offset - base_offset;
+                    let current = core::mem::take(chunk);
+                    let (_, rest) = current.split_at_mut(start - lane_cursor);
+                    let (slice, tail) = rest.split_at_mut(job.meta.out_len);
+                    *chunk = tail;
+                    lane_cursor = start + job.meta.out_len;
+                    slice
+                };
+                let mut item = JobItem {
+                    id: job.meta.id,
+                    plan: &job.plan,
+                    lhs: &lhs[job.meta.lhs_offset..job.meta.lhs_offset + job.meta.lhs_len],
+                    rhs: &rhs[job.meta.rhs_offset..job.meta.rhs_offset + job.meta.rhs_len],
+                    out: d,
+                };
+                if let Err(error) = run_item(&mut item, &child_exec, alpha, beta, source) {
                     let mut first = failure.lock().unwrap_or_else(|poison| poison.into_inner());
                     if first.is_none() {
                         *first = Some(error);
@@ -576,6 +693,85 @@ impl<T: Scalar> GroupedPlan<T> {
             .into_inner()
             .unwrap_or_else(|poison| poison.into_inner())
             .map_or(Ok(route), Err)
+    }
+
+    /// Resolve `(lanes, item_threads)` from the caller's batch policy.
+    ///
+    /// `Auto` keeps this route's historical decision exactly -- the total
+    /// estimated work narrowed through the Exec's [`WidthPolicy`](tcontract_exec::WidthPolicy),
+    /// clamped to the budget and the job count -- because neither the shared
+    /// generic `Auto` formula (which fans two tiny scalar jobs onto two lanes)
+    /// nor the packed balanced-lanes rule (which adds a near-even restriction
+    /// here absent) reproduces it. The `WidthPolicy` still comes from the Exec,
+    /// so a caller can configure it.
+    ///
+    /// Every forced strategy goes through [`Exec::batch_decision`] on the
+    /// original host budget, which clamps but never falls back; a forced
+    /// `WholeBatchVendor` is refused because this route has no single vendor
+    /// batch call.
+    fn lane_decision(&self, exec: &Exec<'_>) -> Result<(usize, usize)> {
+        if let BatchStrategy::Auto = exec.batch_policy().strategy {
+            let serial_ns =
+                2.0 * self.work as f64 * NS_PER_FLOP * if T::IS_COMPLEX { 4.0 } else { 1.0 };
+            let lanes = exec
+                .width_for(serial_ns, &exec.batch_policy().model.width)
+                .min(exec.budget())
+                .min(self.jobs.len())
+                .max(1);
+            return Ok((lanes, 1));
+        }
+        let query = BatchQuery::new(self.jobs.len(), self.max_job_work as f64)
+            .with_item_parallel(true)
+            .with_vendor_batch(false);
+        let decision = exec
+            .batch_decision(&query)
+            .map_err(|source| Error::Contract {
+                step: 0,
+                source: source.into(),
+            })?;
+        Ok((decision.lanes, decision.item_threads))
+    }
+}
+
+/// The child context every item of a grouped execution runs on.
+///
+/// With one thread per item this is the historical serial context that borrows
+/// the caller's workspace, so `Auto` (item-serial) is byte-for-byte what it was.
+/// A forced strategy that grants item threads gets a child bounded to that width
+/// on the caller's pool, with its own policy forced to [`BatchStrategy::Inner`]
+/// so the granted width is actually executed: a reset to `Auto` would let a
+/// small item fall back below the Auto threshold and run serially while the
+/// route still reported several threads.
+fn child_context<'a>(exec: &Exec<'a>, item_threads: usize) -> Result<Exec<'a>> {
+    if item_threads <= 1 {
+        return Ok(exec
+            .workspace()
+            .map_or(Exec::serial(), Exec::serial_with_workspace));
+    }
+    let child = exec
+        .with_budget(item_threads)
+        .map_err(|source| Error::Contract {
+            step: 0,
+            source: source.into(),
+        })?;
+    Ok(child.with_batch_policy(BatchPolicy::new(BatchStrategy::Inner)))
+}
+
+/// The route a resolved `(lanes, item_threads)` pair describes.
+fn grouped_route(lanes: usize, item_threads: usize) -> GroupedRoute {
+    if lanes > 1 && item_threads > 1 {
+        GroupedRoute::Split {
+            lanes,
+            item_threads,
+        }
+    } else if lanes > 1 {
+        GroupedRoute::Outer { lanes }
+    } else if item_threads > 1 {
+        GroupedRoute::Inner {
+            threads: item_threads,
+        }
+    } else {
+        GroupedRoute::Serial
     }
 }
 
