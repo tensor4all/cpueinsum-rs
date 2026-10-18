@@ -27,15 +27,21 @@ The N-ary driver needs one fact it cannot infer: whether a step is such a loop.
 `StepBackend` gained the defaulted `vendor_loop(step)` (default `false`, so the
 addition is non-breaking and an existing backend keeps serving every policy).
 For a step that reports it, planning keeps the tcontract alternative beside the
-backend step; execution resolves the route once per plan before the first write
-(so a refusal writes nothing) and picks the backend or that alternative. The
-alternative's `WorkspaceReq` joins `native_workspace_req` only under a policy
-that routes to it, so an `Auto` caller pays no extra workspace.
+backend step, and the plan resolves every step's admission once, after the shape
+check and before `Scratch::reserve` and the first step: a refusal therefore
+never follows a written intermediate, output or scratch element, and a refusal
+that arrives from a later step still stops the plan before step 0 runs. Dispatch
+then picks the backend or its alternative once per step. The alternative's
+`WorkspaceReq` joins `native_workspace_req` only under a policy that routes to
+it, so an `Auto` caller pays no extra workspace.
 
-Planning both routes costs one tcontract plan per such step and leaves
-execution branch-only and allocation-free. The alternative is built from the
-same `Problem` and `PlanConfig` as an all-tcontract plan, so a forced lane
-strategy reproduces that plan bitwise.
+Planning both routes costs one tcontract plan per such step (plan-time memory
+for that step's problem, retained for the plan's life). Execution is
+branch-only: the admission resolves each native step's route once per call,
+which is what tcontract's own execution does anyway, and the N-ary element
+arena is unchanged. The alternative is built from the same `Problem` and
+`PlanConfig` as an all-tcontract plan, so a forced lane strategy reproduces that
+plan bitwise.
 
 ## Verification
 
@@ -51,10 +57,20 @@ compares native against the sequential vendor run bitwise on integer-valued
 operands. The grouped tests are unchanged and stay green.
 
 Both defect reproductions fail with the old behavior (driver routing disabled,
-or `vendor_loop_route` replaced by `true`), and pass with the fix.
+or `vendor_loop_route` replaced by `true`), and pass with the fix. The
+plan-wide admission has its own reproducers: removing it leaves `Scratch` grown
+by a refused plan, accepts a forced whole-batch vendor route on an empty batch
+whose steps are all native, accepts a native `Split` refusal at the second step
+of a packed chain, and lets the refusal follow an earlier backend step.
 
 ## Constraints
 
-No version bump and no publication in this change; a release PR follows.
-BLAS stays confined to `cpueinsum-blas`, and `cpueinsum` still needs no C
-toolchain (`cargo tree -p cpueinsum`).
+No version bump and no publication in this change; the patch release is a
+follow-up release PR. BLAS stays confined to `cpueinsum-blas`, and `cpueinsum`
+still needs no C toolchain (`cargo tree -p cpueinsum`).
+
+One known ceiling is upstream: tcontract's initialized Faer route, given more
+than one lane, runs each item with `faer::Par::Seq` and discards the decided
+item threads, so a forced `Split { lanes, .. }` can be served by serial lanes
+there instead of being refused. That is a tcontract defect (pinned `3239c86`,
+`strategy/faer.rs`), fixed in tcontract rather than worked around here.

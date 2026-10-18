@@ -89,9 +89,23 @@ three different ways.
 The batch policy is an `Exec` property, so it is resolved at execution, not at
 planning: a `StepBackend` step declares the same serial-loop shape with the
 defaulted `StepBackend::vendor_loop`, and the N-ary driver keeps the tcontract
-alternative planned beside every such step. A forced lane strategy then runs
-that alternative (bitwise the all-tcontract route), and the driver refuses a
-forced whole-batch vendor route before the first step of the plan. For a step
-that is not such a loop (the default), the backend serves every policy and no
-alternative is planned. A backend step contributes the alternative's
-`WorkspaceReq` to `native_workspace_req` only under a policy that routes to it.
+alternative planned beside every such step. The plan then resolves **every**
+step's admission in one pass, after view validation and before the element arena
+is reserved and before the first step: backend steps through the shared rule,
+and every native step — including the alternative a forced lane strategy selects
+— through its own `Plan::execution_route`, which refuses a forced whole-batch
+vendor route before its empty-output shortcut and a forced lane strategy the
+native route cannot honour (tcontract's packed driver rejects lanes *and* item
+threads). A refusal therefore never follows a written intermediate, output or
+scratch element, and a refusal that originates in a later step still stops the
+plan before step 0 runs. A backend step that is not such a loop (the default)
+serves every policy and needs no native admission. A backend step contributes
+the alternative's `WorkspaceReq` to `native_workspace_req` only under a policy
+that routes to it.
+
+That admission costs one route resolution per native step per execution, which
+is what tcontract's own execution already does; it adds no element-arena
+workspace. It does not close one upstream gap: tcontract's initialized Faer
+route, given more than one lane, discards the decided item threads instead of
+refusing, so a forced `Split` can end up as serial lanes there. That belongs to
+tcontract (pinned `3239c86`, `strategy/faer.rs`), not to a workaround here.

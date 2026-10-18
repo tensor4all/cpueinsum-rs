@@ -119,7 +119,9 @@ all of them resolve the caller's `Exec` batch policy with the same rule
 `WholeBatchVendor` is refused before any write because no route here is one
 whole-batch call. A `StepBackend` declares such a loop with
 `StepBackend::vendor_loop`, so the same rule reaches binary steps of an N-ary
-`EinsumPlan`.
+`EinsumPlan`, whose plan-wide admission resolves every step — backend or native,
+including the native alternative a forced lane strategy selects — after view
+validation and before the arena grows or the first step runs.
 
 The default backend, `Tcontract`, takes no step, so `EinsumPlan<T>` runs exactly
 as without backends.
