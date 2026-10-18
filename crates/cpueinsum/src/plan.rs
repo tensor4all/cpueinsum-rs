@@ -5,6 +5,7 @@ use tcontract::{OutputContract, Plan, PlanConfig};
 use tcontract_exec::{Exec, Workspace, WorkspaceReq};
 
 use crate::backend::{StepBackend, Tcontract};
+use crate::batch::VendorLoopRoute;
 use crate::binary::step_problem;
 use crate::error::{Error, Result, ShapeError};
 use crate::layout::Layout;
@@ -65,8 +66,14 @@ enum Kernel<T: Scalar, S> {
     /// tcontract.
     Tcontract(Plan<T>),
     /// The plan's backend, with the step's work space (an intermediate slot
-    /// live only at this step).
-    Backend { step: S, work: Option<usize> },
+    /// live only at this step) and, for a step the backend runs as a serial
+    /// loop of per-item calls, the tcontract alternative that a forced lane
+    /// strategy runs instead.
+    Backend {
+        step: S,
+        work: Option<usize>,
+        native: Option<Plan<T>>,
+    },
 }
 
 #[derive(Debug)]
@@ -329,6 +336,19 @@ impl<T: Scalar, B: StepBackend<T>> EinsumPlan<T, B> {
                     .map(Kernel::Tcontract)
                     .map_err(|source| Error::Contract { step, source });
             };
+            // The batch policy is an executor property resolved at execution,
+            // so a step the backend runs as a serial per-item loop keeps its
+            // tcontract alternative ready: a forced lane strategy runs that
+            // instead of the loop. Planning both costs one plan per such step
+            // and keeps execution branch-only.
+            let native = if B::vendor_loop(&s) {
+                Some(
+                    Plan::<T>::from_problem(problem, config)
+                        .map_err(|source| Error::Contract { step, source })?,
+                )
+            } else {
+                None
+            };
             let len = B::work_len(&s);
             let work = (len > 0).then(|| {
                 let offset = first_fit(temps, last_use, step, len);
@@ -342,7 +362,11 @@ impl<T: Scalar, B: StepBackend<T>> EinsumPlan<T, B> {
                 *scratch_len = (*scratch_len).max(offset + len);
                 temps.len() - 1
             });
-            Ok(Kernel::Backend { step: s, work })
+            Ok(Kernel::Backend {
+                step: s,
+                work,
+                native,
+            })
         };
 
         if n == 1 {
@@ -470,15 +494,26 @@ impl<T: Scalar, B: StepBackend<T>> EinsumPlan<T, B> {
     /// is folded field by field with a maximum: the steps run one after another,
     /// so their arenas are reused, and a large A block of one step must not stand
     /// in for a missing B panel of another. A backend step runs from the element
-    /// arena and contributes nothing here. The result is a conservative bound:
+    /// arena and contributes nothing here, except the tcontract alternative a
+    /// forced lane strategy runs under `exec`'s policy, which contributes what a
+    /// native step of the same problem would. The result is a conservative bound:
     /// prepare a [`Workspace`](tcontract_exec::Workspace) with it and warm every
     /// worker the executor may use (`Workspace::prepare_for`) before executing
     /// through [`Exec::serial_with_workspace`] or a pool, or tcontract grows the
     /// arena on first use.
     pub fn native_workspace_req(&self, exec: &Exec<'_>, output: OutputContract) -> WorkspaceReq {
         let mut req = WorkspaceReq::default();
+        let forced_lanes = matches!(
+            VendorLoopRoute::resolve(exec.batch_policy().strategy),
+            Ok(VendorLoopRoute::Native)
+        );
         for step in &self.steps {
-            if let Kernel::Tcontract(plan) = &step.kernel {
+            let native = match &step.kernel {
+                Kernel::Tcontract(plan) => Some(plan),
+                Kernel::Backend { native, .. } if forced_lanes => native.as_ref(),
+                Kernel::Backend { .. } => None,
+            };
+            if let Some(plan) = native {
                 let r = plan.workspace_req(exec, output);
                 req.a_bytes = req.a_bytes.max(r.a_bytes);
                 req.tile_bytes = req.tile_bytes.max(r.tile_bytes);
@@ -497,6 +532,12 @@ impl<T: Scalar, B: StepBackend<T>> EinsumPlan<T, B> {
     }
 
     /// Number of steps the backend took (the rest run on tcontract).
+    ///
+    /// This is the planning-time split. A step the backend runs as a serial loop
+    /// of per-item calls reports that through
+    /// [`StepBackend::vendor_loop`](crate::StepBackend::vendor_loop), so the
+    /// executor's batch policy may still run its tcontract alternative: a forced
+    /// lane strategy does, without changing this count.
     pub fn backend_steps(&self) -> usize {
         self.steps
             .iter()
@@ -520,7 +561,12 @@ impl<T: Scalar, B: StepBackend<T>> EinsumPlan<T, B> {
     /// [`ShapeError::InputCount`] or [`ShapeError::Mismatch`] when the views
     /// differ from the layouts the plan was built for (nothing is written);
     /// [`Error::Contract`] or [`Error::Backend`] when a lower layer fails a
-    /// step.
+    /// step. Every step's batch-policy admission is resolved after the shape
+    /// check and before the scratch buffer grows or any step runs: a forced
+    /// [`WholeBatchVendor`](crate::BatchStrategy::WholeBatchVendor) and a forced
+    /// lane strategy a native route cannot honour are refused as
+    /// [`Error::Contract`] there, so no intermediate, output or scratch element
+    /// is written first.
     pub fn execute_into(
         &self,
         exec: &Exec<'_>,
@@ -529,6 +575,7 @@ impl<T: Scalar, B: StepBackend<T>> EinsumPlan<T, B> {
         scratch: &mut Scratch<T>,
     ) -> Result<()> {
         self.check_shapes(inputs, out)?;
+        self.admit(exec)?;
         let buf = scratch.reserve(self.scratch_len);
         self.run_steps(exec, inputs, out, buf)
     }
@@ -547,9 +594,13 @@ impl<T: Scalar, B: StepBackend<T>> EinsumPlan<T, B> {
     ///
     /// # Errors
     ///
-    /// [`ShapeError`] for views that do not match the plan, [`Error::Workspace`]
-    /// for a short arena, [`Error::Contract`] for a short native workspace or a
-    /// lower-layer failure, and [`Error::Backend`] for a backend step.
+    /// [`ShapeError`] for views that do not match the plan, [`Error::Contract`]
+    /// for a refused batch policy or a native workspace that does not cover the
+    /// requirement, [`Error::Workspace`] for a short arena, and
+    /// [`Error::Backend`] for a backend step. The batch-policy admission runs
+    /// right after the shape check (see
+    /// [`execute_into`](Self::execute_into)), so a refusal precedes the arena and
+    /// workspace checks and nothing is written.
     pub fn execute_bounded(
         &self,
         workspace: &Workspace,
@@ -558,13 +609,14 @@ impl<T: Scalar, B: StepBackend<T>> EinsumPlan<T, B> {
         work: &mut [T],
     ) -> Result<()> {
         self.check_shapes(inputs, out)?;
+        let exec = Exec::serial_with_workspace(workspace.as_provider());
+        self.admit(&exec)?;
         if work.len() < self.scratch_len {
             return Err(Error::Workspace {
                 needed: self.scratch_len,
                 have: work.len(),
             });
         }
-        let exec = Exec::serial_with_workspace(workspace.as_provider());
         let required = self.native_workspace_req(&exec, OutputContract::Initialized);
         if !required.covered_by(workspace.req()) || workspace.slots() < 1 {
             return Err(Error::Contract {
@@ -649,11 +701,81 @@ impl<T: Scalar, B: StepBackend<T>> EinsumPlan<T, B> {
                 Kernel::Tcontract(plan) => plan
                     .execute_slices(exec, T::ONE, a, b, d)
                     .map_err(|source| Error::Contract { step: k, source })?,
-                Kernel::Backend { step: s, .. } => self
-                    .backend
-                    .execute(s, exec, a, b, d, wbuf.unwrap_or_default())
-                    .map_err(|source| Error::Backend { step: k, source })?,
+                Kernel::Backend {
+                    step: s, native, ..
+                } => match self.backend_route(k, s, exec)? {
+                    VendorLoopRoute::Loop => self
+                        .backend
+                        .execute(s, exec, a, b, d, wbuf.unwrap_or_default())
+                        .map_err(|source| Error::Backend { step: k, source })?,
+                    VendorLoopRoute::Native => native
+                        .as_ref()
+                        // INVARIANT: `native` is planned exactly for the steps
+                        // `vendor_loop` reports, which is also the only way the
+                        // route resolves to `Native`.
+                        .expect("a vendor-loop step plans its native alternative")
+                        .execute_slices(exec, T::ONE, a, b, d)
+                        .map_err(|source| Error::Contract { step: k, source })?,
+                },
             }
+        }
+        Ok(())
+    }
+
+    /// The route of the backend step `step`, resolved before any write.
+    ///
+    /// A step that is a serial loop of per-item calls is subject to the shared
+    /// [`VendorLoopRoute`] rule, so a forced lane strategy runs its tcontract
+    /// alternative and a forced whole-batch vendor route is refused typed. A
+    /// step that resolves the batch policy itself runs on the backend under
+    /// every policy.
+    fn backend_route(&self, k: usize, step: &B::Step, exec: &Exec<'_>) -> Result<VendorLoopRoute> {
+        if !B::vendor_loop(step) {
+            return Ok(VendorLoopRoute::Loop);
+        }
+        VendorLoopRoute::resolve(exec.batch_policy().strategy).map_err(|source| Error::Contract {
+            step: k,
+            source: source.into(),
+        })
+    }
+
+    /// Resolve every step's batch-policy admission under `exec`, writing nothing.
+    ///
+    /// A plan resolves its whole route before the first step, so a refusal can
+    /// never follow a partially written intermediate or output:
+    ///
+    /// * a backend step that is a serial loop of per-item calls yields to the
+    ///   shared [`VendorLoopRoute`] rule, whose `WholeBatchVendor` refusal is the
+    ///   typed `ExecError::StrategyUnavailable`;
+    /// * every native step, and every backend step the policy routes to its
+    ///   tcontract alternative, resolves
+    ///   [`Plan::execution_route`](tcontract::Plan::execution_route) for the same
+    ///   initialized contract and overwrite scale execution uses, which refuses a
+    ///   forced whole-batch vendor route before its empty-output shortcut and a
+    ///   forced lane strategy the native route cannot honour (tcontract's packed
+    ///   driver rejects lanes *and* item threads) before any write.
+    ///
+    /// A backend step that resolves the batch policy itself (the default of
+    /// [`StepBackend::vendor_loop`](crate::StepBackend::vendor_loop)) needs no
+    /// native admission and keeps running.
+    fn admit(&self, exec: &Exec<'_>) -> Result<()> {
+        for (k, step) in self.steps.iter().enumerate() {
+            let native = match &step.kernel {
+                Kernel::Tcontract(plan) => plan,
+                Kernel::Backend {
+                    step: s, native, ..
+                } => match self.backend_route(k, s, exec)? {
+                    VendorLoopRoute::Loop => continue,
+                    // INVARIANT: `native` is planned exactly for the steps
+                    // `vendor_loop` reports, the only way to route to `Native`.
+                    VendorLoopRoute::Native => native
+                        .as_ref()
+                        .expect("a vendor-loop step plans its native alternative"),
+                },
+            };
+            native
+                .execution_route(exec, T::ONE, OutputContract::Initialized)
+                .map_err(|source| Error::Contract { step: k, source })?;
         }
         Ok(())
     }

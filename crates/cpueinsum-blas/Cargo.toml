@@ -28,6 +28,9 @@ openblas-src = { workspace = true, features = ["cblas", "system"] }
 rand = { workspace = true }
 rand_chacha = { workspace = true }
 rayon = { workspace = true }
+# Naming the typed execution refusal the N-ary route reports; the library itself
+# depends on cpueinsum only.
+tcontract-exec = { workspace = true }
 
 [[bench]]
 name = "overhead_smoke"

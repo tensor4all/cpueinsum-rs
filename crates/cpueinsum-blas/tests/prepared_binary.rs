@@ -344,3 +344,235 @@ fn prepared_binary_refuses_forced_whole_batch_vendor_before_shortcuts() {
         assert!(matches!(error, BlasError::StrategyUnavailable), "{error:?}");
     }
 }
+
+/// `d[i, j, b] = sum_k a[i, k, b] b[k, j, b]` with the batch label at extent 0:
+/// a batch of no items, so no vendor step is prepared at all.
+fn empty_batch_problem() -> Problem {
+    fn op(dims: &[usize], strides: &[isize]) -> OperandSpec {
+        OperandSpec::new(LayoutSpec::new(dims, strides, 0).unwrap())
+    }
+    Problem::from_labels(
+        cpueinsum::tcontract::api::DType::F64,
+        op(&[2, 3, 0], &[1, 2, 6]),
+        op(&[3, 2, 0], &[1, 3, 6]),
+        CSpec::Absent,
+        op(&[2, 2, 0], &[1, 2, 4]),
+        &Labels::new(&[0, 1, 2], &[1, 3, 2], &[0, 3, 2]),
+    )
+    .unwrap()
+}
+
+#[test]
+fn forced_lane_strategies_use_the_native_route() {
+    use core::num::NonZeroUsize;
+    use cpueinsum::{BatchPolicy, BatchStrategy};
+    // A prepared binary route is a per-item GEMM loop: `Auto` and `Sequential`
+    // keep it, and a forced lane strategy that grants outer lanes or item
+    // threads runs the prepared native alternative instead. Integer-valued
+    // operands keep every route's arithmetic exact, so the routes are
+    // comparable bitwise.
+    let plan = BinaryPlan::<f64>::new(
+        &problem::<f64>([false; 3], CSpec::Absent, &[1, 2]),
+        &PlanConfig::default(),
+    )
+    .unwrap();
+    let a: Vec<f64> = (0..6).map(|i| (i % 5) as f64 - 2.0).collect();
+    let b: Vec<f64> = (0..6).map(|i| (i % 3) as f64 - 1.0).collect();
+    let thread_pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(4)
+        .build()
+        .unwrap();
+    let pool = cpueinsum::Pool::borrow(&thread_pool);
+
+    // Sequential is exactly one serial coordinator, so the loop serves it.
+    let mut vendor = [0.0; 4];
+    assert_eq!(
+        plan.execute_slices_accum(
+            &Exec::serial(),
+            2.0,
+            (&a, 0),
+            (&b, 0),
+            0.0,
+            SliceAccumulationSource::Absent,
+            (&mut vendor, 0),
+            &mut [],
+        )
+        .unwrap(),
+        ExecutionRoute::Vendor
+    );
+    let mut vendor_fresh = [MaybeUninit::uninit(); 4];
+    let (vendor_fresh, route) = plan
+        .execute_uninit_slices(
+            &Exec::serial(),
+            2.0,
+            (&a, 0),
+            (&b, 0),
+            0.0,
+            SliceAccumulationSource::Absent,
+            (&mut vendor_fresh, 0),
+            &mut [],
+        )
+        .unwrap();
+    assert_eq!(route, ExecutionRoute::Vendor);
+    assert_eq!(vendor_fresh, vendor);
+
+    // `Sequential` is the same serial coordinator, so the loop keeps it too.
+    let sequential =
+        Exec::rayon(&pool).with_batch_policy(BatchPolicy::new(BatchStrategy::Sequential));
+    let mut kept = [f64::NAN; 4];
+    assert_eq!(
+        plan.execute_slices_accum(
+            &sequential,
+            2.0,
+            (&a, 0),
+            (&b, 0),
+            0.0,
+            SliceAccumulationSource::Absent,
+            (&mut kept, 0),
+            &mut vec![0.0; plan.work_len()],
+        )
+        .unwrap(),
+        ExecutionRoute::Vendor
+    );
+    assert_eq!(kept, vendor);
+
+    for strategy in [
+        BatchStrategy::Outer,
+        BatchStrategy::Inner,
+        BatchStrategy::Split {
+            lanes: NonZeroUsize::new(2).unwrap(),
+        },
+    ] {
+        let exec = Exec::rayon(&pool)
+            .with_budget(4)
+            .unwrap()
+            .with_batch_policy(BatchPolicy::new(strategy));
+        let mut native = [f64::NAN; 4];
+        let route = plan
+            .execute_slices_accum(
+                &exec,
+                2.0,
+                (&a, 0),
+                (&b, 0),
+                0.0,
+                SliceAccumulationSource::Absent,
+                (&mut native, 0),
+                &mut vec![0.0; plan.work_len()],
+            )
+            .unwrap();
+        assert!(
+            matches!(route, ExecutionRoute::Native(_)),
+            "{strategy:?} -> {route:?}"
+        );
+        assert_eq!(native, vendor, "{strategy:?}");
+
+        let mut fresh = [MaybeUninit::uninit(); 4];
+        let (native_fresh, route) = plan
+            .execute_uninit_slices(
+                &exec,
+                2.0,
+                (&a, 0),
+                (&b, 0),
+                0.0,
+                SliceAccumulationSource::Absent,
+                (&mut fresh, 0),
+                &mut vec![0.0; plan.work_len()],
+            )
+            .unwrap();
+        assert!(
+            matches!(route, ExecutionRoute::Native(_)),
+            "{strategy:?} -> {route:?}"
+        );
+        assert_eq!(native_fresh, vendor, "{strategy:?}");
+
+        // Alpha zero reads no operand value, so it is the native alternative's
+        // job under every strategy; it stays so under a forced lane route.
+        let mut zero = [f64::NAN; 4];
+        let route = plan
+            .execute_slices_accum(
+                &exec,
+                0.0,
+                (&a, 0),
+                (&b, 0),
+                0.0,
+                SliceAccumulationSource::Absent,
+                (&mut zero, 0),
+                &mut vec![0.0; plan.work_len()],
+            )
+            .unwrap();
+        assert!(
+            matches!(route, ExecutionRoute::Native(_)),
+            "{strategy:?} -> {route:?}"
+        );
+        assert_eq!(zero, [0.0; 4], "{strategy:?}");
+    }
+}
+
+#[test]
+fn empty_batch_is_served_by_the_native_route_under_every_strategy() {
+    use cpueinsum::{BatchPolicy, BatchStrategy};
+    // No batch item exists, so no vendor step is prepared: every strategy runs
+    // the native alternative, which reports the empty route, and a forced
+    // whole-batch vendor route is still refused before any write.
+    let plan = BinaryPlan::<f64>::new(&empty_batch_problem(), &PlanConfig::default()).unwrap();
+    assert_eq!(plan.work_len(), 0);
+    let thread_pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(4)
+        .build()
+        .unwrap();
+    let pool = cpueinsum::Pool::borrow(&thread_pool);
+    for strategy in [
+        BatchStrategy::Auto,
+        BatchStrategy::Sequential,
+        BatchStrategy::Outer,
+        BatchStrategy::Inner,
+        BatchStrategy::WholeBatchVendor,
+    ] {
+        let exec = Exec::rayon(&pool)
+            .with_budget(4)
+            .unwrap()
+            .with_batch_policy(BatchPolicy::new(strategy));
+        for alpha in [1.0, 0.0] {
+            let mut out = [77.0; 4];
+            let mut fresh = [MaybeUninit::uninit(); 4];
+            let accum = plan.execute_slices_accum(
+                &exec,
+                alpha,
+                (&[], 0),
+                (&[], 0),
+                0.0,
+                SliceAccumulationSource::Absent,
+                (&mut out, 0),
+                &mut [],
+            );
+            let uninit = plan.execute_uninit_slices(
+                &exec,
+                alpha,
+                (&[], 0),
+                (&[], 0),
+                0.0,
+                SliceAccumulationSource::Absent,
+                (&mut fresh, 0),
+                &mut [],
+            );
+            if let BatchStrategy::WholeBatchVendor = strategy {
+                assert!(matches!(accum, Err(BlasError::StrategyUnavailable)));
+                assert!(matches!(uninit, Err(BlasError::StrategyUnavailable)));
+                assert_eq!(out, [77.0; 4], "{strategy:?} alpha={alpha}");
+            } else {
+                assert!(
+                    matches!(accum.unwrap(), ExecutionRoute::Native(_)),
+                    "{strategy:?} alpha={alpha}"
+                );
+                // A zero-length fresh output has no physical coverage to prove,
+                // so the native alternative refuses it before writing.
+                assert!(
+                    matches!(uninit, Err(BlasError::Native { .. })),
+                    "{strategy:?} alpha={alpha}"
+                );
+                // Nothing addresses the output, so the empty route leaves it.
+                assert_eq!(out, [77.0; 4], "{strategy:?} alpha={alpha}");
+            }
+        }
+    }
+}

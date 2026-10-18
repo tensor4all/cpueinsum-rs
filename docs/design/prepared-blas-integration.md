@@ -72,3 +72,40 @@ remote revision; no merge or publication is authorized. Independent
 pre-review required concrete preflight/full-write contracts and accepted this
 owning-layer direction; independent post-review must cover the finished diff.
 No speedup or allocation-free claim follows from the architecture alone.
+
+## Batch policy on every BLAS route
+
+Every route here — the bare `StepBackend`, the prepared binary adapter and the
+grouped adapter — is a serial loop of one library call per item. Such a loop has
+no outer lanes, no item threads and no whole-batch call, so all three resolve
+the caller's `BatchPolicy` with one rule, `cpueinsum::VendorLoopRoute`:
+`Auto` and `Sequential` keep the loop (the historical choice, and exactly one
+serial coordinator), a forced `Outer`/`Inner`/`Split` runs the route's tcontract
+alternative, which resolves the same policy (and can still refuse a `Split` it
+cannot honour), and a forced `WholeBatchVendor` is refused typed before any
+write. The rule lives in one place because the same policy must not resolve
+three different ways.
+
+The batch policy is an `Exec` property, so it is resolved at execution, not at
+planning: a `StepBackend` step declares the same serial-loop shape with the
+defaulted `StepBackend::vendor_loop`, and the N-ary driver keeps the tcontract
+alternative planned beside every such step. The plan then resolves **every**
+step's admission in one pass, after view validation and before the element arena
+is reserved and before the first step: backend steps through the shared rule,
+and every native step — including the alternative a forced lane strategy selects
+— through its own `Plan::execution_route`, which refuses a forced whole-batch
+vendor route before its empty-output shortcut and a forced lane strategy the
+native route cannot honour (tcontract's packed driver rejects lanes *and* item
+threads). A refusal therefore never follows a written intermediate, output or
+scratch element, and a refusal that originates in a later step still stops the
+plan before step 0 runs. A backend step that is not such a loop (the default)
+serves every policy and needs no native admission. A backend step contributes
+the alternative's `WorkspaceReq` to `native_workspace_req` only under a policy
+that routes to it.
+
+That admission costs one route resolution per native step per execution, which
+is what tcontract's own execution already does; it adds no element-arena
+workspace. It does not close one upstream gap: tcontract's initialized Faer
+route, given more than one lane, discards the decided item threads instead of
+refusing, so a forced `Split` can end up as serial lanes there. That belongs to
+tcontract (pinned `3239c86`, `strategy/faer.rs`), not to a workaround here.

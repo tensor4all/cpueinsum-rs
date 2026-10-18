@@ -4,7 +4,7 @@ use core::mem::MaybeUninit;
 
 use cpueinsum::tcontract::api::{CSpec, OperandId, Problem};
 use cpueinsum::tcontract::{ExecutionRoute as NativeRoute, PlanConfig, SliceAccumulationSource};
-use cpueinsum::{BatchStrategy, Exec};
+use cpueinsum::Exec;
 
 use crate::{BlasError, BlasScalar, BlasStep, Side};
 
@@ -91,9 +91,15 @@ impl<T: BlasScalar> BinaryPlan<T> {
 
     /// Update initialized output using prepared layouts and explicit packing storage.
     ///
+    /// The executor's batch policy resolves with
+    /// [`VendorLoopRoute`](cpueinsum::VendorLoopRoute): `Auto` and `Sequential`
+    /// keep the vendor loop, a forced `Outer`/`Inner`/`Split` uses the prepared
+    /// native alternative, and a forced `WholeBatchVendor` is refused.
+    ///
     /// # Errors
     ///
-    /// Returns [`BlasError::Native`] on a selected native failure,
+    /// Returns [`BlasError::StrategyUnavailable`] for a forced whole-batch
+    /// vendor route, [`BlasError::Native`] on a selected native failure,
     /// [`BlasError::Accumulation`] for mismatched C metadata or nonzero beta
     /// without C, [`BlasError::OutOfBounds`] for operand spans,
     /// [`BlasError::Work`] for short packing storage and [`BlasError::Pack`]
@@ -112,11 +118,14 @@ impl<T: BlasScalar> BinaryPlan<T> {
         // A forced whole-batch vendor route is never available here: this is a
         // per-job GEMM loop, not one vendor call. Refuse it before the
         // vendor/native shortcut, so a nonzero alpha cannot slip through the loop
-        // while alpha zero is refused by the native alternative.
-        if let BatchStrategy::WholeBatchVendor = exec.batch_policy().strategy {
-            return Err(BlasError::StrategyUnavailable);
-        }
-        let Some(plan) = self.vendor.as_ref().filter(|_| alpha != T::default()) else {
+        // while alpha zero is refused by the native alternative; a forced lane
+        // strategy the serial loop cannot honor goes to the native alternative.
+        let vendor_route = crate::vendor_loop_route(exec)?;
+        let Some(plan) = self
+            .vendor
+            .as_ref()
+            .filter(|_| alpha != T::default() && vendor_route)
+        else {
             return self
                 .native
                 .execute_slices_accum(exec, alpha, a, b, beta, source, d)
@@ -147,10 +156,12 @@ impl<T: BlasScalar> BinaryPlan<T> {
         d: (&'d mut [MaybeUninit<T>], isize),
         work: &mut [T],
     ) -> Result<(&'d mut [T], ExecutionRoute), BlasError> {
-        if let BatchStrategy::WholeBatchVendor = exec.batch_policy().strategy {
-            return Err(BlasError::StrategyUnavailable);
-        }
-        let Some(plan) = self.vendor.as_ref().filter(|_| alpha != T::default()) else {
+        let vendor_route = crate::vendor_loop_route(exec)?;
+        let Some(plan) = self
+            .vendor
+            .as_ref()
+            .filter(|_| alpha != T::default() && vendor_route)
+        else {
             return self
                 .native
                 .execute_uninit_slices(exec, alpha, a, b, beta, source, d)

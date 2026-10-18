@@ -44,6 +44,7 @@
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 mod backend;
+mod batch;
 mod binary;
 mod error;
 mod grouped;
@@ -54,6 +55,7 @@ mod scalar;
 mod spec;
 
 pub use backend::{BackendError, StepBackend, Tcontract};
+pub use batch::VendorLoopRoute;
 pub use binary::contract_into;
 pub use error::{Error, Result, ShapeError, SpecError};
 pub use grouped::{GroupedError, GroupedGemmJob, GroupedOperand, GroupedPlan, GroupedRoute};
