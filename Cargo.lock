@@ -126,7 +126,7 @@ checksum = "4e7648175b45a9a48536d676f68d918270699102aa8dab5496df06904c914600"
 
 [[package]]
 name = "cpueinsum"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "num-complex",
  "rand",
@@ -149,7 +149,7 @@ dependencies = [
 
 [[package]]
 name = "cpueinsum-blas"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "blas-src",
  "cblas-sys",
@@ -1310,8 +1310,8 @@ dependencies = [
 
 [[package]]
 name = "tcontract"
-version = "0.3.0"
-source = "git+https://github.com/tensor4all/tcontract-rs.git?rev=3239c86de62262586854c9dc4fc18095b00916df#3239c86de62262586854c9dc4fc18095b00916df"
+version = "0.3.1"
+source = "git+https://github.com/tensor4all/tcontract-rs.git?rev=7fef60d6408944511a6a623f922d582f4fbbc536#7fef60d6408944511a6a623f922d582f4fbbc536"
 dependencies = [
  "faer",
  "num-complex",
@@ -1327,7 +1327,7 @@ dependencies = [
 [[package]]
 name = "tcontract-capi"
 version = "0.1.0"
-source = "git+https://github.com/tensor4all/tcontract-rs.git?rev=3239c86de62262586854c9dc4fc18095b00916df#3239c86de62262586854c9dc4fc18095b00916df"
+source = "git+https://github.com/tensor4all/tcontract-rs.git?rev=7fef60d6408944511a6a623f922d582f4fbbc536#7fef60d6408944511a6a623f922d582f4fbbc536"
 dependencies = [
  "num-complex",
  "rayon",
@@ -1339,7 +1339,7 @@ dependencies = [
 [[package]]
 name = "tcontract-exec"
 version = "0.3.0"
-source = "git+https://github.com/tensor4all/tcontract-rs.git?rev=3239c86de62262586854c9dc4fc18095b00916df#3239c86de62262586854c9dc4fc18095b00916df"
+source = "git+https://github.com/tensor4all/tcontract-rs.git?rev=7fef60d6408944511a6a623f922d582f4fbbc536#7fef60d6408944511a6a623f922d582f4fbbc536"
 dependencies = [
  "rayon",
  "strided-basic",
@@ -1349,7 +1349,7 @@ dependencies = [
 [[package]]
 name = "tcontract-kernel"
 version = "0.3.0"
-source = "git+https://github.com/tensor4all/tcontract-rs.git?rev=3239c86de62262586854c9dc4fc18095b00916df#3239c86de62262586854c9dc4fc18095b00916df"
+source = "git+https://github.com/tensor4all/tcontract-rs.git?rev=7fef60d6408944511a6a623f922d582f4fbbc536#7fef60d6408944511a6a623f922d582f4fbbc536"
 dependencies = [
  "num-complex",
 ]
