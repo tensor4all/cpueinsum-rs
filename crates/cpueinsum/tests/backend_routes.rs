@@ -13,10 +13,10 @@ use std::sync::Arc;
 
 use cpueinsum::strided_view::{StridedView, StridedViewMut};
 use cpueinsum::tcontract::api::Problem;
-use cpueinsum::tcontract::{Error as ContractError, OutputContract};
+use cpueinsum::tcontract::{Error as ContractError, OutputContract, PlanConfig};
 use cpueinsum::{
-    BackendError, BatchPolicy, BatchStrategy, EinsumPlan, EinsumSpec, Error, Exec, Layout, Scratch,
-    StepBackend, VendorLoopRoute,
+    BackendError, BatchPolicy, BatchStrategy, EinsumPlan, EinsumSpec, EinsumSpecRef, Error, Exec,
+    Layout, Scratch, StepBackend, Tcontract, VendorLoopRoute,
 };
 use tcontract_exec::{ExecError, WorkspaceReq};
 
@@ -225,8 +225,11 @@ fn forced_whole_batch_vendor_is_refused_before_any_write() {
     let plan = EinsumPlan::<f64, _>::with_backend(backend, &spec, &layouts, out_layout).unwrap();
     let mut got = vec![77.0; EXT * EXT];
     let mut out = StridedViewMut::new(&mut got, &[EXT, EXT], &[1, EXT as isize], 0).unwrap();
+    // A reusable scratch: the refusal precedes `Scratch::reserve`, so the arena
+    // does not even grow to the plan's intermediate size.
+    let mut scratch = Scratch::new();
     let error = plan
-        .execute_into(&exec, &inputs, &mut out, &mut Scratch::new())
+        .execute_into(&exec, &inputs, &mut out, &mut scratch)
         .unwrap_err();
     match error {
         Error::Contract {
@@ -240,6 +243,12 @@ fn forced_whole_batch_vendor_is_refused_before_any_write() {
     }
     assert_eq!(runs.load(Ordering::Relaxed), 0);
     assert_eq!(got, [77.0; EXT * EXT]);
+    assert!(plan.scratch_len() > 0);
+    assert_eq!(
+        scratch.len(),
+        0,
+        "the scratch buffer grew before the refusal"
+    );
 }
 
 #[test]
@@ -350,4 +359,105 @@ fn an_empty_batch_resolves_the_route_the_same_way() {
             "{strategy:?}"
         );
     }
+}
+
+/// `D[i, l] = sum_{j,k} A[i, k] B[k, j] C[i, j, l]`, contracted as `(A B) C` on
+/// packed `2`-sized operands: the first step has no batch axis, the second has
+/// the batch label `i`.
+fn packed_chain() -> (
+    EinsumPlan<f64>,
+    [Layout<'static>; 3],
+    Layout<'static>,
+    [Vec<f64>; 3],
+) {
+    let inputs: &[&[i64]] = &[&[0, 1], &[1, 2], &[0, 2, 3]];
+    let spec = EinsumSpecRef {
+        inputs,
+        output: &[0, 3],
+        path: &[[0, 1], [3, 2]],
+    };
+    let cm2 = Layout::new(&[2, 2], &[1, 2]).unwrap();
+    let cm3 = Layout::new(&[2, 2, 2], &[1, 2, 4]).unwrap();
+    let plan = EinsumPlan::<f64, Tcontract>::compile(
+        spec,
+        &[cm2, cm2, cm3],
+        cm2,
+        Tcontract,
+        &PlanConfig::packed(),
+    )
+    .unwrap();
+    let data = [
+        vec![1.0, 2.0, 3.0, 4.0],
+        vec![1.0, 0.0, 0.0, 1.0],
+        vec![1.0; 8],
+    ];
+    (plan, [cm2, cm2, cm3], cm2, data)
+}
+
+#[test]
+fn a_native_alternative_that_refuses_the_split_is_admitted_before_the_first_step() {
+    // tcontract's packed driver refuses a decision with more than one lane *and*
+    // more than one item thread, and it refuses it when the second step's
+    // native plan is asked for its route. The plan resolves every step's
+    // admission before the first write, so the refusal is reported for step 1
+    // with the first step's intermediate never written and the arena never
+    // reserved.
+    let (plan, layouts, out_layout, data) = packed_chain();
+    assert_eq!(plan.steps(), 2);
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(4)
+        .build()
+        .unwrap();
+    let pool = cpueinsum::Pool::borrow(&pool);
+    let inputs: Vec<StridedView<'_, f64>> = data
+        .iter()
+        .zip([&layouts[0], &layouts[1], &layouts[2]])
+        .map(|(d, l)| StridedView::new(d, l.dims(), l.strides(), 0).unwrap())
+        .collect();
+    let split = BatchStrategy::Split {
+        lanes: NonZeroUsize::new(2).unwrap(),
+    };
+    let exec = Exec::rayon(&pool)
+        .with_budget(4)
+        .unwrap()
+        .with_batch_policy(policy(split));
+    let mut got = vec![77.0; 4];
+    let mut out =
+        StridedViewMut::new(&mut got, out_layout.dims(), out_layout.strides(), 0).unwrap();
+    let mut scratch = Scratch::new();
+    let error = plan
+        .execute_into(&exec, &inputs, &mut out, &mut scratch)
+        .unwrap_err();
+    match error {
+        Error::Contract {
+            step,
+            source: ContractError::Exec(ExecError::StrategyUnavailable { strategy }),
+        } => {
+            assert_eq!(step, 1, "the refusing step is the batched one");
+            assert_eq!(strategy, split);
+        }
+        other => panic!("{other:?}"),
+    }
+    assert_eq!(got, [77.0; 4], "the output was written before the refusal");
+    // Nothing can have run: the arena is carved out of `scratch`, which a
+    // refusal before `Scratch::reserve` never grows.
+    assert!(plan.scratch_len() > 0);
+    assert_eq!(scratch.len(), 0, "a step ran before the refusal");
+
+    // The same plan under a split the native route can honour (`lanes = 1`, item
+    // threads on the whole budget) does run, so the refusal above is the
+    // strategy's and not the plan's.
+    let exec = Exec::rayon(&pool)
+        .with_budget(4)
+        .unwrap()
+        .with_batch_policy(policy(BatchStrategy::Split {
+            lanes: NonZeroUsize::new(1).unwrap(),
+        }));
+    let mut got = vec![f64::NAN; 4];
+    let mut out =
+        StridedViewMut::new(&mut got, out_layout.dims(), out_layout.strides(), 0).unwrap();
+    plan.execute_into(&exec, &inputs, &mut out, &mut scratch)
+        .unwrap();
+    assert_eq!(got, [4.0, 6.0, 4.0, 6.0]);
+    assert_eq!(scratch.len(), plan.scratch_len());
 }

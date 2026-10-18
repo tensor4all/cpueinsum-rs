@@ -561,10 +561,12 @@ impl<T: Scalar, B: StepBackend<T>> EinsumPlan<T, B> {
     /// [`ShapeError::InputCount`] or [`ShapeError::Mismatch`] when the views
     /// differ from the layouts the plan was built for (nothing is written);
     /// [`Error::Contract`] or [`Error::Backend`] when a lower layer fails a
-    /// step. A forced [`WholeBatchVendor`](crate::BatchStrategy::WholeBatchVendor)
-    /// batch policy is refused as [`Error::Contract`] carrying tcontract's
-    /// `ExecError::StrategyUnavailable` before any step runs, when a backend step
-    /// reports a serial [`vendor_loop`](crate::StepBackend::vendor_loop).
+    /// step. Every step's batch-policy admission is resolved after the shape
+    /// check and before the scratch buffer grows or any step runs: a forced
+    /// [`WholeBatchVendor`](crate::BatchStrategy::WholeBatchVendor) and a forced
+    /// lane strategy a native route cannot honour are refused as
+    /// [`Error::Contract`] there, so no intermediate, output or scratch element
+    /// is written first.
     pub fn execute_into(
         &self,
         exec: &Exec<'_>,
@@ -573,6 +575,7 @@ impl<T: Scalar, B: StepBackend<T>> EinsumPlan<T, B> {
         scratch: &mut Scratch<T>,
     ) -> Result<()> {
         self.check_shapes(inputs, out)?;
+        self.admit(exec)?;
         let buf = scratch.reserve(self.scratch_len);
         self.run_steps(exec, inputs, out, buf)
     }
@@ -591,9 +594,13 @@ impl<T: Scalar, B: StepBackend<T>> EinsumPlan<T, B> {
     ///
     /// # Errors
     ///
-    /// [`ShapeError`] for views that do not match the plan, [`Error::Workspace`]
-    /// for a short arena, [`Error::Contract`] for a short native workspace or a
-    /// lower-layer failure, and [`Error::Backend`] for a backend step.
+    /// [`ShapeError`] for views that do not match the plan, [`Error::Contract`]
+    /// for a refused batch policy or a native workspace that does not cover the
+    /// requirement, [`Error::Workspace`] for a short arena, and
+    /// [`Error::Backend`] for a backend step. The batch-policy admission runs
+    /// right after the shape check (see
+    /// [`execute_into`](Self::execute_into)), so a refusal precedes the arena and
+    /// workspace checks and nothing is written.
     pub fn execute_bounded(
         &self,
         workspace: &Workspace,
@@ -602,13 +609,14 @@ impl<T: Scalar, B: StepBackend<T>> EinsumPlan<T, B> {
         work: &mut [T],
     ) -> Result<()> {
         self.check_shapes(inputs, out)?;
+        let exec = Exec::serial_with_workspace(workspace.as_provider());
+        self.admit(&exec)?;
         if work.len() < self.scratch_len {
             return Err(Error::Workspace {
                 needed: self.scratch_len,
                 have: work.len(),
             });
         }
-        let exec = Exec::serial_with_workspace(workspace.as_provider());
         let required = self.native_workspace_req(&exec, OutputContract::Initialized);
         if !required.covered_by(workspace.req()) || workspace.slots() < 1 {
             return Err(Error::Contract {
@@ -656,15 +664,6 @@ impl<T: Scalar, B: StepBackend<T>> EinsumPlan<T, B> {
         buf: &mut [T],
     ) -> Result<()> {
         let one = [T::ONE];
-
-        // Resolve every backend step's route before the first write: a forced
-        // whole-batch vendor route is refused typed here, so no intermediate or
-        // output is written before the refusal.
-        for (k, step) in self.steps.iter().enumerate() {
-            if let Kernel::Backend { step: s, .. } = &step.kernel {
-                self.backend_route(k, s, exec)?;
-            }
-        }
 
         // Intermediates are passed as slices of the scratch buffer, not views:
         // a view allocates its extents and strides on every construction, a
@@ -738,6 +737,47 @@ impl<T: Scalar, B: StepBackend<T>> EinsumPlan<T, B> {
             step: k,
             source: source.into(),
         })
+    }
+
+    /// Resolve every step's batch-policy admission under `exec`, writing nothing.
+    ///
+    /// A plan resolves its whole route before the first step, so a refusal can
+    /// never follow a partially written intermediate or output:
+    ///
+    /// * a backend step that is a serial loop of per-item calls yields to the
+    ///   shared [`VendorLoopRoute`] rule, whose `WholeBatchVendor` refusal is the
+    ///   typed `ExecError::StrategyUnavailable`;
+    /// * every native step, and every backend step the policy routes to its
+    ///   tcontract alternative, resolves
+    ///   [`Plan::execution_route`](tcontract::Plan::execution_route) for the same
+    ///   initialized contract and overwrite scale execution uses, which refuses a
+    ///   forced whole-batch vendor route before its empty-output shortcut and a
+    ///   forced lane strategy the native route cannot honour (tcontract's packed
+    ///   driver rejects lanes *and* item threads) before any write.
+    ///
+    /// A backend step that resolves the batch policy itself (the default of
+    /// [`StepBackend::vendor_loop`](crate::StepBackend::vendor_loop)) needs no
+    /// native admission and keeps running.
+    fn admit(&self, exec: &Exec<'_>) -> Result<()> {
+        for (k, step) in self.steps.iter().enumerate() {
+            let native = match &step.kernel {
+                Kernel::Tcontract(plan) => plan,
+                Kernel::Backend {
+                    step: s, native, ..
+                } => match self.backend_route(k, s, exec)? {
+                    VendorLoopRoute::Loop => continue,
+                    // INVARIANT: `native` is planned exactly for the steps
+                    // `vendor_loop` reports, the only way to route to `Native`.
+                    VendorLoopRoute::Native => native
+                        .as_ref()
+                        .expect("a vendor-loop step plans its native alternative"),
+                },
+            };
+            native
+                .execution_route(exec, T::ONE, OutputContract::Initialized)
+                .map_err(|source| Error::Contract { step: k, source })?;
+        }
+        Ok(())
     }
 }
 

@@ -90,7 +90,7 @@ pub trait StepBackend<T: Scalar>: Debug {
     /// beside the step, and a forced `WholeBatchVendor` is refused with
     /// [`Error::Contract`](crate::Error::Contract) carrying tcontract's
     /// `ExecError::StrategyUnavailable`. The alternative is planned only for a
-    /// step that reports `true`, and it costs no execution-time branch.
+    /// step that reports `true`, and dispatch picks between the two once per step.
     ///
     /// The default, `false`, is for a backend whose step resolves the batch
     /// policy itself (or is not a batch at all) and therefore serves every
