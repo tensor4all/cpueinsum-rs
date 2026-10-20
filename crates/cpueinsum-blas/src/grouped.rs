@@ -159,12 +159,11 @@ impl<T: BlasScalar> GroupedPlan<T> {
     /// The executor's batch policy resolves with
     /// [`VendorLoopRoute`](cpueinsum::VendorLoopRoute): `Auto` and `Sequential`
     /// keep the vendor loop, a forced `Outer`/`Inner`/`Split` uses the native
-    /// alternative, and a forced `WholeBatchVendor` is refused.
+    /// alternative.
     ///
     /// # Errors
     ///
-    /// Returns [`BlasError::StrategyUnavailable`] for a forced whole-batch
-    /// vendor route, [`BlasError::Native`] for a selected native failure, or
+    /// Returns [`BlasError::Native`] for a selected native failure, or
     /// [`BlasError::Grouped`] retaining the original job ID and vendor bounds,
     /// workspace or packing-view error. All jobs are preflighted before writes.
     pub fn execute_into_accum(
@@ -193,14 +192,12 @@ impl<T: BlasScalar> GroupedPlan<T> {
     ) -> Result<GroupedRoute, BlasError> {
         // Resolve forced-strategy admission before every shortcut and before
         // any write, with the same rule the prepared binary adapter and the
-        // N-ary BLAS backend use. This route is a coordinator loop, not one
-        // vendor batch call, so a forced `WholeBatchVendor` is refused here even
-        // when alpha is zero or the group is empty; a forced lane strategy that
-        // grants outer lanes or item threads cannot be honored by the serial
-        // loop, so it goes to the native alternative, which resolves the same
-        // policy. `Auto` keeps today's preferred vendor loop and `Sequential` is
-        // exactly one serial coordinator, so the loop serves both.
-        let vendor_route = crate::vendor_loop_route(exec)?;
+        // N-ary BLAS backend use. A forced lane strategy that grants outer lanes
+        // or item threads cannot be honored by the serial loop, so it goes to
+        // the native alternative, which resolves the same policy. `Auto` keeps
+        // today's preferred vendor loop and `Sequential` is exactly one serial
+        // coordinator, so the loop serves both.
+        let vendor_route = crate::vendor_loop_route(exec);
         let Some(jobs) = self
             .vendor
             .as_ref()

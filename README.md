@@ -62,8 +62,7 @@ column-major jobs over shared flat buffers. It checks every job before writing,
 rejects overlapping output ranges, and resolves its scheduler from the caller's
 `Exec` batch policy: `Auto` keeps the historical lane decision, a forced
 `Sequential`/`Outer`/`Inner`/`Split` is honored (clamped to the items and the
-budget, never silently downgraded), and a forced `WholeBatchVendor` is refused
-before anything is written because this route has no single vendor batch call.
+budget, never silently downgraded).
 Children run with the decided item width. Grouped output is initialized; output
 holes stay unchanged. Serial callers can retain `ArenaProvider`, and parallel
 callers retain `Pool`.
@@ -115,9 +114,8 @@ Executable examples live in the adapters' rustdoc; see the
 Every BLAS route here runs a batch as a serial loop of one call per item, and
 all of them resolve the caller's `Exec` batch policy with the same rule
 (`cpueinsum::VendorLoopRoute`): `Auto` and `Sequential` keep the loop, a forced
-`Outer`/`Inner`/`Split` runs the route's tcontract alternative, and a forced
-`WholeBatchVendor` is refused before any write because no route here is one
-whole-batch call. A `StepBackend` declares such a loop with
+`Outer`/`Inner`/`Split` runs the route's tcontract alternative. A `StepBackend`
+declares such a loop with
 `StepBackend::vendor_loop`, so the same rule reaches binary steps of an N-ary
 `EinsumPlan`, whose plan-wide admission resolves every step — backend or native,
 including the native alternative a forced lane strategy selects — after view
