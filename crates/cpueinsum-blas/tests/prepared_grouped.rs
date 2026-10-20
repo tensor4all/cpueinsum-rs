@@ -83,43 +83,6 @@ fn modes<T: Elem + BlasScalar>(tolerance: f64) {
 }
 
 #[test]
-fn forced_whole_batch_vendor_is_refused_before_any_write() {
-    use cpueinsum::{BatchPolicy, BatchStrategy};
-    let jobs = [GroupedGemmJob::new(0, 0, 0, 4, 4, 4)];
-    let plan = GroupedPlan::<f64>::new(&jobs, &PlanConfig::default()).unwrap();
-    let thread_pool = rayon::ThreadPoolBuilder::new()
-        .num_threads(2)
-        .build()
-        .unwrap();
-    let pool = cpueinsum::Pool::borrow(&thread_pool);
-    let exec = cpueinsum::Exec::rayon(&pool)
-        .with_batch_policy(BatchPolicy::new(BatchStrategy::WholeBatchVendor));
-    // Alpha nonzero, alpha zero and an empty group are all refused the same way:
-    // this route is a per-job GEMM loop, not one vendor batch call.
-    for alpha in [1.0, 0.0] {
-        let mut out = [7.0; 16];
-        let error = plan
-            .execute_into(
-                &exec,
-                alpha,
-                &[1.0; 16],
-                &[1.0; 16],
-                &mut out,
-                &mut vec![0.0; plan.work_len()],
-            )
-            .unwrap_err();
-        assert!(matches!(error, BlasError::StrategyUnavailable));
-        assert!(out.iter().all(|&x| x == 7.0));
-    }
-    let empty: [GroupedGemmJob; 0] = [];
-    let plan = GroupedPlan::<f64>::new(&empty, &PlanConfig::default()).unwrap();
-    assert!(matches!(
-        plan.execute_into(&exec, 1.0, &[], &[], &mut [], &mut []),
-        Err(BlasError::StrategyUnavailable)
-    ));
-}
-
-#[test]
 fn auto_keeps_the_vendor_loop_and_forced_lanes_use_the_native_route() {
     use core::num::NonZeroUsize;
     use cpueinsum::{BatchPolicy, BatchStrategy};

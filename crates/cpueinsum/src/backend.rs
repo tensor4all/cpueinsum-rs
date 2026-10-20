@@ -83,14 +83,12 @@ pub trait StepBackend<T: Scalar>: Debug {
     /// per-item calls**: one library call at a time on the calling thread, with
     /// no outer lanes, no item threads and no whole-batch call.
     ///
-    /// Such a step cannot honour a forced lane strategy or a forced whole-batch
-    /// vendor route, so the plan resolves the executor's batch policy with
+    /// Such a step cannot honour a forced lane strategy, so the plan resolves the
+    /// executor's batch policy with
     /// [`VendorLoopRoute::resolve`](crate::VendorLoopRoute::resolve) before any
     /// write: a forced lane strategy runs the tcontract alternative prepared
-    /// beside the step, and a forced `WholeBatchVendor` is refused with
-    /// [`Error::Contract`](crate::Error::Contract) carrying tcontract's
-    /// `ExecError::StrategyUnavailable`. The alternative is planned only for a
-    /// step that reports `true`, and dispatch picks between the two once per step.
+    /// beside the step. The alternative is planned only for a step that reports
+    /// `true`, and dispatch picks between the two once per step.
     ///
     /// The default, `false`, is for a backend whose step resolves the batch
     /// policy itself (or is not a batch at all) and therefore serves every

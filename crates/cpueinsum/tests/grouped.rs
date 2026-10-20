@@ -128,32 +128,8 @@ fn forced_strategies_are_honored_or_refused() {
     );
     close(&inner, &reference, 1e-12);
 
-    // Forced WholeBatchVendor: this route has no single vendor batch call, so
-    // it is refused before any write -- even when alpha is zero.
-    for alpha in [1.0, 0.0] {
-        let mut refused = vec![77.0; 4 * 4096];
-        let exec =
-            Exec::rayon(&pool).with_batch_policy(BatchPolicy::new(BatchStrategy::WholeBatchVendor));
-        let error = plan
-            .execute_into(&exec, alpha, &lhs, &rhs, &mut refused)
-            .unwrap_err();
-        assert!(matches!(
-            error,
-            Error::Contract {
-                source: cpueinsum::tcontract::Error::Exec(_),
-                ..
-            }
-        ));
-        assert!(refused.iter().all(|&x| x == 77.0));
-    }
-
     // The serial context carries a policy too, so a forced route at one thread
     // resolves there as well.
-    let exec =
-        BatchExec::serial().with_batch_policy(BatchPolicy::new(BatchStrategy::WholeBatchVendor));
-    assert!(plan
-        .execute_into(&exec, 1.0, &lhs, &rhs, &mut vec![0.0; 4 * 4096])
-        .is_err());
     let exec = BatchExec::serial().with_batch_policy(BatchPolicy::new(BatchStrategy::Inner));
     let mut one = vec![0.0; 4 * 4096];
     assert_eq!(

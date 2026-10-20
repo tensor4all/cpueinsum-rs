@@ -505,7 +505,7 @@ impl<T: Scalar, B: StepBackend<T>> EinsumPlan<T, B> {
         let mut req = WorkspaceReq::default();
         let forced_lanes = matches!(
             VendorLoopRoute::resolve(exec.batch_policy().strategy),
-            Ok(VendorLoopRoute::Native)
+            VendorLoopRoute::Native
         );
         for step in &self.steps {
             let native = match &step.kernel {
@@ -562,11 +562,9 @@ impl<T: Scalar, B: StepBackend<T>> EinsumPlan<T, B> {
     /// differ from the layouts the plan was built for (nothing is written);
     /// [`Error::Contract`] or [`Error::Backend`] when a lower layer fails a
     /// step. Every step's batch-policy admission is resolved after the shape
-    /// check and before the scratch buffer grows or any step runs: a forced
-    /// [`WholeBatchVendor`](crate::BatchStrategy::WholeBatchVendor) and a forced
-    /// lane strategy a native route cannot honour are refused as
-    /// [`Error::Contract`] there, so no intermediate, output or scratch element
-    /// is written first.
+    /// check and before the scratch buffer grows or any step runs: a forced lane
+    /// strategy a native route cannot honour is refused as [`Error::Contract`]
+    /// there, so no intermediate, output or scratch element is written first.
     pub fn execute_into(
         &self,
         exec: &Exec<'_>,
@@ -703,7 +701,7 @@ impl<T: Scalar, B: StepBackend<T>> EinsumPlan<T, B> {
                     .map_err(|source| Error::Contract { step: k, source })?,
                 Kernel::Backend {
                     step: s, native, ..
-                } => match self.backend_route(k, s, exec)? {
+                } => match self.backend_route(k, s, exec) {
                     VendorLoopRoute::Loop => self
                         .backend
                         .execute(s, exec, a, b, d, wbuf.unwrap_or_default())
@@ -726,17 +724,13 @@ impl<T: Scalar, B: StepBackend<T>> EinsumPlan<T, B> {
     ///
     /// A step that is a serial loop of per-item calls is subject to the shared
     /// [`VendorLoopRoute`] rule, so a forced lane strategy runs its tcontract
-    /// alternative and a forced whole-batch vendor route is refused typed. A
-    /// step that resolves the batch policy itself runs on the backend under
-    /// every policy.
-    fn backend_route(&self, k: usize, step: &B::Step, exec: &Exec<'_>) -> Result<VendorLoopRoute> {
+    /// alternative. A step that resolves the batch policy itself runs on the
+    /// backend under every policy.
+    fn backend_route(&self, _k: usize, step: &B::Step, exec: &Exec<'_>) -> VendorLoopRoute {
         if !B::vendor_loop(step) {
-            return Ok(VendorLoopRoute::Loop);
+            return VendorLoopRoute::Loop;
         }
-        VendorLoopRoute::resolve(exec.batch_policy().strategy).map_err(|source| Error::Contract {
-            step: k,
-            source: source.into(),
-        })
+        VendorLoopRoute::resolve(exec.batch_policy().strategy)
     }
 
     /// Resolve every step's batch-policy admission under `exec`, writing nothing.
@@ -745,13 +739,12 @@ impl<T: Scalar, B: StepBackend<T>> EinsumPlan<T, B> {
     /// never follow a partially written intermediate or output:
     ///
     /// * a backend step that is a serial loop of per-item calls yields to the
-    ///   shared [`VendorLoopRoute`] rule, whose `WholeBatchVendor` refusal is the
-    ///   typed `ExecError::StrategyUnavailable`;
+    ///   shared [`VendorLoopRoute`] rule, which sends a forced lane strategy to
+    ///   the native alternative;
     /// * every native step, and every backend step the policy routes to its
     ///   tcontract alternative, resolves
     ///   [`Plan::execution_route`](tcontract::Plan::execution_route) for the same
     ///   initialized contract and overwrite scale execution uses, which refuses a
-    ///   forced whole-batch vendor route before its empty-output shortcut and a
     ///   forced lane strategy the native route cannot honour (tcontract's packed
     ///   driver rejects lanes *and* item threads) before any write.
     ///
@@ -764,7 +757,7 @@ impl<T: Scalar, B: StepBackend<T>> EinsumPlan<T, B> {
                 Kernel::Tcontract(plan) => plan,
                 Kernel::Backend {
                     step: s, native, ..
-                } => match self.backend_route(k, s, exec)? {
+                } => match self.backend_route(k, s, exec) {
                     VendorLoopRoute::Loop => continue,
                     // INVARIANT: `native` is planned exactly for the steps
                     // `vendor_loop` reports, the only way to route to `Native`.

@@ -82,9 +82,8 @@ the caller's `BatchPolicy` with one rule, `cpueinsum::VendorLoopRoute`:
 `Auto` and `Sequential` keep the loop (the historical choice, and exactly one
 serial coordinator), a forced `Outer`/`Inner`/`Split` runs the route's tcontract
 alternative, which resolves the same policy (and can still refuse a `Split` it
-cannot honour), and a forced `WholeBatchVendor` is refused typed before any
-write. The rule lives in one place because the same policy must not resolve
-three different ways.
+cannot honour). The rule lives in one place because the same policy must not
+resolve three different ways.
 
 The batch policy is an `Exec` property, so it is resolved at execution, not at
 planning: a `StepBackend` step declares the same serial-loop shape with the

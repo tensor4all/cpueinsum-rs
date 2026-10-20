@@ -15,9 +15,8 @@
 //! loop of one library call per item, which
 //! [`VendorLoopRoute`] resolves against the
 //! caller's [`BatchPolicy`](cpueinsum::BatchPolicy): `Auto` and `Sequential`
-//! keep the loop, a forced `Outer`/`Inner`/`Split` runs the route's tcontract
-//! alternative, and a forced `WholeBatchVendor` is refused before any write
-//! because no route here has one batch call for the whole batch.
+//! keep the loop, and a forced `Outer`/`Inner`/`Split` runs the route's
+//! tcontract alternative.
 //!
 //! The crate declares the CBLAS symbols (through `cblas-sys`) and links no
 //! provider: the final binary links one, for example with
@@ -154,17 +153,6 @@ pub enum BlasError {
     /// Fresh output storage is not exactly covered by the prepared output domain.
     #[error("fresh output requires exact physical coverage without gaps or padding")]
     FreshCoverage,
-    /// A forced whole-batch vendor route this crate cannot provide.
-    ///
-    /// No route here is the single vendor call `WholeBatchVendor` describes:
-    /// the grouped and prepared adapters are coordinator loops of one CBLAS
-    /// GEMM per job, and the bare step backend is one GEMM per batch item. Each
-    /// reports `vendor_batch = false` and refuses the forced route before any
-    /// write.
-    #[error(
-        "forced whole-batch vendor is unavailable: no BLAS route here is a single whole-batch call"
-    )]
-    StrategyUnavailable,
     /// An operand slice does not hold the elements the step addresses.
     #[error("operand {operand} addresses elements outside its slice")]
     OutOfBounds {
@@ -231,14 +219,12 @@ impl<T: BlasScalar> StepBackend<T> for Blas {
 /// Resolve a serial per-item vendor loop against `exec`'s batch policy, for the
 /// prepared adapters that keep a whole-group native alternative instead.
 ///
-/// `Ok(true)` runs the loop, `Ok(false)` runs the native alternative, and a
-/// forced whole-batch vendor route is the typed refusal this crate reports.
-pub(crate) fn vendor_loop_route(exec: &Exec<'_>) -> Result<bool, BlasError> {
-    match VendorLoopRoute::resolve(exec.batch_policy().strategy) {
-        Ok(VendorLoopRoute::Loop) => Ok(true),
-        Ok(VendorLoopRoute::Native) => Ok(false),
-        Err(_) => Err(BlasError::StrategyUnavailable),
-    }
+/// `true` runs the loop and `false` runs the native alternative.
+pub(crate) fn vendor_loop_route(exec: &Exec<'_>) -> bool {
+    matches!(
+        VendorLoopRoute::resolve(exec.batch_policy().strategy),
+        VendorLoopRoute::Loop
+    )
 }
 
 /// Check that `data` holds the elements `span` addresses from `origin`.

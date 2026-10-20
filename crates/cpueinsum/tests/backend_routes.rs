@@ -3,9 +3,9 @@
 //! A backend step that reports [`StepBackend::vendor_loop`] is a serial loop of
 //! per-item calls, so the plan resolves the executor's batch policy with the
 //! shared [`VendorLoopRoute`] rule before any write: a forced lane strategy runs
-//! the tcontract alternative planned beside the step, and a forced
-//! `WholeBatchVendor` is refused typed. These tests observe the route through a
-//! marker backend that only counts its own executions, never through timing.
+//! the tcontract alternative planned beside the step. These tests observe the
+//! route through a marker backend that only counts its own executions, never
+//! through timing.
 
 use std::num::NonZeroUsize;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -201,85 +201,13 @@ fn forced_lane_strategies_run_the_native_step_and_sequential_keeps_the_backend()
 
     // The shared rule the driver applies is the one the routes resolve.
     assert_eq!(
-        VendorLoopRoute::resolve(BatchStrategy::Sequential).unwrap(),
+        VendorLoopRoute::resolve(BatchStrategy::Sequential),
         VendorLoopRoute::Loop
     );
     assert_eq!(
-        VendorLoopRoute::resolve(BatchStrategy::Outer).unwrap(),
+        VendorLoopRoute::resolve(BatchStrategy::Outer),
         VendorLoopRoute::Native
     );
-}
-
-#[test]
-fn forced_whole_batch_vendor_is_refused_before_any_write() {
-    let (spec, layouts, out_layout, data) = chain();
-    let inputs = views(&data);
-    let pool = rayon::ThreadPoolBuilder::new()
-        .num_threads(2)
-        .build()
-        .unwrap();
-    let pool = cpueinsum::Pool::borrow(&pool);
-    let exec = Exec::rayon(&pool).with_batch_policy(policy(BatchStrategy::WholeBatchVendor));
-    let runs = Arc::new(AtomicUsize::new(0));
-    let backend = Marker::new(&runs, &[true]);
-    let plan = EinsumPlan::<f64, _>::with_backend(backend, &spec, &layouts, out_layout).unwrap();
-    let mut got = vec![77.0; EXT * EXT];
-    let mut out = StridedViewMut::new(&mut got, &[EXT, EXT], &[1, EXT as isize], 0).unwrap();
-    // A reusable scratch: the refusal precedes `Scratch::reserve`, so the arena
-    // does not even grow to the plan's intermediate size.
-    let mut scratch = Scratch::new();
-    let error = plan
-        .execute_into(&exec, &inputs, &mut out, &mut scratch)
-        .unwrap_err();
-    match error {
-        Error::Contract {
-            step,
-            source: ContractError::Exec(ExecError::StrategyUnavailable { strategy }),
-        } => {
-            assert_eq!(step, 0);
-            assert_eq!(strategy, BatchStrategy::WholeBatchVendor);
-        }
-        other => panic!("{other:?}"),
-    }
-    assert_eq!(runs.load(Ordering::Relaxed), 0);
-    assert_eq!(got, [77.0; EXT * EXT]);
-    assert!(plan.scratch_len() > 0);
-    assert_eq!(
-        scratch.len(),
-        0,
-        "the scratch buffer grew before the refusal"
-    );
-}
-
-#[test]
-fn the_refusal_precedes_a_step_that_would_run_on_the_backend() {
-    let (spec, layouts, out_layout, data) = chain();
-    let inputs = views(&data);
-    let pool = rayon::ThreadPoolBuilder::new()
-        .num_threads(2)
-        .build()
-        .unwrap();
-    let pool = cpueinsum::Pool::borrow(&pool);
-    let exec = Exec::rayon(&pool).with_batch_policy(policy(BatchStrategy::WholeBatchVendor));
-    // The first step resolves the batch policy itself, so it would run on the
-    // backend; only the second is a serial loop. The plan resolves every backend
-    // step's route before the first write, so the refusing later step stops the
-    // whole plan: the earlier step neither ran nor wrote.
-    let runs = Arc::new(AtomicUsize::new(0));
-    let backend = Marker::new(&runs, &[false, true]);
-    let plan = EinsumPlan::<f64, _>::with_backend(backend, &spec, &layouts, out_layout).unwrap();
-    assert_eq!(plan.backend_steps(), 2);
-    let mut got = vec![77.0; EXT * EXT];
-    let mut out = StridedViewMut::new(&mut got, &[EXT, EXT], &[1, EXT as isize], 0).unwrap();
-    let error = plan
-        .execute_into(&exec, &inputs, &mut out, &mut Scratch::new())
-        .unwrap_err();
-    assert!(
-        matches!(error, Error::Contract { step: 1, .. }),
-        "{error:?}"
-    );
-    assert_eq!(runs.load(Ordering::Relaxed), 0);
-    assert_eq!(got, [77.0; EXT * EXT]);
 }
 
 #[test]
@@ -292,13 +220,8 @@ fn a_backend_that_resolves_the_policy_itself_serves_every_strategy() {
         .unwrap();
     let pool = cpueinsum::Pool::borrow(&pool);
     // The default of `vendor_loop` is `false`: such a step keeps running on the
-    // backend under every policy, including a forced whole-batch vendor route,
-    // and no alternative is planned for it.
-    for strategy in [
-        BatchStrategy::WholeBatchVendor,
-        BatchStrategy::Outer,
-        BatchStrategy::Sequential,
-    ] {
+    // backend under every policy, and no alternative is planned for it.
+    for strategy in [BatchStrategy::Outer, BatchStrategy::Sequential] {
         let runs = Arc::new(AtomicUsize::new(0));
         let backend = Marker::new(&runs, &[false]);
         let plan =

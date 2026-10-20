@@ -516,9 +516,7 @@ impl<T: Scalar> GroupedPlan<T> {
         out: &mut [T],
     ) -> Result<GroupedRoute> {
         // Resolve the route first, before bounds checks, the empty shortcut or
-        // any write: a forced `WholeBatchVendor` is refused here (this route has
-        // no single vendor batch call) and the outer width is fixed before the
-        // children run.
+        // any write, so the outer width is fixed before the children run.
         let (lanes, item_threads) = self.lane_decision(exec)?;
         let child_exec = child_context(exec, item_threads)?;
 
@@ -706,9 +704,7 @@ impl<T: Scalar> GroupedPlan<T> {
     /// so a caller can configure it.
     ///
     /// Every forced strategy goes through [`Exec::batch_decision`] on the
-    /// original host budget, which clamps but never falls back; a forced
-    /// `WholeBatchVendor` is refused because this route has no single vendor
-    /// batch call.
+    /// original host budget, which clamps but never falls back.
     fn lane_decision(&self, exec: &Exec<'_>) -> Result<(usize, usize)> {
         if let BatchStrategy::Auto = exec.batch_policy().strategy {
             let serial_ns =
@@ -720,15 +716,9 @@ impl<T: Scalar> GroupedPlan<T> {
                 .max(1);
             return Ok((lanes, 1));
         }
-        let query = BatchQuery::new(self.jobs.len(), self.max_job_work as f64)
-            .with_item_parallel(true)
-            .with_vendor_batch(false);
-        let decision = exec
-            .batch_decision(&query)
-            .map_err(|source| Error::Contract {
-                step: 0,
-                source: source.into(),
-            })?;
+        let query =
+            BatchQuery::new(self.jobs.len(), self.max_job_work as f64).with_item_parallel(true);
+        let decision = exec.batch_decision(&query);
         Ok((decision.lanes, decision.item_threads))
     }
 }

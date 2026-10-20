@@ -3,10 +3,9 @@
 //! [`Blas`] reports every step as a serial loop of one GEMM per batch item
 //! ([`StepBackend::vendor_loop`]), so the plan resolves the caller's batch
 //! policy with the shared `VendorLoopRoute` rule before any write: `Auto` and
-//! `Sequential` keep the loop, a forced lane strategy runs the tcontract
-//! alternative planned beside the step, and a forced `WholeBatchVendor` is
-//! refused typed. These tests observe the route through a delegating backend
-//! that counts its own executions.
+//! `Sequential` keep the loop and a forced lane strategy runs the tcontract
+//! alternative planned beside the step. These tests observe the route through a
+//! delegating backend that counts its own executions.
 
 extern crate blas_src as _;
 
@@ -17,7 +16,7 @@ use std::sync::Arc;
 use cpueinsum::strided_view::{StridedView, StridedViewMut};
 use cpueinsum::tcontract::api::Problem;
 use cpueinsum::{
-    BackendError, BatchPolicy, BatchStrategy, EinsumPlan, EinsumSpec, Error, Exec, Layout, Scratch,
+    BackendError, BatchPolicy, BatchStrategy, EinsumPlan, EinsumSpec, Exec, Layout, Scratch,
     StepBackend,
 };
 use cpueinsum_blas::{Blas, BlasStep};
@@ -147,112 +146,5 @@ fn forced_lane_strategies_run_the_native_step_and_sequential_keeps_the_blas_step
         if !loop_serves {
             assert_eq!(got, expected, "{strategy:?}");
         }
-    }
-}
-
-#[test]
-fn forced_whole_batch_vendor_is_refused_before_any_write() {
-    let (spec, layouts, out_layout, data) = chain();
-    let inputs = views(&data);
-    let thread_pool = rayon::ThreadPoolBuilder::new()
-        .num_threads(2)
-        .build()
-        .unwrap();
-    let pool = cpueinsum::Pool::borrow(&thread_pool);
-    let exec =
-        Exec::rayon(&pool).with_batch_policy(BatchPolicy::new(BatchStrategy::WholeBatchVendor));
-    let runs = Arc::new(AtomicUsize::new(0));
-    let backend = CountingBlas {
-        inner: Blas::with_min_macs(0),
-        runs: Arc::clone(&runs),
-    };
-    let plan = EinsumPlan::<f64, _>::with_backend(backend, &spec, &layouts, out_layout).unwrap();
-    let mut got = vec![77.0; EXT * EXT];
-    let mut out = StridedViewMut::new(&mut got, &[EXT, EXT], &[1, EXT as isize], 0).unwrap();
-    let error = plan
-        .execute_into(&exec, &inputs, &mut out, &mut Scratch::new())
-        .unwrap_err();
-    // The BLAS route is a per-item GEMM loop, not one vendor batch call: the
-    // plan refuses it with tcontract's typed strategy error, before any step.
-    assert!(
-        matches!(error, Error::Contract { step: 0, .. }),
-        "{error:?}"
-    );
-    assert_eq!(runs.load(Ordering::Relaxed), 0);
-    assert_eq!(got, [77.0; EXT * EXT]);
-}
-
-/// `D[i, l, b] = sum_{j,k} A[i, j, b] B[j, k, b] C[k, l, b]` with the batch label
-/// `b` at extent 0: an empty batch, so `Blas` declines every step (it has no
-/// vendor geometry for an empty output) and the plan holds native steps only.
-fn empty_batch_chain() -> (EinsumSpec, [Layout<'static>; 3], Layout<'static>) {
-    let spec = EinsumSpec::new(
-        &[&[0, 1, 4], &[1, 2, 4], &[2, 3, 4]],
-        &[0, 3, 4],
-        &[[0, 1], [3, 2]],
-    )
-    .unwrap();
-    let cm = Layout::new(&[2, 2, 0], &[1, 2, 4]).unwrap();
-    (spec, [cm; 3], cm)
-}
-
-#[test]
-fn an_empty_batch_with_real_blas_still_refuses_a_forced_whole_batch_vendor() {
-    // `Blas` declines an empty batch, so there is no backend step to refuse the
-    // forced route: the plan-wide admission must refuse it for the *native* steps
-    // too, before `Scratch::reserve` and before any step. A native plan rejects
-    // the policy before its own empty-output shortcut.
-    let (spec, layouts, out_layout) = empty_batch_chain();
-    let runs = Arc::new(AtomicUsize::new(0));
-    let backend = CountingBlas {
-        inner: Blas::with_min_macs(0),
-        runs: Arc::clone(&runs),
-    };
-    let plan = EinsumPlan::<f64, _>::with_backend(backend, &spec, &layouts, out_layout).unwrap();
-    assert_eq!(plan.backend_steps(), 0, "an empty batch has no BLAS step");
-    let pool = rayon::ThreadPoolBuilder::new()
-        .num_threads(2)
-        .build()
-        .unwrap();
-    let pool = cpueinsum::Pool::borrow(&pool);
-    let data = [Vec::new(), Vec::new(), Vec::new()];
-    let inputs: Vec<StridedView<'_, f64>> = data
-        .iter()
-        .map(|d| StridedView::new(d, &[2, 2, 0], &[1, 2, 4], 0).unwrap())
-        .collect();
-
-    let exec =
-        Exec::rayon(&pool).with_batch_policy(BatchPolicy::new(BatchStrategy::WholeBatchVendor));
-    let mut got: Vec<f64> = Vec::new();
-    let mut out = StridedViewMut::new(&mut got, &[2, 2, 0], &[1, 2, 4], 0).unwrap();
-    let mut scratch = Scratch::new();
-    let error = plan
-        .execute_into(&exec, &inputs, &mut out, &mut scratch)
-        .unwrap_err();
-    match error {
-        Error::Contract { step, source } => {
-            assert_eq!(step, 0);
-            assert!(
-                matches!(
-                    source,
-                    cpueinsum::tcontract::Error::Exec(
-                        tcontract_exec::ExecError::StrategyUnavailable {
-                            strategy: BatchStrategy::WholeBatchVendor
-                        }
-                    )
-                ),
-                "{source:?}"
-            );
-        }
-        other => panic!("{other:?}"),
-    }
-    assert_eq!(runs.load(Ordering::Relaxed), 0);
-    assert_eq!(scratch.len(), 0);
-
-    // Every other strategy runs the empty plan and completes.
-    for strategy in [BatchStrategy::Auto, BatchStrategy::Sequential] {
-        let exec = Exec::rayon(&pool).with_batch_policy(BatchPolicy::new(strategy));
-        plan.execute_into(&exec, &inputs, &mut out, &mut scratch)
-            .unwrap();
     }
 }

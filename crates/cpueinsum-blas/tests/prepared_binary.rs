@@ -289,62 +289,6 @@ fn zero_alpha_uses_prepared_native_no_read_route() {
     assert_eq!(out, &[0.0; 4]);
 }
 
-#[test]
-fn prepared_binary_refuses_forced_whole_batch_vendor_before_shortcuts() {
-    use cpueinsum::{BatchPolicy, BatchStrategy};
-    // This route is a per-job GEMM loop, not one vendor batch call. A forced
-    // WholeBatchVendor must be refused through both the initialized and the
-    // fresh entry, before the vendor/native shortcut, and nothing may be
-    // written.
-    let plan = BinaryPlan::<f64>::new(
-        &problem::<f64>([false; 3], CSpec::Absent, &[1, 2]),
-        &PlanConfig::default(),
-    )
-    .unwrap();
-    let thread_pool = rayon::ThreadPoolBuilder::new()
-        .num_threads(2)
-        .build()
-        .unwrap();
-    let pool = cpueinsum::Pool::borrow(&thread_pool);
-    let exec =
-        Exec::rayon(&pool).with_batch_policy(BatchPolicy::new(BatchStrategy::WholeBatchVendor));
-    let a = [1.0; 6];
-    let b = [1.0; 6];
-    for alpha in [1.0, 0.0] {
-        let mut out = [77.0; 4];
-        let mut work = vec![0.0; plan.work_len()];
-        let error = plan
-            .execute_slices_accum(
-                &exec,
-                alpha,
-                (&a, 0),
-                (&b, 0),
-                0.0,
-                SliceAccumulationSource::Absent,
-                (&mut out, 0),
-                &mut work,
-            )
-            .unwrap_err();
-        assert!(matches!(error, BlasError::StrategyUnavailable), "{error:?}");
-        assert_eq!(out, [77.0; 4], "alpha={alpha} wrote output");
-
-        let mut fresh = [MaybeUninit::uninit(); 4];
-        let error = plan
-            .execute_uninit_slices(
-                &exec,
-                alpha,
-                (&a, 0),
-                (&b, 0),
-                0.0,
-                SliceAccumulationSource::Absent,
-                (&mut fresh, 0),
-                &mut work,
-            )
-            .unwrap_err();
-        assert!(matches!(error, BlasError::StrategyUnavailable), "{error:?}");
-    }
-}
-
 /// `d[i, j, b] = sum_k a[i, k, b] b[k, j, b]` with the batch label at extent 0:
 /// a batch of no items, so no vendor step is prepared at all.
 fn empty_batch_problem() -> Problem {
@@ -512,8 +456,7 @@ fn forced_lane_strategies_use_the_native_route() {
 fn empty_batch_is_served_by_the_native_route_under_every_strategy() {
     use cpueinsum::{BatchPolicy, BatchStrategy};
     // No batch item exists, so no vendor step is prepared: every strategy runs
-    // the native alternative, which reports the empty route, and a forced
-    // whole-batch vendor route is still refused before any write.
+    // the native alternative, which reports the empty route.
     let plan = BinaryPlan::<f64>::new(&empty_batch_problem(), &PlanConfig::default()).unwrap();
     assert_eq!(plan.work_len(), 0);
     let thread_pool = rayon::ThreadPoolBuilder::new()
@@ -526,7 +469,6 @@ fn empty_batch_is_served_by_the_native_route_under_every_strategy() {
         BatchStrategy::Sequential,
         BatchStrategy::Outer,
         BatchStrategy::Inner,
-        BatchStrategy::WholeBatchVendor,
     ] {
         let exec = Exec::rayon(&pool)
             .with_budget(4)
@@ -555,24 +497,18 @@ fn empty_batch_is_served_by_the_native_route_under_every_strategy() {
                 (&mut fresh, 0),
                 &mut [],
             );
-            if let BatchStrategy::WholeBatchVendor = strategy {
-                assert!(matches!(accum, Err(BlasError::StrategyUnavailable)));
-                assert!(matches!(uninit, Err(BlasError::StrategyUnavailable)));
-                assert_eq!(out, [77.0; 4], "{strategy:?} alpha={alpha}");
-            } else {
-                assert!(
-                    matches!(accum.unwrap(), ExecutionRoute::Native(_)),
-                    "{strategy:?} alpha={alpha}"
-                );
-                // A zero-length fresh output has no physical coverage to prove,
-                // so the native alternative refuses it before writing.
-                assert!(
-                    matches!(uninit, Err(BlasError::Native { .. })),
-                    "{strategy:?} alpha={alpha}"
-                );
-                // Nothing addresses the output, so the empty route leaves it.
-                assert_eq!(out, [77.0; 4], "{strategy:?} alpha={alpha}");
-            }
+            assert!(
+                matches!(accum.unwrap(), ExecutionRoute::Native(_)),
+                "{strategy:?} alpha={alpha}"
+            );
+            // A zero-length fresh output has no physical coverage to prove, so
+            // the native alternative refuses it before writing.
+            assert!(
+                matches!(uninit, Err(BlasError::Native { .. })),
+                "{strategy:?} alpha={alpha}"
+            );
+            // Nothing addresses the output, so the empty route leaves it.
+            assert_eq!(out, [77.0; 4], "{strategy:?} alpha={alpha}");
         }
     }
 }

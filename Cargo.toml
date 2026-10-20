@@ -15,22 +15,23 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/tensor4all/cpueinsum-rs"
 
 [workspace.dependencies]
-# The 0.3.0 chain: tcontract and its executor/capi crates share one batch lane
-# policy (#123) and the allocation-free raw API (#121). As AGENTS.md requires,
-# the tcontract crates stay git dependencies at the release revision (tcontract
-# 0.3.2, tcontract-exec 0.3.1) so
-# the executor handle types are one source across the stack; their strided deps
-# come from crates.io.
-tcontract = { git = "https://github.com/tensor4all/tcontract-rs.git", rev = "61a04eb1562c671775d1ce254212a598334d3dbb", version = "=0.3.2" }
-tcontract-exec = { git = "https://github.com/tensor4all/tcontract-rs.git", rev = "61a04eb1562c671775d1ce254212a598334d3dbb", version = "=0.3.1" }
+# The 0.4.0 chain: tcontract and its executor/capi crates share one batch lane
+# policy (#123), the allocation-free raw API (#121) and, since 0.4.0, no
+# `WholeBatchVendor` variant (tcontract-rs#135). As AGENTS.md requires, the
+# tcontract crates stay git dependencies at the release revision (tcontract
+# 0.4.0, tcontract-exec 0.4.0) so the executor handle types are one source
+# across the stack; their strided deps come from crates.io.
+tcontract = { git = "https://github.com/tensor4all/tcontract-rs.git", rev = "99c9e35c6177e9f974aff41408765e823cf42585", version = "=0.4.0" }
+tcontract-exec = { git = "https://github.com/tensor4all/tcontract-rs.git", rev = "99c9e35c6177e9f974aff41408765e823cf42585", version = "=0.4.0" }
 # One strided release train (basic/view): cpueinsum-blas compiles
 # `strided_basic::CopyPlan` for its packing; the view metadata must be one
 # `StridedView` type across the stack.
 strided-basic = { version = "=0.6.2", default-features = false }
 strided-view = "=0.6.0"
-cpueinsum = { version = "=0.3.2", path = "crates/cpueinsum" }
-# publish = false: a git-only dependency at the same revision as above.
-tcontract-capi = { git = "https://github.com/tensor4all/tcontract-rs.git", rev = "61a04eb1562c671775d1ce254212a598334d3dbb" }
+cpueinsum = { version = "=0.4.0", path = "crates/cpueinsum" }
+# publish = false: a git-only dependency, moved with the executor so the C ABI
+# forwards the same `Exec` identity as the crates above.
+tcontract-capi = { git = "https://github.com/tensor4all/tcontract-rs.git", rev = "99c9e35c6177e9f974aff41408765e823cf42585" }
 # CBLAS declarations only; a provider is linked by the final binary
 # (blas-src, or any crate that links a CBLAS library).
 cblas-sys = "0.1"

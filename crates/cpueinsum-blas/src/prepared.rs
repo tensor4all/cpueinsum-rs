@@ -94,12 +94,11 @@ impl<T: BlasScalar> BinaryPlan<T> {
     /// The executor's batch policy resolves with
     /// [`VendorLoopRoute`](cpueinsum::VendorLoopRoute): `Auto` and `Sequential`
     /// keep the vendor loop, a forced `Outer`/`Inner`/`Split` uses the prepared
-    /// native alternative, and a forced `WholeBatchVendor` is refused.
+    /// native alternative.
     ///
     /// # Errors
     ///
-    /// Returns [`BlasError::StrategyUnavailable`] for a forced whole-batch
-    /// vendor route, [`BlasError::Native`] on a selected native failure,
+    /// Returns [`BlasError::Native`] on a selected native failure,
     /// [`BlasError::Accumulation`] for mismatched C metadata or nonzero beta
     /// without C, [`BlasError::OutOfBounds`] for operand spans,
     /// [`BlasError::Work`] for short packing storage and [`BlasError::Pack`]
@@ -115,12 +114,9 @@ impl<T: BlasScalar> BinaryPlan<T> {
         d: (&mut [T], isize),
         work: &mut [T],
     ) -> Result<ExecutionRoute, BlasError> {
-        // A forced whole-batch vendor route is never available here: this is a
-        // per-job GEMM loop, not one vendor call. Refuse it before the
-        // vendor/native shortcut, so a nonzero alpha cannot slip through the loop
-        // while alpha zero is refused by the native alternative; a forced lane
-        // strategy the serial loop cannot honor goes to the native alternative.
-        let vendor_route = crate::vendor_loop_route(exec)?;
+        // A forced lane strategy the serial loop cannot honor goes to the
+        // native alternative, resolved before the vendor/native shortcut.
+        let vendor_route = crate::vendor_loop_route(exec);
         let Some(plan) = self
             .vendor
             .as_ref()
@@ -156,7 +152,7 @@ impl<T: BlasScalar> BinaryPlan<T> {
         d: (&'d mut [MaybeUninit<T>], isize),
         work: &mut [T],
     ) -> Result<(&'d mut [T], ExecutionRoute), BlasError> {
-        let vendor_route = crate::vendor_loop_route(exec)?;
+        let vendor_route = crate::vendor_loop_route(exec);
         let Some(plan) = self
             .vendor
             .as_ref()
