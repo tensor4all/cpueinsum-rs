@@ -17,6 +17,7 @@
 //! selection fails closed.
 
 mod corpus;
+mod diagnostics;
 mod elem;
 mod harness;
 mod json;
@@ -61,6 +62,8 @@ struct Args {
     prime_ms: u64,
     csv: Option<String>,
     census_csv: Option<String>,
+    diagnostics_csv: Option<String>,
+    reference_csv: Option<String>,
     regime: String,
 }
 
@@ -143,6 +146,8 @@ fn parse(argv: &[String]) -> Result<Args, String> {
         prime_ms: 250,
         csv: None,
         census_csv: None,
+        diagnostics_csv: None,
+        reference_csv: None,
         regime: "default".to_string(),
     };
     let mut rows_given = false;
@@ -196,6 +201,8 @@ fn parse(argv: &[String]) -> Result<Args, String> {
             "--prime-ms" => args.prime_ms = parse_u64(&next(argv, i, flag)?, flag)?,
             "--csv" => args.csv = Some(next(argv, i, flag)?),
             "--census-csv" => args.census_csv = Some(next(argv, i, flag)?),
+            "--diagnostics-csv" => args.diagnostics_csv = Some(next(argv, i, flag)?),
+            "--reference-csv" => args.reference_csv = Some(next(argv, i, flag)?),
             "--regime" => args.regime = next(argv, i, flag)?,
             // The corpus has fixed extents; the sibling harness accepts --size
             // so one campaign command line fits both, and this harness does too.
@@ -243,10 +250,11 @@ fn parse(argv: &[String]) -> Result<Args, String> {
     if args.rows.is_empty() {
         return Err("the selection names no engine row".to_string());
     }
-    if command == Command::Verify && args.rows.len() < 2 {
+    if command == Command::Verify && args.rows.len() < 2 && args.reference_csv.is_none() {
         return Err(
             "verify needs at least two engine rows: a single-row selection has no independent \
-             result to compare against"
+             result to compare against. Pass --reference-csv with another arm's diagnostics to \
+             check a single row against an independent implementation"
                 .to_string(),
         );
     }
@@ -331,6 +339,14 @@ fn measure(args: &Args) -> ExitCode {
         return die(&message);
     }
 
+    let reference = match args.reference_csv.as_deref() {
+        Some(path) => match diagnostics::read(path) {
+            Ok(map) => Some(map),
+            Err(message) => return die(&message),
+        },
+        None => None,
+    };
+
     let config = Config {
         regime: args.regime.clone(),
         n_specs,
@@ -347,6 +363,7 @@ fn measure(args: &Args) -> ExitCode {
             Command::Verify => Mode::Verify,
             _ => Mode::Run,
         },
+        reference,
     };
 
     let (records, all_ok, compared) = harness::run_grid(&selected, &config, &exec);
@@ -390,6 +407,11 @@ fn measure(args: &Args) -> ExitCode {
         }
     }
 
+    if let Some(path) = args.diagnostics_csv.as_deref() {
+        if let Err(e) = diagnostics::write(path, &records) {
+            return die(&format!("cannot write the diagnostics to {path}: {e}"));
+        }
+    }
     if let Err(message) = write_evidence(args, &records) {
         return die(&message);
     }

@@ -18,6 +18,7 @@ use cpueinsum::{EinsumPlan, EinsumSpec, Exec, Layout, Scratch};
 use num_complex::{Complex32, Complex64};
 
 use crate::corpus::{Instance, Translation};
+use crate::diagnostics::{self, Diagnostics};
 use crate::elem::{Dtype, Elem};
 
 /// Whether the grid measures or checks.
@@ -83,7 +84,8 @@ pub enum Status {
 }
 
 impl Status {
-    fn as_str(self) -> &'static str {
+    /// The CSV label.
+    pub fn as_str(self) -> &'static str {
         match self {
             Status::Ok => "ok",
             Status::Skipped => "skipped",
@@ -132,6 +134,8 @@ pub struct Record {
     pub case_n: String,
     /// Output element count of the instance.
     pub case_k: String,
+    /// The cross-arm values, measured in `verify` from the cell's own output.
+    pub diagnostics: Option<Diagnostics>,
 }
 
 impl Record {
@@ -164,6 +168,7 @@ impl Record {
             case_m: instance.operands.to_string(),
             case_n: instance.input_len.to_string(),
             case_k: instance.output_len.to_string(),
+            diagnostics: None,
         }
     }
 }
@@ -195,6 +200,10 @@ pub struct Config {
     pub vendor_threads: usize,
     /// Measure or check.
     pub mode: Mode,
+    /// Another arm's diagnostics, keyed by `diagnostics::case_key`. When present, a row is
+    /// checked against that arm rather than against the first row of this run - which is
+    /// what lets a suite carry one strategy and still be verified.
+    pub reference: Option<std::collections::HashMap<String, Diagnostics>>,
 }
 
 /// The identity `(m, n, k)` the toolkit derives from a declared size spec: a
@@ -367,6 +376,41 @@ fn grid<T: Elem>(
                             Ok(mut out) => {
                                 if corrupt_verify_row(row) && !out.is_empty() {
                                     out[0] = out[0] + T::ONE;
+                                }
+                                record.diagnostics = Some(Diagnostics::of(&out));
+                                if let Some(all) = config.reference.as_ref() {
+                                    let Some(against) = all.get(&diagnostics::case_key(&record))
+                                    else {
+                                        // The reference was asked for and this case is not in it: an
+                                        // attempt was made, so this is a failed cell rather than a
+                                        // run that compared nothing.
+                                        *compared = true;
+                                        record.status = Status::Failed;
+                                        record.note = format!(
+                                            "no reference for this case: the reference arm did not measure {row}"
+                                        );
+                                        *all_ok = false;
+                                        records.push(record);
+                                        continue;
+                                    };
+                                    *compared = true;
+                                    match record
+                                        .diagnostics
+                                        .as_ref()
+                                        .unwrap()
+                                        .disagree(against, T::TOLERANCE)
+                                    {
+                                        None => record.status = Status::Ok,
+                                        Some((name, ratio)) => {
+                                            record.status = Status::Failed;
+                                            record.note = format!(
+                                                "MISMATCH({row}) {name} rel_diff={ratio:.2e}"
+                                            );
+                                            *all_ok = false;
+                                        }
+                                    }
+                                    records.push(record);
+                                    continue;
                                 }
                                 match &reference {
                                     None => {
