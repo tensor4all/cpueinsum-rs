@@ -18,6 +18,10 @@ pub trait Elem: Scalar + Copy + core::fmt::Debug {
     fn dist(self, other: Self) -> f64;
     /// The norm of `self`.
     fn mag(self) -> f64;
+    /// The real part, for the cross-arm diagnostics.
+    fn re(self) -> f64;
+    /// The imaginary part (zero for a real dtype).
+    fn im(self) -> f64;
 }
 
 /// A deterministic value in `[-1, 1)`; no RNG dependency, and the same sequence
@@ -39,6 +43,12 @@ impl Elem for f64 {
     fn mag(self) -> f64 {
         self.abs()
     }
+    fn re(self) -> f64 {
+        self
+    }
+    fn im(self) -> f64 {
+        0.0
+    }
 }
 
 impl Elem for f32 {
@@ -51,6 +61,12 @@ impl Elem for f32 {
     }
     fn mag(self) -> f64 {
         f64::from(self.abs())
+    }
+    fn re(self) -> f64 {
+        f64::from(self)
+    }
+    fn im(self) -> f64 {
+        0.0
     }
 }
 
@@ -65,6 +81,12 @@ impl Elem for Complex64 {
     fn mag(self) -> f64 {
         self.norm()
     }
+    fn re(self) -> f64 {
+        self.re
+    }
+    fn im(self) -> f64 {
+        self.im
+    }
 }
 
 impl Elem for Complex32 {
@@ -77,6 +99,12 @@ impl Elem for Complex32 {
     }
     fn mag(self) -> f64 {
         f64::from(self.norm())
+    }
+    fn re(self) -> f64 {
+        f64::from(self.re)
+    }
+    fn im(self) -> f64 {
+        f64::from(self.im)
     }
 }
 
