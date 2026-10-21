@@ -15,26 +15,28 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/tensor4all/cpueinsum-rs"
 
 [workspace.dependencies]
-# The 0.4.2 chain: tcontract and its executor/capi crates share one batch lane
+# The 0.4.3 chain: tcontract and its executor/capi crates share one batch lane
 # policy (#123), the allocation-free raw API (#121) and, since 0.4.0, no
 # `WholeBatchVendor` variant (tcontract-rs#135); 0.4.2 moves their strided
-# requirements to compatible ranges (strided-source structural kernels).
-# The tcontract crates stay git dependencies at the release revision
-# (tcontract 0.4.2, tcontract-exec 0.4.2) so the executor handle types are one
-# source across the stack; their strided deps are compatible registry
-# requirements, so a strided patch does not need a coordinated release.
-tcontract = { git = "https://github.com/tensor4all/tcontract-rs.git", rev = "3256959434e7807b0e217091914d2d2a66d2b9e3", version = "=0.4.2" }
-tcontract-exec = { git = "https://github.com/tensor4all/tcontract-rs.git", rev = "3256959434e7807b0e217091914d2d2a66d2b9e3", version = "=0.4.2" }
+# requirements to compatible ranges, and tcontract 0.4.3 runs a fresh
+# (uninitialized) output on the faer route (tcontract-rs#140, #141).
+# The tcontract crates stay git dependencies at the release revision so the
+# executor handle types are one source across the stack. Their version
+# requirements are compatible ranges at the patch this crate needs, like the
+# strided ones below: the published manifest resolves to one registry 0.4.x
+# version, so a later tcontract patch does not need a coordinated release.
+tcontract = { git = "https://github.com/tensor4all/tcontract-rs.git", rev = "b659c51921e63e1abae7d43da621bf82fe20b10c", version = "0.4.3" }
+tcontract-exec = { git = "https://github.com/tensor4all/tcontract-rs.git", rev = "b659c51921e63e1abae7d43da621bf82fe20b10c", version = "0.4.2" }
 # One strided release train (basic/view): cpueinsum-blas compiles
 # `strided_basic::CopyPlan` for its packing. Registry sources resolve to one
 # 0.6.x version, so compatible requirements keep `StridedView` a single type
 # without pinning the patch level.
 strided-basic = { version = "0.6.3", default-features = false }
 strided-view = "=0.6.0"
-cpueinsum = { version = "0.4.2", path = "crates/cpueinsum" }
+cpueinsum = { version = "0.4.3", path = "crates/cpueinsum" }
 # publish = false: a git-only dependency, moved with the executor so the C ABI
 # forwards the same `Exec` identity as the crates above.
-tcontract-capi = { git = "https://github.com/tensor4all/tcontract-rs.git", rev = "3256959434e7807b0e217091914d2d2a66d2b9e3" }
+tcontract-capi = { git = "https://github.com/tensor4all/tcontract-rs.git", rev = "b659c51921e63e1abae7d43da621bf82fe20b10c" }
 # CBLAS declarations only; a provider is linked by the final binary
 # (blas-src, or any crate that links a CBLAS library).
 cblas-sys = "0.1"

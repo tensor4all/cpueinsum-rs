@@ -126,7 +126,7 @@ checksum = "4e7648175b45a9a48536d676f68d918270699102aa8dab5496df06904c914600"
 
 [[package]]
 name = "cpueinsum"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "num-complex",
  "rand",
@@ -369,7 +369,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -1090,7 +1090,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -1310,8 +1310,8 @@ dependencies = [
 
 [[package]]
 name = "tcontract"
-version = "0.4.2"
-source = "git+https://github.com/tensor4all/tcontract-rs.git?rev=3256959434e7807b0e217091914d2d2a66d2b9e3#3256959434e7807b0e217091914d2d2a66d2b9e3"
+version = "0.4.3"
+source = "git+https://github.com/tensor4all/tcontract-rs.git?rev=b659c51921e63e1abae7d43da621bf82fe20b10c#b659c51921e63e1abae7d43da621bf82fe20b10c"
 dependencies = [
  "faer",
  "num-complex",
@@ -1327,7 +1327,7 @@ dependencies = [
 [[package]]
 name = "tcontract-capi"
 version = "0.1.0"
-source = "git+https://github.com/tensor4all/tcontract-rs.git?rev=3256959434e7807b0e217091914d2d2a66d2b9e3#3256959434e7807b0e217091914d2d2a66d2b9e3"
+source = "git+https://github.com/tensor4all/tcontract-rs.git?rev=b659c51921e63e1abae7d43da621bf82fe20b10c#b659c51921e63e1abae7d43da621bf82fe20b10c"
 dependencies = [
  "num-complex",
  "rayon",
@@ -1339,7 +1339,7 @@ dependencies = [
 [[package]]
 name = "tcontract-exec"
 version = "0.4.2"
-source = "git+https://github.com/tensor4all/tcontract-rs.git?rev=3256959434e7807b0e217091914d2d2a66d2b9e3#3256959434e7807b0e217091914d2d2a66d2b9e3"
+source = "git+https://github.com/tensor4all/tcontract-rs.git?rev=b659c51921e63e1abae7d43da621bf82fe20b10c#b659c51921e63e1abae7d43da621bf82fe20b10c"
 dependencies = [
  "rayon",
  "strided-basic",
@@ -1349,7 +1349,7 @@ dependencies = [
 [[package]]
 name = "tcontract-kernel"
 version = "0.3.0"
-source = "git+https://github.com/tensor4all/tcontract-rs.git?rev=3256959434e7807b0e217091914d2d2a66d2b9e3#3256959434e7807b0e217091914d2d2a66d2b9e3"
+source = "git+https://github.com/tensor4all/tcontract-rs.git?rev=b659c51921e63e1abae7d43da621bf82fe20b10c#b659c51921e63e1abae7d43da621bf82fe20b10c"
 dependencies = [
  "num-complex",
 ]
@@ -1553,7 +1553,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
