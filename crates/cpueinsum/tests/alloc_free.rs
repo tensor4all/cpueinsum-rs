@@ -4,7 +4,7 @@
 //! allocator. A linked C library's own allocations (a BLAS provider, faer's
 //! thread pool) are outside it by construction, so every assertion here is
 //! "no Rust-owned allocation", never "no allocation anywhere". The measured
-//! calls are all serial, so no rayon scope task can be attributed to them.
+//! calls are all serial, so no pool task can be attributed to them.
 //!
 //! One test drives every gate: the counter is process-global, so a second
 //! concurrent test would be counted too.
@@ -83,11 +83,11 @@ fn raw_steady_state_paths_allocate_no_rust_memory() {
     let b: Vec<f64> = (0..64).map(|i| (i % 3) as f64).collect();
     let req = binary.native_workspace_req(&Exec::serial(), OutputContract::Fresh);
     let workspace = Workspace::with_req(&req);
-    let exec = Exec::serial_with_workspace(workspace.as_provider());
+    let mut exec = Exec::serial_with_workspace(workspace.as_provider());
     let mut d = [MaybeUninit::<f64>::uninit(); 64];
     let (_, _) = binary
         .execute_uninit_slices(
-            &exec,
+            &mut exec,
             1.0,
             (&a, 0),
             (&b, 0),
@@ -100,7 +100,7 @@ fn raw_steady_state_paths_allocate_no_rust_memory() {
     let allocations = measure(|| {
         let (initialized, _) = binary
             .execute_uninit_slices(
-                &exec,
+                &mut exec,
                 1.0,
                 (&a, 0),
                 (&b, 0),
@@ -121,7 +121,7 @@ fn raw_steady_state_paths_allocate_no_rust_memory() {
     assert_eq!(einsum.workspace_len(), einsum.scratch_len());
     let req = einsum.native_workspace_req(&Exec::serial(), OutputContract::Initialized);
     let workspace = Workspace::with_req(&req);
-    let exec = Exec::serial_with_workspace(workspace.as_provider());
+    let mut exec = Exec::serial_with_workspace(workspace.as_provider());
     let mut scratch = Scratch::with_len(einsum.workspace_len());
     let mut out = vec![0.0; 64];
     {
@@ -129,7 +129,7 @@ fn raw_steady_state_paths_allocate_no_rust_memory() {
         let bv = StridedView::new(&b, &[8, 8], &[1, 8], 0).unwrap();
         let mut dv = StridedViewMut::new(&mut out, &[8, 8], &[1, 8], 0).unwrap();
         einsum
-            .execute_into(&exec, &[av, bv], &mut dv, &mut scratch)
+            .execute_into(&mut exec, &[av, bv], &mut dv, &mut scratch)
             .unwrap();
     }
     let allocations = measure(|| {
@@ -137,7 +137,7 @@ fn raw_steady_state_paths_allocate_no_rust_memory() {
         let bv = StridedView::new(&b, &[8, 8], &[1, 8], 0).unwrap();
         let mut dv = StridedViewMut::new(&mut out, &[8, 8], &[1, 8], 0).unwrap();
         einsum
-            .execute_into(&exec, &[av, bv], &mut dv, &mut scratch)
+            .execute_into(&mut exec, &[av, bv], &mut dv, &mut scratch)
             .unwrap();
     });
     assert_eq!(allocations, 0, "einsum execute_into");
@@ -153,13 +153,13 @@ fn raw_steady_state_paths_allocate_no_rust_memory() {
     let rhs = vec![1.0; 128];
     let mut grouped_out = vec![0.0; 128];
     let arena = ArenaProvider::new();
-    let exec = Exec::serial_with_workspace(&arena);
+    let mut exec = Exec::serial_with_workspace(&arena);
     grouped
-        .execute_into(&exec, 1.0, &lhs, &rhs, &mut grouped_out)
+        .execute_into(&mut exec, 1.0, &lhs, &rhs, &mut grouped_out)
         .unwrap();
     let allocations = measure(|| {
         grouped
-            .execute_into(&exec, 1.0, &lhs, &rhs, &mut grouped_out)
+            .execute_into(&mut exec, 1.0, &lhs, &rhs, &mut grouped_out)
             .unwrap();
     });
     assert_eq!(allocations, 0, "grouped execute_into serial");

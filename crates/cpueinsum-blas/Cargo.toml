@@ -1,15 +1,15 @@
 [package]
 name = "cpueinsum-blas"
-version = "0.4.2"
+version = "0.5.0"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
-# cpueinsum 0.3.0 is released with it, so this crate publishes now.
 description = "A CBLAS step backend for cpueinsum: binary steps on the linked BLAS"
 
 [dependencies]
 cblas-sys = { workspace = true }
+strided-exec = { workspace = true }
 cpueinsum = { workspace = true }
 num-complex = { workspace = true }
 strided-basic = { workspace = true }
@@ -25,11 +25,11 @@ blas-src = { workspace = true, features = ["openblas"] }
 openblas-src = { workspace = true, features = ["cblas", "system"] }
 
 [dev-dependencies]
+strided-exec = { workspace = true, features = ["ledger"] }
 rand = { workspace = true }
 rand_chacha = { workspace = true }
-rayon = { workspace = true }
 # Naming the typed execution refusal the N-ary route reports; the library itself
-# depends on cpueinsum only.
+# depends on cpueinsum and the strided crates only.
 tcontract-exec = { workspace = true }
 
 [[bench]]

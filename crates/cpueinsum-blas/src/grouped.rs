@@ -48,7 +48,7 @@ struct VendorJob {
 /// let b = [1.0, 0.0, 0.0, 1.0];
 /// let mut out = [0.0; 4];
 /// let mut work = vec![0.0; plan.work_len()];
-/// assert_eq!(plan.execute_into(&Exec::serial(), 1.0, &a, &b, &mut out, &mut work)?,
+/// assert_eq!(plan.execute_into(&mut Exec::serial(), 1.0, &a, &b, &mut out, &mut work)?,
 ///     GroupedRoute::Vendor { jobs: 1 });
 /// assert_eq!(out, a);
 /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -144,7 +144,7 @@ impl<T: BlasScalar> GroupedPlan<T> {
     /// As [`Self::execute_into_accum`].
     pub fn execute_into(
         &self,
-        exec: &Exec<'_>,
+        exec: &mut Exec<'_>,
         alpha: T,
         lhs: &[T],
         rhs: &[T],
@@ -168,7 +168,7 @@ impl<T: BlasScalar> GroupedPlan<T> {
     /// workspace or packing-view error. All jobs are preflighted before writes.
     pub fn execute_into_accum(
         &self,
-        exec: &Exec<'_>,
+        exec: &mut Exec<'_>,
         alpha: T,
         lhs: &[T],
         rhs: &[T],
@@ -181,7 +181,7 @@ impl<T: BlasScalar> GroupedPlan<T> {
 
     fn execute(
         &self,
-        exec: &Exec<'_>,
+        exec: &mut Exec<'_>,
         alpha: T,
         lhs: &[T],
         rhs: &[T],

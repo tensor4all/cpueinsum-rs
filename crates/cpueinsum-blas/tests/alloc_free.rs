@@ -87,10 +87,10 @@ fn blas_vendor_steady_state_allocates_no_rust_memory() {
         assert_eq!(plan.work_len() > 0, expect_packing, "work_len for {name}");
         let mut d = vec![0.0; 16];
         let mut work = vec![0.0; plan.work_len()];
-        let exec = Exec::serial();
+        let mut exec = Exec::serial();
         // Warm the plan's own (exec-independent) state.
         plan.execute_slices_accum(
-            &exec,
+            &mut exec,
             1.0,
             (&a, 0),
             (&packed_b, 0),
@@ -102,7 +102,7 @@ fn blas_vendor_steady_state_allocates_no_rust_memory() {
         .unwrap();
         let allocations = measure(|| {
             plan.execute_slices_accum(
-                &exec,
+                &mut exec,
                 1.0,
                 (&a, 0),
                 (&packed_b, 0),
@@ -126,14 +126,14 @@ fn blas_vendor_steady_state_allocates_no_rust_memory() {
     let plan = GroupedPlan::<f64>::new(&jobs, &PlanConfig::default()).unwrap();
     let mut out = vec![0.0; 512];
     let mut work = vec![0.0; plan.work_len()];
-    let exec = Exec::serial();
+    let mut exec = Exec::serial();
     assert_eq!(
-        plan.execute_into(&exec, 1.0, &a16, &b16, &mut out, &mut work)
+        plan.execute_into(&mut exec, 1.0, &a16, &b16, &mut out, &mut work)
             .unwrap(),
         GroupedRoute::Vendor { jobs: 2 }
     );
     let allocations = measure(|| {
-        plan.execute_into(&exec, 1.0, &a16, &b16, &mut out, &mut work)
+        plan.execute_into(&mut exec, 1.0, &a16, &b16, &mut out, &mut work)
             .unwrap();
     });
     assert_eq!(allocations, 0, "grouped vendor");

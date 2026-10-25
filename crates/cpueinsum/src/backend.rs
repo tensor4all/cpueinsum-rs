@@ -59,7 +59,7 @@ pub type BackendError = Box<dyn std::error::Error + Send + Sync>;
 ///     fn execute(
 ///         &self,
 ///         _: &(),
-///         _: &Exec<'_>,
+///         _: &mut Exec<'_>,
 ///         _: (&[f64], isize),
 ///         _: (&[f64], isize),
 ///         _: (&mut [f64], isize),
@@ -110,7 +110,7 @@ pub trait StepBackend<T: Scalar>: Debug {
     fn execute(
         &self,
         step: &Self::Step,
-        exec: &Exec<'_>,
+        exec: &mut Exec<'_>,
         a: (&[T], isize),
         b: (&[T], isize),
         d: (&mut [T], isize),
@@ -149,7 +149,7 @@ impl<T: Scalar> StepBackend<T> for Tcontract {
     fn execute(
         &self,
         step: &Infallible,
-        _: &Exec<'_>,
+        _: &mut Exec<'_>,
         _: (&[T], isize),
         _: (&[T], isize),
         _: (&mut [T], isize),

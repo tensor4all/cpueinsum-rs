@@ -39,13 +39,16 @@ let views = [
     StridedView::new(&id, &[2, 2], &[1, 2], 0)?,
 ];
 let mut out = StridedViewMut::new(&mut d, &[2, 2], &[1, 2], 0)?;
-plan.execute_into(&Exec::serial(), &views, &mut out, &mut scratch)?;
+plan.execute_into(&mut Exec::serial(), &views, &mut out, &mut scratch)?;
 assert_eq!(d, a);
 ```
 
 `einsum_into` plans and runs in one call; `contract_into` is a one-shot binary
-contraction. Threading is explicit: pass `Exec::rayon(&Pool::borrow(&pool))`
-to use a caller-owned Rayon pool.
+contraction. Threading is explicit: build a `strided_exec::Pool` once
+(`strided_exec::Pool::builder().threads(n).build()?`), wrap it with
+`Pool::borrow(&pool)`, and mint `Exec::new(&pool, budget)?` per call. Every
+operation takes the `Exec` by `&mut`, because the token that places its work is
+not copyable.
 
 ## Prepared binary and grouped execution
 
@@ -128,6 +131,24 @@ Element types: `f32`, `f64`, `Complex<f32>`, `Complex<f64>`. Strides may be
 arbitrary, including negative; a label repeated within an input selects a
 diagonal.
 
+## 0.5 changes
+
+The 0.5.0 release tracks tcontract-exec 0.5.0 and strided 0.7.0. Breaking changes:
+
+- Every operation takes `&mut Exec` (`execute_into`, `execute_slices`,
+  `execute_into_accum`, `execute_uninit_slices`, `einsum_into`, `contract_into`,
+  and `StepBackend::execute`). `native_workspace_req` and `execution_route` still
+  take `&Exec`.
+- `Exec::rayon(&pool).with_budget(n)` is `Exec::new(&pool, n)`, and a pool is a
+  `strided_exec::Pool`, not a Rayon pool. `Exec::serial()` is unchanged.
+- `Exec` is neither `Clone` nor `Copy`; `Exec::token()` lends the
+  `strided_exec` placement token for one call.
+- The `cpueinsum` version requirement is 0.5.0 and the tcontract crates are
+  path dependencies on the sibling `tcontract-rs` checkout until they are
+  published at 0.5.0.
+- The `ExecError::Unavailable` refusal of a packed SPMD child in an outer lane
+  is now `ExecError::StrategyUnavailable` with the requested strategy.
+
 ## 0.3 changes
 
 The 0.3.0 release tracks tcontract 0.3.0 and strided 0.6.0. Breaking changes:
@@ -154,8 +175,8 @@ Early. The plan, layering and gates are in
 [tensor4all/tcontract-rs#62](https://github.com/tensor4all/tcontract-rs/issues/62);
 the BLAS backend in
 [tensor4all/cpueinsum-rs#1](https://github.com/tensor4all/cpueinsum-rs/issues/1).
-The 0.3.0 release is prepared; the tcontract crates are git dependencies at a
-pinned rev. MSRV 1.89.
+The 0.5.0 release is prepared on tcontract-exec 0.5.0 through path dependencies
+(temporary, until those crates are published). MSRV 1.89.
 
 ## License
 

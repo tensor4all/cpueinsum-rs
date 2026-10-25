@@ -35,11 +35,11 @@ use crate::scalar::Scalar;
 /// let av = StridedView::new(&a, &[2, 2], &[1, 2], 0).unwrap();
 /// let bv = StridedView::new(&b, &[2, 2], &[1, 2], 0).unwrap();
 /// let mut dv = StridedViewMut::new(&mut d, &[2, 2], &[1, 2], 0).unwrap();
-/// contract_into(&Exec::serial(), &av, &[0, 1], &bv, &[1, 2], &mut dv, &[0, 2]).unwrap();
+/// contract_into(&mut Exec::serial(), &av, &[0, 1], &bv, &[1, 2], &mut dv, &[0, 2]).unwrap();
 /// assert_eq!(d, [3.0, 4.0, 1.0, 2.0]);
 /// ```
 pub fn contract_into<T: Scalar>(
-    exec: &Exec<'_>,
+    exec: &mut Exec<'_>,
     a: &StridedView<'_, T>,
     la: &[i64],
     b: &StridedView<'_, T>,

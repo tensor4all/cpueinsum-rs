@@ -45,7 +45,7 @@
 //! # let views: Vec<_> = (0..3).map(|_| cpueinsum::strided_view::StridedView::new(&x, &[64, 64], &[1, 64], 0).unwrap()).collect();
 //! # let mut out = cpueinsum::strided_view::StridedViewMut::new(&mut d, &[64, 64], &[1, 64], 0).unwrap();
 //! # let mut scratch = Scratch::new();
-//! # plan.execute_into(&Exec::serial(), &views, &mut out, &mut scratch).unwrap();
+//! # plan.execute_into(&mut Exec::serial(), &views, &mut out, &mut scratch).unwrap();
 //! # assert_eq!(d[0], 64.0 * 64.0);
 //! ```
 
@@ -206,7 +206,7 @@ impl<T: BlasScalar> StepBackend<T> for Blas {
     fn execute(
         &self,
         step: &BlasStep,
-        _exec: &Exec<'_>,
+        _exec: &mut Exec<'_>,
         a: (&[T], isize),
         b: (&[T], isize),
         d: (&mut [T], isize),
@@ -259,7 +259,7 @@ fn pack_in<T: BlasScalar>(
     p.to_packed
         .as_ref()
         .expect("an input pack compiles the operand-to-packed plan")
-        .execute(&mut w, &s)
+        .execute(&mut w, &s, strided_exec::Exec::serial())
         .map_err(err)
 }
 
@@ -319,7 +319,7 @@ fn run<T: BlasScalar>(
         p.from_packed
             .as_ref()
             .expect("the output pack compiles the write-back plan")
-            .execute(&mut o, &s)
+            .execute(&mut o, &s, strided_exec::Exec::serial())
             .map_err(err)?;
     }
     Ok(())

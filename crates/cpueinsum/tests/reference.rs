@@ -27,7 +27,7 @@ fn check(inputs: &[&[i64]], output: &[i64], path: &[[usize; 2]], ext: &dyn Fn(i6
     let (strides, len) = common::col_major(&out_dims);
     let mut d = vec![f64::NAN; len];
     let mut dv = StridedViewMut::new(&mut d, &out_dims, &strides, 0).unwrap();
-    einsum_into(&Exec::serial(), &spec, &views, &mut dv).unwrap();
+    einsum_into(&mut Exec::serial(), &spec, &views, &mut dv).unwrap();
     close(&d, &expected, 1e-12);
 }
 
@@ -120,7 +120,7 @@ fn strided_and_negative_stride_inputs() {
     let mut dv = StridedViewMut::new(&mut d, &[2, 3], &[3, 1], 0).unwrap();
     let views = [ops[0].view(), ops[1].view()];
     let spec = EinsumSpec::new(&[&[0, 1], &[1, 2]], &[2, 0], &[[0, 1]]).unwrap();
-    einsum_into(&Exec::serial(), &spec, &views, &mut dv).unwrap();
+    einsum_into(&mut Exec::serial(), &spec, &views, &mut dv).unwrap();
     let got_col_major: Vec<f64> = (0..3)
         .flat_map(|i| (0..2).map(move |k| (k, i)))
         .map(|(k, i)| d[k * 3 + i])
@@ -151,7 +151,7 @@ fn offset_output_and_inputs_through_a_chain() {
     let mut dv = StridedViewMut::new(&mut d, &[3, 2], &[-1, 3], 4 + 2).unwrap();
     let views = [ops[0].view(), ops[1].view(), ops[2].view()];
     let spec = EinsumSpec::new(&[&[0, 1], &[1, 2], &[2, 3]], &[0, 3], &[[1, 2], [0, 3]]).unwrap();
-    einsum_into(&Exec::serial(), &spec, &views, &mut dv).unwrap();
+    einsum_into(&mut Exec::serial(), &spec, &views, &mut dv).unwrap();
     let got: Vec<f64> = (0..2)
         .flat_map(|l| (0..3).map(move |i| (i, l)))
         .map(|(i, l)| d[4 + (2 - i) + 3 * l])
@@ -173,7 +173,7 @@ fn complex_chain() {
     let views: Vec<_> = ops.iter().map(Operand::view).collect();
     let mut d = vec![Complex64::new(f64::NAN, 0.0); 3];
     let mut dv = StridedViewMut::new(&mut d, &[3], &[1], 0).unwrap();
-    einsum_into(&Exec::serial(), &spec, &views, &mut dv).unwrap();
+    einsum_into(&mut Exec::serial(), &spec, &views, &mut dv).unwrap();
     close(&d, &expected, 1e-12);
 }
 
@@ -195,14 +195,11 @@ fn plan_reuse_with_dirty_scratch_and_rayon() {
         EinsumPlan::<f64>::new(&spec, &layouts, Layout::new(&out_dims, &strides).unwrap()).unwrap();
     let views: Vec<_> = ops.iter().map(Operand::view).collect();
 
-    let pool = rayon::ThreadPoolBuilder::new()
-        .num_threads(4)
-        .build()
-        .unwrap();
+    let pool = strided_exec::Pool::builder().threads(4).build().unwrap();
     let pool = Pool::borrow(&pool);
-    let execs = [Exec::serial(), Exec::rayon(&pool)];
+    let mut execs = [Exec::serial(), Exec::new(&pool, pool.size()).unwrap()];
     let mut scratch = Scratch::with_len(plan.scratch_len() + 3);
-    for exec in &execs {
+    for exec in &mut execs {
         for _ in 0..2 {
             let mut d = vec![f64::NAN; len];
             let mut dv = StridedViewMut::new(&mut d, &out_dims, &strides, 0).unwrap();
@@ -222,7 +219,7 @@ fn binary_contract_into() {
     let mut d = vec![f64::NAN; 9];
     let mut dv = StridedViewMut::new(&mut d, &[3, 3], &[1, 3], 0).unwrap();
     contract_into(
-        &Exec::serial(),
+        &mut Exec::serial(),
         &a.view(),
         &[0, 1, 1],
         &b.view(),
@@ -375,7 +372,7 @@ fn shape_errors() {
     let av = StridedView::new(&a, &[2, 3], &[3, 1], 0).unwrap();
     let bv = StridedView::new(&b, &[3, 2], &[1, 3], 0).unwrap();
     let mut dv = StridedViewMut::new(&mut d, &[2, 2], &[1, 2], 0).unwrap();
-    let r = plan.execute_into(&Exec::serial(), &[av, bv], &mut dv, &mut Scratch::new());
+    let r = plan.execute_into(&mut Exec::serial(), &[av, bv], &mut dv, &mut Scratch::new());
     assert!(matches!(
         r,
         Err(Error::Shape(ShapeError::Mismatch { operand: 0 }))

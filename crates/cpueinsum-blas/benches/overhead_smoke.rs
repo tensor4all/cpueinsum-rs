@@ -80,10 +80,10 @@ fn c2_ns(b_strides: &[isize], expect_packing: bool) -> f64 {
     let b: Vec<f64> = (0..22).map(|i| (i % 5) as f64).collect();
     let mut d = vec![0.0; 16];
     let mut work = vec![0.0; plan.work_len()];
-    let exec = Exec::serial();
+    let mut exec = Exec::serial();
     let route = plan
         .execute_slices_accum(
-            &exec,
+            &mut exec,
             1.0,
             (&a, 0),
             (&b, 0),
@@ -96,7 +96,7 @@ fn c2_ns(b_strides: &[isize], expect_packing: bool) -> f64 {
     assert_eq!(route, ExecutionRoute::Vendor);
     time_ns(2000, || {
         plan.execute_slices_accum(
-            &exec,
+            &mut exec,
             1.0,
             (&a, 0),
             (&b, 0),

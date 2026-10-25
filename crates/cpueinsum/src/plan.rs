@@ -140,7 +140,7 @@ impl Owned {
 /// ];
 /// let mut dv = StridedViewMut::new(&mut d, &[2, 2], &[1, 2], 0).unwrap();
 /// let mut scratch = Scratch::new();
-/// plan.execute_into(&Exec::serial(), &views, &mut dv, &mut scratch).unwrap();
+/// plan.execute_into(&mut Exec::serial(), &views, &mut dv, &mut scratch).unwrap();
 /// assert_eq!(d, a);
 /// ```
 #[derive(Debug)]
@@ -567,7 +567,7 @@ impl<T: Scalar, B: StepBackend<T>> EinsumPlan<T, B> {
     /// there, so no intermediate, output or scratch element is written first.
     pub fn execute_into(
         &self,
-        exec: &Exec<'_>,
+        exec: &mut Exec<'_>,
         inputs: &[StridedView<'_, T>],
         out: &mut StridedViewMut<'_, T>,
         scratch: &mut Scratch<T>,
@@ -607,7 +607,7 @@ impl<T: Scalar, B: StepBackend<T>> EinsumPlan<T, B> {
         work: &mut [T],
     ) -> Result<()> {
         self.check_shapes(inputs, out)?;
-        let exec = Exec::serial_with_workspace(workspace.as_provider());
+        let mut exec = Exec::serial_with_workspace(workspace.as_provider());
         self.admit(&exec)?;
         if work.len() < self.scratch_len {
             return Err(Error::Workspace {
@@ -625,7 +625,7 @@ impl<T: Scalar, B: StepBackend<T>> EinsumPlan<T, B> {
                 },
             });
         }
-        self.run_steps(&exec, inputs, out, &mut work[..self.scratch_len])
+        self.run_steps(&mut exec, inputs, out, &mut work[..self.scratch_len])
     }
 
     fn check_shapes(
@@ -656,7 +656,7 @@ impl<T: Scalar, B: StepBackend<T>> EinsumPlan<T, B> {
 
     fn run_steps(
         &self,
-        exec: &Exec<'_>,
+        exec: &mut Exec<'_>,
         inputs: &[StridedView<'_, T>],
         out: &mut StridedViewMut<'_, T>,
         buf: &mut [T],
@@ -943,11 +943,11 @@ impl<T: Scalar> Scratch<T> {
 /// let mut d = [0.0];
 /// let av = StridedView::new(&a, &[2, 2], &[1, 2], 0).unwrap();
 /// let mut dv = StridedViewMut::new(&mut d, &[], &[], 0).unwrap();
-/// einsum_into(&Exec::serial(), &spec, &[av], &mut dv).unwrap();
+/// einsum_into(&mut Exec::serial(), &spec, &[av], &mut dv).unwrap();
 /// assert_eq!(d, [5.0]);
 /// ```
 pub fn einsum_into<T: Scalar>(
-    exec: &Exec<'_>,
+    exec: &mut Exec<'_>,
     spec: &EinsumSpec,
     inputs: &[StridedView<'_, T>],
     out: &mut StridedViewMut<'_, T>,

@@ -29,14 +29,11 @@ fn tiny_scalar_jobs_stay_serial_under_auto() {
         GroupedGemmJob::new(0, 0, 1, 1, 1, 1),
     ];
     let plan = GroupedPlan::<f64>::new(&jobs, &PlanConfig::default()).unwrap();
-    let thread_pool = rayon::ThreadPoolBuilder::new()
-        .num_threads(2)
-        .build()
-        .unwrap();
+    let thread_pool = strided_exec::Pool::builder().threads(2).build().unwrap();
     let pool = cpueinsum::Pool::borrow(&thread_pool);
-    let exec = Exec::rayon(&pool).with_budget(2).unwrap();
+    let mut exec = Exec::new(&pool, 2).unwrap();
     let route = plan
-        .execute_into(&exec, 1.0, &[3.0], &[4.0], &mut [0.0; 2])
+        .execute_into(&mut exec, 1.0, &[3.0], &[4.0], &mut [0.0; 2])
         .unwrap();
     assert_eq!(route, GroupedRoute::Serial);
 }
@@ -53,34 +50,33 @@ fn forced_strategies_are_honored_or_refused() {
     let plan = GroupedPlan::<f64>::new(&jobs, &PlanConfig::default()).unwrap();
     let lhs: Vec<f64> = (0..4 * 4096).map(|i| ((i % 7) as f64) - 3.0).collect();
     let rhs: Vec<f64> = (0..4 * 4096).map(|i| ((i % 5) as f64) - 2.0).collect();
-    let thread_pool = rayon::ThreadPoolBuilder::new()
-        .num_threads(4)
-        .build()
-        .unwrap();
+    let thread_pool = strided_exec::Pool::builder().threads(4).build().unwrap();
     let pool = cpueinsum::Pool::borrow(&thread_pool);
 
     // The reference is the serial route (all item kernels serial, one lane).
     let mut reference = vec![0.0; 4 * 4096];
     assert_eq!(
-        plan.execute_into(&Exec::serial(), 1.0, &lhs, &rhs, &mut reference)
+        plan.execute_into(&mut Exec::serial(), 1.0, &lhs, &rhs, &mut reference)
             .unwrap(),
         GroupedRoute::Serial
     );
 
     // Auto under four threads: outer lanes.
     let mut auto = vec![0.0; 4 * 4096];
-    let exec = Exec::rayon(&pool).with_budget(4).unwrap();
+    let mut exec = Exec::new(&pool, 4).unwrap();
     let route = plan
-        .execute_into(&exec, 1.0, &lhs, &rhs, &mut auto)
+        .execute_into(&mut exec, 1.0, &lhs, &rhs, &mut auto)
         .unwrap();
     assert!(matches!(route, GroupedRoute::Outer { lanes } if lanes > 1));
     close(&auto, &reference, 1e-12);
 
     // Forced Outer: the per-item kernels are unchanged, so bitwise equal.
     let mut outer = vec![0.0; 4 * 4096];
-    let exec = Exec::rayon(&pool).with_batch_policy(BatchPolicy::new(BatchStrategy::Outer));
+    let mut exec = Exec::new(&pool, pool.size())
+        .unwrap()
+        .with_batch_policy(BatchPolicy::new(BatchStrategy::Outer));
     assert_eq!(
-        plan.execute_into(&exec, 1.0, &lhs, &rhs, &mut outer)
+        plan.execute_into(&mut exec, 1.0, &lhs, &rhs, &mut outer)
             .unwrap(),
         GroupedRoute::Outer { lanes: 4 }
     );
@@ -88,9 +84,11 @@ fn forced_strategies_are_honored_or_refused() {
 
     // Forced Sequential ignores the budget and is bitwise equal too.
     let mut sequential = vec![0.0; 4 * 4096];
-    let exec = Exec::rayon(&pool).with_batch_policy(BatchPolicy::new(BatchStrategy::Sequential));
+    let mut exec = Exec::new(&pool, pool.size())
+        .unwrap()
+        .with_batch_policy(BatchPolicy::new(BatchStrategy::Sequential));
     assert_eq!(
-        plan.execute_into(&exec, 1.0, &lhs, &rhs, &mut sequential)
+        plan.execute_into(&mut exec, 1.0, &lhs, &rhs, &mut sequential)
             .unwrap(),
         GroupedRoute::Serial
     );
@@ -98,14 +96,13 @@ fn forced_strategies_are_honored_or_refused() {
 
     // Forced Split on the original budget: two lanes, two item threads each.
     let mut split = vec![0.0; 4 * 4096];
-    let exec = Exec::rayon(&pool)
-        .with_budget(4)
+    let mut exec = Exec::new(&pool, 4)
         .unwrap()
         .with_batch_policy(BatchPolicy::new(BatchStrategy::Split {
             lanes: NonZeroUsize::new(2).unwrap(),
         }));
     assert_eq!(
-        plan.execute_into(&exec, 1.0, &lhs, &rhs, &mut split)
+        plan.execute_into(&mut exec, 1.0, &lhs, &rhs, &mut split)
             .unwrap(),
         GroupedRoute::Split {
             lanes: 2,
@@ -117,12 +114,11 @@ fn forced_strategies_are_honored_or_refused() {
 
     // Forced Inner: one lane, the whole budget per item.
     let mut inner = vec![0.0; 4 * 4096];
-    let exec = Exec::rayon(&pool)
-        .with_budget(4)
+    let mut exec = Exec::new(&pool, 4)
         .unwrap()
         .with_batch_policy(BatchPolicy::new(BatchStrategy::Inner));
     assert_eq!(
-        plan.execute_into(&exec, 1.0, &lhs, &rhs, &mut inner)
+        plan.execute_into(&mut exec, 1.0, &lhs, &rhs, &mut inner)
             .unwrap(),
         GroupedRoute::Inner { threads: 4 }
     );
@@ -130,10 +126,11 @@ fn forced_strategies_are_honored_or_refused() {
 
     // The serial context carries a policy too, so a forced route at one thread
     // resolves there as well.
-    let exec = BatchExec::serial().with_batch_policy(BatchPolicy::new(BatchStrategy::Inner));
+    let mut exec = BatchExec::serial().with_batch_policy(BatchPolicy::new(BatchStrategy::Inner));
     let mut one = vec![0.0; 4 * 4096];
     assert_eq!(
-        plan.execute_into(&exec, 1.0, &lhs, &rhs, &mut one).unwrap(),
+        plan.execute_into(&mut exec, 1.0, &lhs, &rhs, &mut one)
+            .unwrap(),
         GroupedRoute::Serial
     );
 }
@@ -153,7 +150,7 @@ fn heterogeneous_shared_inputs_unsorted_outputs_and_holes() {
     let rhs = [1., 0., 0., 1., 2., 3.];
     let mut out = vec![-9.; 8];
     let route = plan
-        .execute_into(&Exec::serial(), 1.0, &lhs, &rhs, &mut out)
+        .execute_into(&mut Exec::serial(), 1.0, &lhs, &rhs, &mut out)
         .unwrap();
     assert_eq!(route, GroupedRoute::Serial);
     let mut expected = vec![-9.; 8];
@@ -169,7 +166,7 @@ fn alpha_beta_accumulation_uses_previous_output() {
     let lhs = [1., 2., 3., 4.];
     let rhs = [2., 0., 0., 2.];
     let mut out = [10., 20., 30., 40.];
-    plan.execute_into_accum(&Exec::serial(), 2.0, &lhs, &rhs, 0.5, &mut out)
+    plan.execute_into_accum(&mut Exec::serial(), 2.0, &lhs, &rhs, 0.5, &mut out)
         .unwrap();
     let product = gemm(&lhs, &rhs, 2, 2, 2);
     let expected: Vec<_> = product
@@ -190,7 +187,7 @@ fn all_bounds_are_checked_before_any_write() {
         let plan = GroupedPlan::<f64>::new(&jobs, &PlanConfig::default()).unwrap();
         let mut out = [77.; 2];
         let err = plan
-            .execute_into(&Exec::serial(), 1.0, &[3.], &[4.], &mut out)
+            .execute_into(&mut Exec::serial(), 1.0, &[3.], &[4.], &mut out)
             .unwrap_err();
         assert!(matches!(
             err,
@@ -241,7 +238,7 @@ fn empty_jobs_are_validated_and_zero_jobs_are_empty() {
     let plan = GroupedPlan::<f64>::new(&empty, &PlanConfig::default()).unwrap();
     let mut out = [11.; 9];
     assert_eq!(
-        plan.execute_into(&Exec::serial(), 1.0, &[0.; 4], &[0.; 13], &mut out)
+        plan.execute_into(&mut Exec::serial(), 1.0, &[0.; 4], &[0.; 13], &mut out)
             .unwrap(),
         GroupedRoute::Serial
     );
@@ -250,7 +247,7 @@ fn empty_jobs_are_validated_and_zero_jobs_are_empty() {
     let none: [GroupedGemmJob; 0] = [];
     let plan = GroupedPlan::<f64>::new(&none, &PlanConfig::default()).unwrap();
     assert_eq!(
-        plan.execute_into(&Exec::serial(), 1.0, &[], &[], &mut [])
+        plan.execute_into(&mut Exec::serial(), 1.0, &[], &[], &mut [])
             .unwrap(),
         GroupedRoute::Empty
     );
@@ -265,44 +262,40 @@ fn bounded_pool_uses_outer_lanes_without_nested_entries() {
     let lhs = vec![1.; 4 * 4096];
     let rhs = vec![1.; 4 * 4096];
     let mut out = vec![1.; 4 * 4096];
-    let thread_pool = rayon::ThreadPoolBuilder::new()
-        .num_threads(4)
-        .build()
-        .unwrap();
+    let thread_pool = strided_exec::Pool::builder().threads(4).build().unwrap();
     let pool = cpueinsum::Pool::borrow(&thread_pool);
-    let exec = Exec::rayon(&pool).with_budget(2).unwrap();
+    let mut exec = Exec::new(&pool, 2).unwrap();
+    let root = exec
+        .token()
+        .ledger_root()
+        .expect("a pooled token is a root");
     let route = plan
-        .execute_into_accum(&exec, 1.0, &lhs, &rhs, 1.0, &mut out)
+        .execute_into_accum(&mut exec, 1.0, &lhs, &rhs, 1.0, &mut out)
         .unwrap();
     assert!(matches!(route, GroupedRoute::Outer { lanes: 2 }));
     // Accumulation detects duplicate job execution, unlike idempotent overwrite.
     assert!(out.iter().all(|&x| x == 65.));
-    assert_eq!(pool.stats().broadcasts, 0);
-    assert_eq!(pool.stats().entries, 1);
+    assert_eq!(strided_exec::ledger::installs(root), 1);
 
     for budget in [1, 4] {
-        pool.reset_stats();
         out.fill(1.0);
-        let bounded = Exec::rayon(&pool).with_budget(budget).unwrap();
+        let mut bounded = Exec::new(&pool, budget).unwrap();
+        let root = bounded
+            .token()
+            .ledger_root()
+            .expect("a pooled token is a root");
         let route = plan
-            .execute_into_accum(&bounded, 1.0, &lhs, &rhs, 1.0, &mut out)
+            .execute_into_accum(&mut bounded, 1.0, &lhs, &rhs, 1.0, &mut out)
             .unwrap();
         if budget == 1 {
             assert_eq!(route, GroupedRoute::Serial);
-            assert_eq!(pool.stats().entries, 0);
+            assert_eq!(strided_exec::ledger::installs(root), 0);
         } else {
             assert!(matches!(route, GroupedRoute::Outer { lanes } if lanes > 1 && lanes <= budget));
-            assert_eq!(pool.stats().entries, 1);
+            assert_eq!(strided_exec::ledger::installs(root), 1);
         }
-        assert_eq!(pool.stats().broadcasts, 0);
         assert!(out.iter().all(|&x| x == 65.));
     }
-    pool.reset_stats();
-    thread_pool.install(|| {
-        plan.execute_into(&exec, 1.0, &lhs, &rhs, &mut out).unwrap();
-    });
-    assert_eq!(pool.stats().entries, 0);
-    assert!(pool.stats().inline_runs > 0);
 }
 
 fn scalar_group<T: Elem>(conj: impl Fn(T) -> T + Copy, tol: f64) {
@@ -319,7 +312,7 @@ fn scalar_group<T: Elem>(conj: impl Fn(T) -> T + Copy, tol: f64) {
     let alpha = T::random(&mut rng);
     let beta = T::random(&mut rng);
     let arena = cpueinsum::ArenaProvider::traced();
-    let exec = Exec::serial_with_workspace(&arena); // Explicit 1T backend.
+    let mut exec = Exec::serial_with_workspace(&arena); // Explicit 1T backend.
     for conjugate in [false, true] {
         let apply = |x| if conjugate { conj(x) } else { x };
         let ops = [if conjugate {
@@ -371,7 +364,7 @@ fn scalar_group<T: Elem>(conj: impl Fn(T) -> T + Copy, tol: f64) {
             }
             let mut out = old.clone();
             let route = plan
-                .execute_into_accum(&exec, alpha, &lhs, &rhs, scale, &mut out)
+                .execute_into_accum(&mut exec, alpha, &lhs, &rhs, scale, &mut out)
                 .unwrap();
             assert_eq!(route, GroupedRoute::Serial);
             close(&out, &expected, tol);
@@ -382,7 +375,7 @@ fn scalar_group<T: Elem>(conj: impl Fn(T) -> T + Copy, tol: f64) {
     let warm = arena.retained_bytes();
     arena.trace_take();
     let plan = GroupedPlan::<T>::new(&jobs, &PlanConfig::packed()).unwrap();
-    plan.execute_into(&exec, alpha, &lhs, &rhs, &mut old.clone())
+    plan.execute_into(&mut exec, alpha, &lhs, &rhs, &mut old.clone())
         .unwrap();
     assert_eq!(arena.retained_bytes(), warm);
     assert!(arena.trace_take().is_empty());
@@ -408,18 +401,14 @@ fn empty_jobs_do_not_move_parallel_chunk_boundaries_backwards() {
         GroupedGemmJob::new(0, 0, 0, 0, 1, 1),
     ];
     let plan = GroupedPlan::<f64>::new(&jobs, &PlanConfig::default()).unwrap();
-    let thread_pool = rayon::ThreadPoolBuilder::new()
-        .num_threads(2)
-        .build()
-        .unwrap();
+    let thread_pool = strided_exec::Pool::builder().threads(2).build().unwrap();
     let pool = cpueinsum::Pool::borrow(&thread_pool);
-    let exec = Exec::rayon(&pool)
-        .with_budget(2)
+    let mut exec = Exec::new(&pool, 2)
         .unwrap()
         .with_batch_policy(BatchPolicy::new(BatchStrategy::Outer));
     let mut out = [0.0; 1];
     let route = plan
-        .execute_into(&exec, 1.0, &[3.0], &[4.0], &mut out)
+        .execute_into(&mut exec, 1.0, &[3.0], &[4.0], &mut out)
         .unwrap();
     assert_eq!(route, GroupedRoute::Outer { lanes: 2 });
     assert_eq!(out, [12.0]);
@@ -439,31 +428,36 @@ fn forced_inner_runs_the_child_with_the_granted_width() {
     let lhs = vec![1.0; n * n];
     let rhs = vec![1.0; n * n];
     let mut out = vec![0.0; n * n];
-    let thread_pool = rayon::ThreadPoolBuilder::new()
-        .num_threads(4)
-        .build()
-        .unwrap();
+    let thread_pool = strided_exec::Pool::builder().threads(4).build().unwrap();
     let pool = cpueinsum::Pool::borrow(&thread_pool);
 
     // Forced Sequential: one lane, serial child, the pool is never entered.
-    let exec = Exec::rayon(&pool)
-        .with_budget(4)
+    let mut exec = Exec::new(&pool, 4)
         .unwrap()
         .with_batch_policy(BatchPolicy::new(BatchStrategy::Sequential));
-    plan.execute_into(&exec, 1.0, &lhs, &rhs, &mut out).unwrap();
-    let sequential_uses = pool.stats().entries + pool.stats().broadcasts;
+    plan.execute_into(&mut exec, 1.0, &lhs, &rhs, &mut out)
+        .unwrap();
+    let sequential_root = exec
+        .token()
+        .ledger_root()
+        .expect("a pooled token is a root");
+    let sequential_uses = strided_exec::ledger::installs(sequential_root);
 
-    pool.reset_stats();
     // Forced Inner: the item is granted the whole budget, and the child must
     // actually execute at that width. The pre-fix Auto child fell below Auto's
     // 50 us threshold and stayed serial while the route reported four threads.
-    let exec = Exec::rayon(&pool)
-        .with_budget(4)
+    let mut exec = Exec::new(&pool, 4)
         .unwrap()
         .with_batch_policy(BatchPolicy::new(BatchStrategy::Inner));
-    let route = plan.execute_into(&exec, 1.0, &lhs, &rhs, &mut out).unwrap();
+    let route = plan
+        .execute_into(&mut exec, 1.0, &lhs, &rhs, &mut out)
+        .unwrap();
     assert_eq!(route, GroupedRoute::Inner { threads: 4 });
-    let inner_uses = pool.stats().entries + pool.stats().broadcasts;
+    let inner_root = exec
+        .token()
+        .ledger_root()
+        .expect("a pooled token is a root");
+    let inner_uses = strided_exec::ledger::installs(inner_root);
     assert!(
         inner_uses > sequential_uses,
         "forced Inner did not exercise its granted width: sequential={sequential_uses}, inner={inner_uses}"
@@ -501,13 +495,9 @@ fn split_rejects_worker_incompatible_child_routes_before_dispatch() {
     let lhs = vec![1.0; 2 * 4096];
     let rhs = vec![1.0; 2 * 4096];
     let mut out = vec![77.0; 2 * 4096];
-    let thread_pool = rayon::ThreadPoolBuilder::new()
-        .num_threads(4)
-        .build()
-        .unwrap();
+    let thread_pool = strided_exec::Pool::builder().threads(4).build().unwrap();
     let pool = cpueinsum::Pool::borrow(&thread_pool);
-    let exec = Exec::rayon(&pool)
-        .with_budget(4)
+    let mut exec = Exec::new(&pool, 4)
         .unwrap()
         .with_batch_policy(BatchPolicy::new(BatchStrategy::Split {
             lanes: NonZeroUsize::new(2).unwrap(),
@@ -534,8 +524,7 @@ fn split_rejects_worker_incompatible_child_routes_before_dispatch() {
     )
     .expect("valid 64^3 problem");
     let child = Plan::<f64>::new(&problem, &child_config).expect("child plan");
-    let child_exec = exec
-        .with_budget(2)
+    let child_exec = Exec::new(&pool, 2)
         .expect("budget two")
         .with_batch_policy(BatchPolicy::new(BatchStrategy::Inner));
     match child
@@ -552,10 +541,15 @@ fn split_rejects_worker_incompatible_child_routes_before_dispatch() {
         other => panic!("the child route must be an SPMD team at budget 2, got {other:?}"),
     }
 
-    pool.reset_stats();
-    assert!(plan.execute_into(&exec, 1.0, &lhs, &rhs, &mut out).is_err());
+    let refused_root = exec
+        .token()
+        .ledger_root()
+        .expect("a pooled token is a root");
+    assert!(plan
+        .execute_into(&mut exec, 1.0, &lhs, &rhs, &mut out)
+        .is_err());
     assert_eq!(
-        pool.stats().entries,
+        strided_exec::ledger::installs(refused_root),
         0,
         "a worker-incompatible child route must be refused before dispatch"
     );

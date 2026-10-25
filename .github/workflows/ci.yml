@@ -10,8 +10,8 @@ env:
   RUSTFLAGS: -D warnings
 
 # This file is the gate AGENTS.md asks for, run on a clean machine: `cargo fmt`,
-# `cargo clippy --workspace --all-targets`, `cargo test --workspace` and
-# `cargo test --release --workspace`. Keep the two in step.
+# `cargo clippy --workspace --all-targets`, `cargo test --workspace`,
+# `cargo test --release --workspace` and `cargo deny check bans`. Keep them in step.
 #
 # Every Rust job restores `Swatinem/rust-cache` and only a push to main writes it,
 # so a pull request never publishes a cache built from PR-controlled content. Without
@@ -36,6 +36,17 @@ jobs:
         with:
           components: rustfmt
       - run: cargo fmt --all -- --check
+
+  # Only strided-exec (and vendor wrappers listed in deny.toml) may depend on
+  # rayon: every other crate reaches parallelism through `strided_exec::Exec`.
+  deny:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Only strided-exec (and vendor wrappers) depend on rayon
+        uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check bans
 
   clippy:
     strategy:

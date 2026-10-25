@@ -14,7 +14,7 @@
 //! | `tcontract_call` | [`Tcontract`] | spec, plan, scratch and output built per call |
 //! | `blas_call` | [`Blas::default`] | the same |
 //!
-//! tcontract runs on a Rayon pool of the thread count (serial at one
+//! tcontract runs on a strided pool of the thread count (serial at one
 //! thread); so do the steps the BLAS backend declines. BLAS reads its thread
 //! count when the library initialises, so each thread count runs in a child
 //! process with `VECLIB_MAXIMUM_THREADS` (Accelerate) and
@@ -299,7 +299,7 @@ impl<T: Elem> Data<T> {
 fn arm<T: Elem, B: StepBackend<T> + Copy>(
     c: &Case,
     d: &Data<T>,
-    exec: &Exec<'_>,
+    exec: &mut Exec<'_>,
     backend: B,
     per_call: bool,
     o: &Opts,
@@ -363,9 +363,9 @@ fn rel_err<T: Elem>(got: &[T], want: &[T]) -> f64 {
         / scale
 }
 
-fn run_case<T: Elem>(c: &Case, threads: usize, exec: &Exec<'_>, o: &Opts) {
+fn run_case<T: Elem>(c: &Case, threads: usize, exec: &mut Exec<'_>, o: &Opts) {
     let d = Data::<T>::new(c);
-    let (_, _, reference) = arm(c, &d, &Exec::serial(), Tcontract, false, &o_once());
+    let (_, _, reference) = arm(c, &d, &mut Exec::serial(), Tcontract, false, &o_once());
     let steps = c.path.len();
     let arms: [(&str, bool, bool); 4] = [
         ("tcontract_exec", false, false),
@@ -405,24 +405,24 @@ fn o_once() -> Opts {
 }
 
 fn worker(threads: usize, filter: Option<&str>, o: &Opts) {
-    let pool = rayon::ThreadPoolBuilder::new()
-        .num_threads(threads)
+    let pool = strided_exec::Pool::builder()
+        .threads(threads)
         .build()
         .unwrap();
     let pool = Pool::borrow(&pool);
-    let exec = if threads == 1 {
+    let mut exec = if threads == 1 {
         Exec::serial()
     } else {
-        Exec::rayon(&pool)
+        Exec::new(&pool, pool.size()).unwrap()
     };
     for c in corpus() {
         if filter.is_some_and(|f| !c.name.contains(f)) {
             continue;
         }
         if c.complex {
-            run_case::<Complex64>(&c, threads, &exec, o);
+            run_case::<Complex64>(&c, threads, &mut exec, o);
         } else {
-            run_case::<f64>(&c, threads, &exec, o);
+            run_case::<f64>(&c, threads, &mut exec, o);
         }
     }
 }

@@ -30,8 +30,11 @@ is tensor4all/tcontract-rs#62.
   `MaybeUninit` publication, each with a `SAFETY` comment. Pointers are checked
   against operand slices at execution and dimensions at planning; fresh output
   is never represented by initialized references before completion.
-- tcontract crates and strided-view are git dependencies at pinned revs; bump
-  them together with tcontract-rs's own pin.
+- tcontract, tcontract-exec and tcontract-capi are path dependencies on the
+  sibling checkout `../tcontract-rs-exec` at 0.5.0 (temporary: they become
+  registry 0.5.0 once published). strided-basic, strided-view and strided-exec
+  come from crates.io at 0.7.x. Bump the tcontract and strided requirements
+  together.
 - Do not publish the crates (`publish = false` until tcontract is published).
 
 ## Build
