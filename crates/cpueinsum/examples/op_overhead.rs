@@ -44,11 +44,11 @@ fn main() {
     let mut c = [0.0f64; 4];
 
     let arena = ArenaProvider::new();
-    let exec = Exec::serial_with_workspace(&arena); // Explicit 1T backend.
+    let mut exec = Exec::serial_with_workspace(&arena); // Explicit 1T backend.
     let plan = BinaryPlan::<f64>::new(&problem(), &PlanConfig::default()).unwrap();
 
     // Prime the arena so neither arm pays for its scratch.
-    plan.execute_slices(&exec, 1.0, (&a, 0), (&b, 0), (&mut c, 0))
+    plan.execute_slices(&mut exec, 1.0, (&a, 0), (&b, 0), (&mut c, 0))
         .unwrap();
 
     let ns = |t: Instant| t.elapsed().as_nanos() as f64 / N as f64;
@@ -58,7 +58,8 @@ fn main() {
             let av = StridedView::<f64>::new(black_box(&a), &dims, &strides, 0).unwrap();
             let bv = StridedView::<f64>::new(black_box(&b), &dims, &strides, 0).unwrap();
             let mut dv = StridedViewMut::new(black_box(&mut c), &dims, &strides, 0).unwrap();
-            plan.execute_into(&exec, 1.0, &av, &bv, &mut dv).unwrap();
+            plan.execute_into(&mut exec, 1.0, &av, &bv, &mut dv)
+                .unwrap();
             black_box(&c);
         }
         let views = ns(t);
@@ -66,7 +67,7 @@ fn main() {
         let t = Instant::now();
         for _ in 0..N {
             plan.execute_slices(
-                &exec,
+                &mut exec,
                 1.0,
                 (black_box(&a), 0),
                 (black_box(&b), 0),

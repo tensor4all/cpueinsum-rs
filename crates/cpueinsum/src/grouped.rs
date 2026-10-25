@@ -4,14 +4,12 @@
 //! caller lends flat input and output buffers at execution time; no pointers
 //! or executors are retained by the plan.
 
+use std::num::NonZeroUsize;
 use std::sync::Mutex;
 
 use tcontract::api::{CSpec, Labels, LayoutSpec, Op, OperandSpec, Problem};
-use tcontract::{
-    ExecutionRoute, OutputContract, PackedRoute, Plan, PlanConfig, SliceAccumulationSource,
-    NS_PER_FLOP,
-};
-use tcontract_exec::{BatchPolicy, BatchQuery, BatchStrategy, Exec, ExecError, WorkspaceReq};
+use tcontract::{OutputContract, Plan, PlanConfig, SliceAccumulationSource, NS_PER_FLOP};
+use tcontract_exec::{BatchPolicy, BatchQuery, BatchStrategy, Exec, WorkspaceReq};
 
 use crate::{Error, Result, Scalar};
 
@@ -205,11 +203,11 @@ struct PreparedJob<T: Scalar> {
 /// ];
 /// let plan = GroupedPlan::<f64>::new(&jobs, &Default::default())?;
 /// let arena = ArenaProvider::new();
-/// let exec = Exec::serial_with_workspace(&arena);
+/// let mut exec = Exec::serial_with_workspace(&arena);
 /// let (a, b) = ([1., 2., 3., 4.], [1., 1.]);
 /// let mut d = [f64::NAN; 3];
-/// plan.execute_into(&exec, 1.0, &a, &b, &mut d)?;
-/// plan.execute_into_accum(&exec, 2.0, &a, &b, 0.5, &mut d)?;
+/// plan.execute_into(&mut exec, 1.0, &a, &b, &mut d)?;
+/// plan.execute_into_accum(&mut exec, 2.0, &a, &b, 0.5, &mut d)?;
 /// assert_eq!(d, [10.0, 15.0, 2.5]);
 /// # Ok::<(), cpueinsum::Error>(())
 /// ```
@@ -262,7 +260,7 @@ impl<T: Scalar> GroupedPlan<T> {
     ///     [Op::Conjugate, Op::Identity, Op::Conjugate], &Default::default(),
     /// )?;
     /// let mut d = [C::new(3.0, 1.0)];
-    /// plan.execute_into_accum(&Exec::serial(), C::i(), &[C::new(1.0, 2.0)],
+    /// plan.execute_into_accum(&mut Exec::serial(), C::i(), &[C::new(1.0, 2.0)],
     ///     &[C::new(2.0, 0.0)], C::i(), &mut d)?;
     /// assert_eq!(d, [C::new(5.0, -5.0)]);
     /// # Ok::<(), cpueinsum::Error>(())
@@ -450,7 +448,7 @@ impl<T: Scalar> GroupedPlan<T> {
     ///     &[GroupedGemmJob::new(0, 0, 0, 2, 2, 1)], &Default::default(),
     /// )?;
     /// let mut d = [f64::NAN; 2];
-    /// let route = plan.execute_into(&Exec::serial(), 2.0, &[1., 2., 3., 4.],
+    /// let route = plan.execute_into(&mut Exec::serial(), 2.0, &[1., 2., 3., 4.],
     ///     &[1., 1.], &mut d)?;
     /// assert_eq!(d, [8.0, 12.0]);
     /// assert_eq!(route, GroupedRoute::Serial);
@@ -464,7 +462,7 @@ impl<T: Scalar> GroupedPlan<T> {
     /// bounds and route checks happen before the first write.
     pub fn execute_into(
         &self,
-        exec: &Exec<'_>,
+        exec: &mut Exec<'_>,
         alpha: T,
         lhs: &[T],
         rhs: &[T],
@@ -483,7 +481,7 @@ impl<T: Scalar> GroupedPlan<T> {
     ///     &[GroupedGemmJob::new(0, 0, 0, 1, 1, 1)], &Default::default(),
     /// )?;
     /// let mut d = [8.0];
-    /// plan.execute_into_accum(&Exec::serial(), 2.0, &[3.0], &[4.0], 0.5, &mut d)?;
+    /// plan.execute_into_accum(&mut Exec::serial(), 2.0, &[3.0], &[4.0], 0.5, &mut d)?;
     /// assert_eq!(d, [28.0]);
     /// # Ok::<(), cpueinsum::Error>(())
     /// ```
@@ -495,7 +493,7 @@ impl<T: Scalar> GroupedPlan<T> {
     /// bounds and route checks happen before the first write.
     pub fn execute_into_accum(
         &self,
-        exec: &Exec<'_>,
+        exec: &mut Exec<'_>,
         alpha: T,
         lhs: &[T],
         rhs: &[T],
@@ -507,7 +505,7 @@ impl<T: Scalar> GroupedPlan<T> {
 
     fn execute(
         &self,
-        exec: &Exec<'_>,
+        exec: &mut Exec<'_>,
         alpha: T,
         lhs: &[T],
         rhs: &[T],
@@ -518,7 +516,6 @@ impl<T: Scalar> GroupedPlan<T> {
         // Resolve the route first, before bounds checks, the empty shortcut or
         // any write, so the outer width is fixed before the children run.
         let (lanes, item_threads) = self.lane_decision(exec)?;
-        let child_exec = child_context(exec, item_threads)?;
 
         for job in &self.jobs {
             check_bounds(
@@ -548,30 +545,19 @@ impl<T: Scalar> GroupedPlan<T> {
         } else {
             SliceAccumulationSource::Absent
         };
-        for job in &self.jobs {
-            let route = job
-                .plan
-                .execution_route(&child_exec, alpha, OutputContract::Initialized)
-                .map_err(|source| Error::Contract {
-                    step: job.meta.id,
-                    source,
-                })?;
-            // A multi-lane dispatch runs each child on a pool worker, where a
-            // packed SPMD team (a pool broadcast) is unavailable. The coordinator
-            // preflight above resolves it as available; refuse it here, before any
-            // lane writes, rather than letting it fail mid-dispatch after another
-            // lane may already have written.
-            if lanes > 1 {
-                if let ExecutionRoute::Packed {
-                    kind: PackedRoute::Spmd,
-                    ..
-                } = route
-                {
-                    return Err(Error::Contract {
+        {
+            let child_exec = child_context(exec, item_threads);
+            for job in &self.jobs {
+                // Admission only: a child that would take a packed SPMD team on the
+                // coordinator is not refused here. tcontract's packed driver checks
+                // `can_broadcast` on the token it is given, so a child running on a
+                // pool worker takes the barrier-free route, before any lane writes.
+                job.plan
+                    .execution_route(&child_exec, alpha, OutputContract::Initialized)
+                    .map_err(|source| Error::Contract {
                         step: job.meta.id,
-                        source: ExecError::Unavailable.into(),
-                    });
-                }
+                        source,
+                    })?;
             }
         }
 
@@ -584,6 +570,7 @@ impl<T: Scalar> GroupedPlan<T> {
             // Serial: drive the jobs by index and carve each output slice in
             // turn. Nothing is collected, so this path allocates none of its
             // own (tcontract's own workspace aside).
+            let mut child_exec = child_context(exec, item_threads);
             let mut cursor = 0usize;
             let mut remaining: &mut [T] = out;
             for job in &self.jobs {
@@ -606,7 +593,7 @@ impl<T: Scalar> GroupedPlan<T> {
                     rhs: &rhs[job.meta.rhs_offset..job.meta.rhs_offset + job.meta.rhs_len],
                     out: d,
                 };
-                run_item(&mut item, &child_exec, alpha, beta, source)?;
+                run_item(&mut item, &mut child_exec, alpha, beta, source)?;
             }
             return Ok(route);
         }
@@ -652,7 +639,14 @@ impl<T: Scalar> GroupedPlan<T> {
             cursor = end;
         }
         let failure = Mutex::new(None);
-        exec.for_each_partition(lanes, &|lane| {
+        // Each lane is one forked child of the caller's token: `fork` gives
+        // lane `i` its share of the budget, and every share is at least
+        // `item_threads` because `lanes * item_threads <= budget`.
+        let workspace = exec.workspace();
+        let policy = child_policy(item_threads);
+        let item_budget = NonZeroUsize::new(item_threads).unwrap_or(NonZeroUsize::MIN);
+        exec.token().fork(lanes, |lane, token| {
+            let mut lane_exec = Exec::from_token(token.limit(item_budget), workspace, policy);
             let (lo, hi) = lane_range(lane);
             let mut guard = lane_chunks[lane]
                 .lock()
@@ -679,7 +673,7 @@ impl<T: Scalar> GroupedPlan<T> {
                     rhs: &rhs[job.meta.rhs_offset..job.meta.rhs_offset + job.meta.rhs_len],
                     out: d,
                 };
-                if let Err(error) = run_item(&mut item, &child_exec, alpha, beta, source) {
+                if let Err(error) = run_item(&mut item, &mut lane_exec, alpha, beta, source) {
                     let mut first = failure.lock().unwrap_or_else(|poison| poison.into_inner());
                     if first.is_none() {
                         *first = Some(error);
@@ -732,19 +726,27 @@ impl<T: Scalar> GroupedPlan<T> {
 /// so the granted width is actually executed: a reset to `Auto` would let a
 /// small item fall back below the Auto threshold and run serially while the
 /// route still reported several threads.
-fn child_context<'a>(exec: &Exec<'a>, item_threads: usize) -> Result<Exec<'a>> {
+fn child_context<'b>(exec: &'b mut Exec<'_>, item_threads: usize) -> Exec<'b> {
+    let workspace = exec.workspace();
     if item_threads <= 1 {
-        return Ok(exec
-            .workspace()
-            .map_or(Exec::serial(), Exec::serial_with_workspace));
+        return workspace.map_or(Exec::serial(), Exec::serial_with_workspace);
     }
-    let child = exec
-        .with_budget(item_threads)
-        .map_err(|source| Error::Contract {
-            step: 0,
-            source: source.into(),
-        })?;
-    Ok(child.with_batch_policy(BatchPolicy::new(BatchStrategy::Inner)))
+    let budget = NonZeroUsize::new(item_threads).unwrap_or(NonZeroUsize::MIN);
+    Exec::from_token(
+        exec.token().limit(budget),
+        workspace,
+        child_policy(item_threads),
+    )
+}
+
+/// The batch policy of an item context: serial items keep the default policy,
+/// and a granted item width is forced to [`BatchStrategy::Inner`] so it runs.
+fn child_policy(item_threads: usize) -> BatchPolicy {
+    if item_threads <= 1 {
+        BatchPolicy::default()
+    } else {
+        BatchPolicy::new(BatchStrategy::Inner)
+    }
 }
 
 /// The route a resolved `(lanes, item_threads)` pair describes.
@@ -775,7 +777,7 @@ struct JobItem<'a, T: Scalar> {
 
 fn run_item<T: Scalar>(
     item: &mut JobItem<'_, T>,
-    exec: &Exec<'_>,
+    exec: &mut Exec<'_>,
     alpha: T,
     beta: T,
     source: SliceAccumulationSource<'_, T>,

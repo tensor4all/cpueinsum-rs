@@ -1,7 +1,7 @@
-//! Parallel grouped allocation bound (#23 G7 rayon variant).
+//! Parallel grouped allocation bound (#23 G7 pool variant).
 //!
 //! The bound is parameterized by the decided lane count, not a universal
-//! constant: this dispatcher spawns one heap-backed rayon scope task per lane,
+//! constant: this dispatcher forks one heap-backed task per lane,
 //! and cold worker storage adds more on the first call. The test warms the pool
 //! and the arena before the counted window, then asserts a bound that scales
 //! with `lanes`. The counter is process-global, and this is the only test in
@@ -65,24 +65,24 @@ fn parallel_grouped_allocation_bound_scales_with_lanes() {
     let lhs = vec![1.0; 256 * 256];
     let rhs = vec![1.0; 256 * 256];
     let mut out = vec![0.0; 256 * 256];
-    let thread_pool = rayon::ThreadPoolBuilder::new()
-        .num_threads(4)
-        .build()
-        .unwrap();
+    let thread_pool = strided_exec::Pool::builder().threads(4).build().unwrap();
     let pool = cpueinsum::Pool::borrow(&thread_pool);
-    let exec = Exec::rayon(&pool).with_budget(4).unwrap();
+    let mut exec = Exec::new(&pool, 4).unwrap();
 
     // Warm the pool, the arena and this thread's slot.
-    let route = plan.execute_into(&exec, 1.0, &lhs, &rhs, &mut out).unwrap();
+    let route = plan
+        .execute_into(&mut exec, 1.0, &lhs, &rhs, &mut out)
+        .unwrap();
     let lanes = match route {
         GroupedRoute::Outer { lanes } | GroupedRoute::Split { lanes, .. } => lanes,
         other => panic!("expected outer lanes, got {other:?}"),
     };
 
     let allocations = measure(|| {
-        plan.execute_into(&exec, 1.0, &lhs, &rhs, &mut out).unwrap();
+        plan.execute_into(&mut exec, 1.0, &lhs, &rhs, &mut out)
+            .unwrap();
     });
-    // One heap-backed rayon scope task per lane, plus the lane-chunk vector and
+    // One heap-backed fork task per lane, plus the lane-chunk vector and
     // a few dispatch bookkeeping allocations. The bound does not grow with the
     // 256 jobs.
     assert!(

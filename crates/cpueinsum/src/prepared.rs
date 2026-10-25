@@ -58,7 +58,7 @@ fn contract(source: tcontract::Error) -> Error {
 /// let bv = StridedView::new(&b, &[2, 2], &[1, 2], 0).unwrap();
 /// let mut dv = StridedViewMut::new(&mut d, &[2, 2], &[1, 2], 0).unwrap();
 /// let _route = plan
-///     .execute_into(&Exec::serial(), 1.0, &av, &bv, &mut dv)
+///     .execute_into(&mut Exec::serial(), 1.0, &av, &bv, &mut dv)
 ///     .unwrap();
 /// assert_eq!(d, [1.0, 2.0, 3.0, 4.0]);
 /// ```
@@ -205,12 +205,12 @@ impl<T: Scalar> BinaryPlan<T> {
     /// let av = StridedView::new(&a, &[2, 2], &[1, 2], 0).unwrap();
     /// let bv = StridedView::new(&b, &[2, 2], &[1, 2], 0).unwrap();
     /// let mut dv = StridedViewMut::new(&mut d, &[2, 2], &[1, 2], 0).unwrap();
-    /// plan.execute_into(&Exec::serial(), 2.0, &av, &bv, &mut dv).unwrap();
+    /// plan.execute_into(&mut Exec::serial(), 2.0, &av, &bv, &mut dv).unwrap();
     /// assert_eq!(d, [2.0, 4.0, 6.0, 8.0]);
     /// ```
     pub fn execute_into(
         &self,
-        exec: &Exec<'_>,
+        exec: &mut Exec<'_>,
         alpha: T,
         a: &StridedView<'_, T>,
         b: &StridedView<'_, T>,
@@ -265,7 +265,7 @@ impl<T: Scalar> BinaryPlan<T> {
     /// let bv = StridedView::new(&b, &[2, 2], &[1, 2], 0).unwrap();
     /// let mut dv = StridedViewMut::new(&mut d, &[2, 2], &[1, 2], 0).unwrap();
     /// plan.execute_into_accum(
-    ///     &Exec::serial(), 1.0, &av, &bv, 2.0,
+    ///     &mut Exec::serial(), 1.0, &av, &bv, 2.0,
     ///     AccumulationSource::Output, &mut dv,
     /// )
     /// .unwrap();
@@ -273,7 +273,7 @@ impl<T: Scalar> BinaryPlan<T> {
     /// ```
     pub fn execute_into_accum(
         &self,
-        exec: &Exec<'_>,
+        exec: &mut Exec<'_>,
         alpha: T,
         a: &StridedView<'_, T>,
         b: &StridedView<'_, T>,
@@ -323,15 +323,15 @@ impl<T: Scalar> BinaryPlan<T> {
     /// let plan = BinaryPlan::<f64>::new(&problem, &PlanConfig::default()).unwrap();
     /// let (a, b) = ([1.0, 2.0, 3.0, 4.0], [1.0, 0.0, 0.0, 1.0]);
     /// let mut d = [0.0; 4];
-    /// let exec = Exec::serial();
-    /// plan.execute_slices(&exec, 1.0, (&a, 0), (&b, 0), (&mut d, 0)).unwrap();
+    /// let mut exec = Exec::serial();
+    /// plan.execute_slices(&mut exec, 1.0, (&a, 0), (&b, 0), (&mut d, 0)).unwrap();
     /// assert_eq!(d, [1.0, 2.0, 3.0, 4.0]);
     /// // A slice that cannot cover the planned range is refused before writing.
-    /// assert!(plan.execute_slices(&exec, 1.0, (&a[..2], 0), (&b, 0), (&mut d, 0)).is_err());
+    /// assert!(plan.execute_slices(&mut exec, 1.0, (&a[..2], 0), (&b, 0), (&mut d, 0)).is_err());
     /// ```
     pub fn execute_slices(
         &self,
-        exec: &Exec<'_>,
+        exec: &mut Exec<'_>,
         alpha: T,
         a: (&[T], isize),
         b: (&[T], isize),
@@ -380,7 +380,7 @@ impl<T: Scalar> BinaryPlan<T> {
     /// let plan = BinaryPlan::<f64>::new(&problem, &PlanConfig::default()).unwrap();
     /// let mut d = [5.0];
     /// plan.execute_slices_accum(
-    ///     &Exec::serial(), 1.0, (&[3.0], 0), (&[4.0], 0), 2.0,
+    ///     &mut Exec::serial(), 1.0, (&[3.0], 0), (&[4.0], 0), 2.0,
     ///     SliceAccumulationSource::Separate((&[7.0], 0)),
     ///     (&mut d, 0),
     /// )
@@ -389,7 +389,7 @@ impl<T: Scalar> BinaryPlan<T> {
     /// ```
     pub fn execute_slices_accum(
         &self,
-        exec: &Exec<'_>,
+        exec: &mut Exec<'_>,
         alpha: T,
         a: (&[T], isize),
         b: (&[T], isize),
@@ -445,7 +445,7 @@ impl<T: Scalar> BinaryPlan<T> {
     /// let mut d = [MaybeUninit::uninit(); 4];
     /// let (initialized, _route) = plan
     ///     .execute_uninit_slices(
-    ///         &Exec::serial(), 1.0, (&a, 0), (&b, 0), 0.0,
+    ///         &mut Exec::serial(), 1.0, (&a, 0), (&b, 0), 0.0,
     ///         SliceAccumulationSource::Absent, (&mut d, 0),
     ///     )
     ///     .unwrap();
@@ -453,7 +453,7 @@ impl<T: Scalar> BinaryPlan<T> {
     /// ```
     pub fn execute_uninit_slices<'d>(
         &self,
-        exec: &Exec<'_>,
+        exec: &mut Exec<'_>,
         alpha: T,
         a: (&[T], isize),
         b: (&[T], isize),

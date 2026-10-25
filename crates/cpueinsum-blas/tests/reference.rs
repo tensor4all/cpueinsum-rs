@@ -97,7 +97,7 @@ fn check<T: Elem + BlasScalar>(
     for _ in 0..2 {
         let mut dv =
             StridedViewMut::new(&mut d.data, &d.dims, &d.strides, d.offset as isize).unwrap();
-        plan.execute_into(&Exec::serial(), &views, &mut dv, &mut scratch)
+        plan.execute_into(&mut Exec::serial(), &views, &mut dv, &mut scratch)
             .unwrap();
         close(&col_major_values(&d), &expected, tol);
     }
@@ -388,7 +388,7 @@ fn direct(
     <Blas as StepBackend<Complex64>>::execute(
         &all(),
         &step,
-        &Exec::serial(),
+        &mut Exec::serial(),
         (&ra, 0),
         (&rb, 0),
         (&mut dd, 0),
@@ -487,7 +487,7 @@ fn execution_checks_bounds() {
         <Blas as StepBackend<f64>>::execute(
             &all(),
             &step,
-            &Exec::serial(),
+            &mut Exec::serial(),
             a,
             (a.0, 0),
             (d, 0),

@@ -63,7 +63,7 @@ fn translated_path_matches_a_naive_contraction() {
     let mut view =
         StridedViewMut::new(&mut got, &translation.out_dims, &translation.out_strides, 0).unwrap();
     let mut scratch = Scratch::new();
-    plan.execute_into(&Exec::serial(), &views, &mut view, &mut scratch)
+    plan.execute_into(&mut Exec::serial(), &views, &mut view, &mut scratch)
         .unwrap();
 
     let mut want = vec![0.0; translation.out_len];

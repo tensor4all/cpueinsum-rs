@@ -51,7 +51,7 @@ fn compile_matches_new_and_workspace_is_split() {
         let av = StridedView::new(&a, &[8, 8], &[1, 8], 0).unwrap();
         let bv = StridedView::new(&b, &[8, 8], &[1, 8], 0).unwrap();
         let mut dv = StridedViewMut::new(&mut out_new, &[8, 8], &[1, 8], 0).unwrap();
-        plan.execute_into(&Exec::serial(), &[av, bv], &mut dv, &mut scratch)
+        plan.execute_into(&mut Exec::serial(), &[av, bv], &mut dv, &mut scratch)
             .unwrap();
     }
     {
@@ -59,7 +59,7 @@ fn compile_matches_new_and_workspace_is_split() {
         let bv = StridedView::new(&b, &[8, 8], &[1, 8], 0).unwrap();
         let mut dv = StridedViewMut::new(&mut out_compiled, &[8, 8], &[1, 8], 0).unwrap();
         compiled
-            .execute_into(&Exec::serial(), &[av, bv], &mut dv, &mut scratch)
+            .execute_into(&mut Exec::serial(), &[av, bv], &mut dv, &mut scratch)
             .unwrap();
     }
     assert_eq!(out_new, out_compiled);
@@ -182,7 +182,7 @@ fn bounded_replay_refuses_a_short_workspace_before_writing() {
         let bv = StridedView::new(&b, &[8, 8], &[1, 8], 0).unwrap();
         let cv = StridedView::new(&c, &[8, 8], &[1, 8], 0).unwrap();
         let mut dv = StridedViewMut::new(&mut reference, &[8, 8], &[1, 8], 0).unwrap();
-        plan.execute_into(&Exec::serial(), &[av, bv, cv], &mut dv, &mut scratch)
+        plan.execute_into(&mut Exec::serial(), &[av, bv, cv], &mut dv, &mut scratch)
             .unwrap();
     }
     assert_eq!(out, reference);

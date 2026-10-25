@@ -73,8 +73,16 @@ fn modes<T: Elem + BlasScalar>(tolerance: f64) {
         for _ in 0..2 {
             out.fill(marker);
             assert_eq!(
-                plan.execute_into_accum(&Exec::serial(), alpha, &a, &b, beta, &mut out, &mut work)
-                    .unwrap(),
+                plan.execute_into_accum(
+                    &mut Exec::serial(),
+                    alpha,
+                    &a,
+                    &b,
+                    beta,
+                    &mut out,
+                    &mut work
+                )
+                .unwrap(),
                 GroupedRoute::Vendor { jobs: 2 }
             );
             close(&out, &expected, tolerance);
@@ -93,18 +101,15 @@ fn auto_keeps_the_vendor_loop_and_forced_lanes_use_the_native_route() {
     let plan = GroupedPlan::<f64>::new(&jobs, &PlanConfig::default()).unwrap();
     let a: Vec<f64> = (0..256).map(|i| ((i % 7) as f64) - 3.0).collect();
     let b: Vec<f64> = (0..256).map(|i| ((i % 5) as f64) - 2.0).collect();
-    let thread_pool = rayon::ThreadPoolBuilder::new()
-        .num_threads(4)
-        .build()
-        .unwrap();
+    let thread_pool = strided_exec::Pool::builder().threads(4).build().unwrap();
     let pool = cpueinsum::Pool::borrow(&thread_pool);
 
     // Auto uses the coordinator vendor loop.
     let mut vendor = vec![0.0; 512];
-    let exec = cpueinsum::Exec::rayon(&pool);
+    let mut exec = cpueinsum::Exec::new(&pool, pool.size()).unwrap();
     assert_eq!(
         plan.execute_into(
-            &exec,
+            &mut exec,
             1.0,
             &a,
             &b,
@@ -125,13 +130,12 @@ fn auto_keeps_the_vendor_loop_and_forced_lanes_use_the_native_route() {
         BatchStrategy::Inner,
     ] {
         let mut native = vec![0.0; 512];
-        let exec = cpueinsum::Exec::rayon(&pool)
-            .with_budget(4)
+        let mut exec = cpueinsum::Exec::new(&pool, 4)
             .unwrap()
             .with_batch_policy(BatchPolicy::new(strategy));
         let route = plan
             .execute_into(
-                &exec,
+                &mut exec,
                 1.0,
                 &a,
                 &b,
@@ -149,11 +153,12 @@ fn auto_keeps_the_vendor_loop_and_forced_lanes_use_the_native_route() {
     // Forced Sequential is exactly one serial coordinator, which the loop
     // already is, so it stays on the vendor route (and is bitwise equal).
     let mut sequential = vec![0.0; 512];
-    let exec = cpueinsum::Exec::rayon(&pool)
+    let mut exec = cpueinsum::Exec::new(&pool, pool.size())
+        .unwrap()
         .with_batch_policy(BatchPolicy::new(BatchStrategy::Sequential));
     assert_eq!(
         plan.execute_into(
-            &exec,
+            &mut exec,
             1.0,
             &a,
             &b,
@@ -184,7 +189,7 @@ fn late_vendor_bounds_and_workspace_errors_precede_every_output_write() {
     let mut out = [91.0; 8];
     assert!(matches!(
         plan.execute_into(
-            &Exec::serial(),
+            &mut Exec::serial(),
             1.0,
             &[1.0; 6],
             &[1.0; 6],
@@ -209,7 +214,7 @@ fn late_vendor_bounds_and_workspace_errors_precede_every_output_write() {
     let mut out = [value; 8];
     assert!(matches!(
         plan.execute_into(
-            &Exec::serial(),
+            &mut Exec::serial(),
             value,
             &[value; 6],
             &[value; 6],
@@ -252,7 +257,7 @@ fn one_degenerate_job_prepares_whole_group_native_and_zero_alpha_reads_no_inputs
     let mut out = [91.0; 8];
     let route = plan
         .execute_into(
-            &Exec::serial(),
+            &mut Exec::serial(),
             1.0,
             &[1.0; 6],
             &[2.0; 6],
@@ -267,7 +272,7 @@ fn one_degenerate_job_prepares_whole_group_native_and_zero_alpha_reads_no_inputs
     let mut out = [91.0; 6];
     let route = plan
         .execute_into(
-            &Exec::serial(),
+            &mut Exec::serial(),
             0.0,
             &[f64::NAN; 6],
             &[f64::NAN; 6],
@@ -302,7 +307,7 @@ fn no_materialize_selects_whole_group_native_for_conjugate_input_packing() {
     let mut out = [Complex64::new(91.0, 2.0); 8];
     let route = plan
         .execute_into(
-            &Exec::serial(),
+            &mut Exec::serial(),
             Complex64::new(1.0, 0.0),
             &a,
             &b,

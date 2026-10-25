@@ -116,7 +116,7 @@ pub struct Record {
     pub row: String,
     /// The requested thread budget.
     pub threads: usize,
-    /// The rayon pool's worker count, read from the live pool.
+    /// The pool's worker count, read from the live pool.
     pub rayon_threads: usize,
     /// The operation budget the runtime actually granted.
     pub vendor_threads: usize,
@@ -194,7 +194,7 @@ pub struct Config {
     pub prime_ms: u64,
     /// The requested thread budget.
     pub threads: usize,
-    /// The rayon pool's worker count, observed from the live pool.
+    /// The pool's worker count, observed from the live pool.
     pub rayon_threads: usize,
     /// The operation budget the runtime actually granted.
     pub vendor_threads: usize,
@@ -251,7 +251,7 @@ fn corrupt_verify_row(row: &str) -> bool {
 pub fn run_grid(
     instances: &[Instance],
     config: &Config,
-    exec: &Exec<'_>,
+    exec: &mut Exec<'_>,
 ) -> (Vec<Record>, bool, bool) {
     let mut records = Vec::new();
     let mut all_ok = true;
@@ -324,7 +324,7 @@ fn grid<T: Elem>(
     instances: &[Instance],
     config: &Config,
     dtype: &str,
-    exec: &Exec<'_>,
+    exec: &mut Exec<'_>,
     records: &mut Vec<Record>,
     all_ok: &mut bool,
     compared: &mut bool,
@@ -498,7 +498,7 @@ fn build_plan<T: Elem>(
 
 fn execute<T: Elem>(
     plan: &EinsumPlan<T>,
-    exec: &Exec<'_>,
+    exec: &mut Exec<'_>,
     views: &[StridedView<'_, T>],
     translation: &Translation,
     out: &mut [T],
@@ -514,7 +514,7 @@ fn time_cell<T: Elem>(
     translation: &Translation,
     data: &FamilyData<T>,
     spec: &EinsumSpec,
-    exec: &Exec<'_>,
+    exec: &mut Exec<'_>,
     config: &Config,
 ) -> Result<Vec<f64>, String> {
     let plan = build_plan::<T>(spec, translation)?;
@@ -545,7 +545,7 @@ fn verify_cell<T: Elem>(
     translation: &Translation,
     data: &FamilyData<T>,
     spec: &EinsumSpec,
-    exec: &Exec<'_>,
+    exec: &mut Exec<'_>,
 ) -> Result<Vec<T>, String> {
     let plan = build_plan::<T>(spec, translation)?;
     let views = build_views(translation, data)?;

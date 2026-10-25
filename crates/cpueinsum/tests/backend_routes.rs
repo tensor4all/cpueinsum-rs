@@ -82,7 +82,7 @@ impl StepBackend<f64> for Marker {
     fn execute(
         &self,
         _: &MarkerStep,
-        _: &Exec<'_>,
+        _: &mut Exec<'_>,
         _: (&[f64], isize),
         _: (&[f64], isize),
         d: (&mut [f64], isize),
@@ -130,10 +130,7 @@ fn policy(strategy: BatchStrategy) -> BatchPolicy {
 fn forced_lane_strategies_run_the_native_step_and_sequential_keeps_the_backend() {
     let (spec, layouts, out_layout, data) = chain();
     let inputs = views(&data);
-    let pool = rayon::ThreadPoolBuilder::new()
-        .num_threads(4)
-        .build()
-        .unwrap();
+    let pool = strided_exec::Pool::builder().threads(4).build().unwrap();
     let pool = cpueinsum::Pool::borrow(&pool);
 
     // The reference is the all-tcontract plan under the same forced policy: the
@@ -141,13 +138,12 @@ fn forced_lane_strategies_run_the_native_step_and_sequential_keeps_the_backend()
     let mut expected = vec![0.0; EXT * EXT];
     let reference = EinsumPlan::<f64>::new(&spec, &layouts, out_layout).unwrap();
     assert_eq!(reference.backend_steps(), 0);
-    let exec = Exec::rayon(&pool)
-        .with_budget(4)
+    let mut exec = Exec::new(&pool, 4)
         .unwrap()
         .with_batch_policy(policy(BatchStrategy::Outer));
     let mut out = StridedViewMut::new(&mut expected, &[EXT, EXT], &[1, EXT as isize], 0).unwrap();
     reference
-        .execute_into(&exec, &inputs, &mut out, &mut Scratch::new())
+        .execute_into(&mut exec, &inputs, &mut out, &mut Scratch::new())
         .unwrap();
 
     for strategy in [
@@ -164,13 +160,12 @@ fn forced_lane_strategies_run_the_native_step_and_sequential_keeps_the_backend()
         let plan =
             EinsumPlan::<f64, _>::with_backend(backend, &spec, &layouts, out_layout).unwrap();
         assert_eq!(plan.backend_steps(), 2);
-        let exec = Exec::rayon(&pool)
-            .with_budget(4)
+        let mut exec = Exec::new(&pool, 4)
             .unwrap()
             .with_batch_policy(policy(strategy));
         let mut got = vec![f64::NAN; EXT * EXT];
         let mut out = StridedViewMut::new(&mut got, &[EXT, EXT], &[1, EXT as isize], 0).unwrap();
-        plan.execute_into(&exec, &inputs, &mut out, &mut Scratch::new())
+        plan.execute_into(&mut exec, &inputs, &mut out, &mut Scratch::new())
             .unwrap();
         let loop_serves = matches!(strategy, BatchStrategy::Auto | BatchStrategy::Sequential);
         assert_eq!(
@@ -214,10 +209,7 @@ fn forced_lane_strategies_run_the_native_step_and_sequential_keeps_the_backend()
 fn a_backend_that_resolves_the_policy_itself_serves_every_strategy() {
     let (spec, layouts, out_layout, data) = chain();
     let inputs = views(&data);
-    let pool = rayon::ThreadPoolBuilder::new()
-        .num_threads(4)
-        .build()
-        .unwrap();
+    let pool = strided_exec::Pool::builder().threads(4).build().unwrap();
     let pool = cpueinsum::Pool::borrow(&pool);
     // The default of `vendor_loop` is `false`: such a step keeps running on the
     // backend under every policy, and no alternative is planned for it.
@@ -226,13 +218,12 @@ fn a_backend_that_resolves_the_policy_itself_serves_every_strategy() {
         let backend = Marker::new(&runs, &[false]);
         let plan =
             EinsumPlan::<f64, _>::with_backend(backend, &spec, &layouts, out_layout).unwrap();
-        let exec = Exec::rayon(&pool)
-            .with_budget(4)
+        let mut exec = Exec::new(&pool, 4)
             .unwrap()
             .with_batch_policy(policy(strategy));
         let mut got = vec![f64::NAN; EXT * EXT];
         let mut out = StridedViewMut::new(&mut got, &[EXT, EXT], &[1, EXT as isize], 0).unwrap();
-        plan.execute_into(&exec, &inputs, &mut out, &mut Scratch::new())
+        plan.execute_into(&mut exec, &inputs, &mut out, &mut Scratch::new())
             .unwrap();
         assert_eq!(runs.load(Ordering::Relaxed), 2, "{strategy:?}");
     }
@@ -255,10 +246,7 @@ fn an_empty_batch_resolves_the_route_the_same_way() {
         .iter()
         .map(|d| StridedView::new(d, &[2, 2, 0], &[1, 2, 4], 0).unwrap())
         .collect();
-    let pool = rayon::ThreadPoolBuilder::new()
-        .num_threads(2)
-        .build()
-        .unwrap();
+    let pool = strided_exec::Pool::builder().threads(2).build().unwrap();
     let pool = cpueinsum::Pool::borrow(&pool);
     for (strategy, loop_serves) in [
         (BatchStrategy::Auto, true),
@@ -268,13 +256,12 @@ fn an_empty_batch_resolves_the_route_the_same_way() {
         let runs = Arc::new(AtomicUsize::new(0));
         let backend = Marker::new(&runs, &[true]);
         let plan = EinsumPlan::<f64, _>::with_backend(backend, &spec, &[cm; 3], cm).unwrap();
-        let exec = Exec::rayon(&pool)
-            .with_budget(2)
+        let mut exec = Exec::new(&pool, 2)
             .unwrap()
             .with_batch_policy(policy(strategy));
         let mut got: Vec<f64> = Vec::new();
         let mut out = StridedViewMut::new(&mut got, &[2, 2, 0], &[1, 2, 4], 0).unwrap();
-        plan.execute_into(&exec, &inputs, &mut out, &mut Scratch::new())
+        plan.execute_into(&mut exec, &inputs, &mut out, &mut Scratch::new())
             .unwrap();
         assert_eq!(
             runs.load(Ordering::Relaxed),
@@ -327,10 +314,7 @@ fn a_native_alternative_that_refuses_the_split_is_admitted_before_the_first_step
     // reserved.
     let (plan, layouts, out_layout, data) = packed_chain();
     assert_eq!(plan.steps(), 2);
-    let pool = rayon::ThreadPoolBuilder::new()
-        .num_threads(4)
-        .build()
-        .unwrap();
+    let pool = strided_exec::Pool::builder().threads(4).build().unwrap();
     let pool = cpueinsum::Pool::borrow(&pool);
     let inputs: Vec<StridedView<'_, f64>> = data
         .iter()
@@ -340,8 +324,7 @@ fn a_native_alternative_that_refuses_the_split_is_admitted_before_the_first_step
     let split = BatchStrategy::Split {
         lanes: NonZeroUsize::new(2).unwrap(),
     };
-    let exec = Exec::rayon(&pool)
-        .with_budget(4)
+    let mut exec = Exec::new(&pool, 4)
         .unwrap()
         .with_batch_policy(policy(split));
     let mut got = vec![77.0; 4];
@@ -349,7 +332,7 @@ fn a_native_alternative_that_refuses_the_split_is_admitted_before_the_first_step
         StridedViewMut::new(&mut got, out_layout.dims(), out_layout.strides(), 0).unwrap();
     let mut scratch = Scratch::new();
     let error = plan
-        .execute_into(&exec, &inputs, &mut out, &mut scratch)
+        .execute_into(&mut exec, &inputs, &mut out, &mut scratch)
         .unwrap_err();
     match error {
         Error::Contract {
@@ -370,8 +353,7 @@ fn a_native_alternative_that_refuses_the_split_is_admitted_before_the_first_step
     // The same plan under a split the native route can honour (`lanes = 1`, item
     // threads on the whole budget) does run, so the refusal above is the
     // strategy's and not the plan's.
-    let exec = Exec::rayon(&pool)
-        .with_budget(4)
+    let mut exec = Exec::new(&pool, 4)
         .unwrap()
         .with_batch_policy(policy(BatchStrategy::Split {
             lanes: NonZeroUsize::new(1).unwrap(),
@@ -379,7 +361,7 @@ fn a_native_alternative_that_refuses_the_split_is_admitted_before_the_first_step
     let mut got = vec![f64::NAN; 4];
     let mut out =
         StridedViewMut::new(&mut got, out_layout.dims(), out_layout.strides(), 0).unwrap();
-    plan.execute_into(&exec, &inputs, &mut out, &mut scratch)
+    plan.execute_into(&mut exec, &inputs, &mut out, &mut scratch)
         .unwrap();
     assert_eq!(got, [4.0, 6.0, 4.0, 6.0]);
     assert_eq!(scratch.len(), plan.scratch_len());

@@ -43,7 +43,7 @@ fn reversed_gapped_broadcast_inputs_and_beta_zero_ignore_old_nan_output() {
         let mut out = [f64::NAN; 4];
         let route = plan
             .execute_slices_accum(
-                &Exec::serial(),
+                &mut Exec::serial(),
                 1.0,
                 (&data, origin as isize),
                 (&b, 0),
@@ -58,7 +58,7 @@ fn reversed_gapped_broadcast_inputs_and_beta_zero_ignore_old_nan_output() {
         let mut fresh = [MaybeUninit::uninit(); 4];
         let (initialized, route) = plan
             .execute_uninit_slices(
-                &Exec::serial(),
+                &mut Exec::serial(),
                 1.0,
                 (&data, origin as isize),
                 (&b, 0),
@@ -88,7 +88,7 @@ fn unsupported_direct_output_is_native_without_writing_padding() {
     let mut out = [91.0; 8];
     let route = plan
         .execute_slices_accum(
-            &Exec::serial(),
+            &mut Exec::serial(),
             1.0,
             (&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0], 0),
             (&[1.0; 6], 0),
@@ -133,7 +133,7 @@ fn no_materialize_preserves_direct_vendor_but_refuses_whole_input_packing() {
         let mut out = [91.0; 4];
         let route = plan
             .execute_slices_accum(
-                &Exec::serial(),
+                &mut Exec::serial(),
                 1.0,
                 (&a, origin as isize),
                 (&b, 0),
@@ -164,7 +164,7 @@ fn fresh_coverage_counts_reduced_output_roles_not_original_axes() {
     let mut out = [91.0; 8];
     assert_eq!(
         plan.execute_slices_accum(
-            &Exec::serial(),
+            &mut Exec::serial(),
             1.0,
             (&[1.0; 6], 0),
             (&[1.0; 6], 0),
@@ -180,7 +180,7 @@ fn fresh_coverage_counts_reduced_output_roles_not_original_axes() {
     let mut fresh = [MaybeUninit::new(91.0); 8];
     assert!(matches!(
         plan.execute_uninit_slices(
-            &Exec::serial(),
+            &mut Exec::serial(),
             1.0,
             (&[1.0; 6], 0),
             (&[1.0; 6], 0),

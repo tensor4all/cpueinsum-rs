@@ -49,7 +49,7 @@ impl StepBackend<f64> for CountingBlas {
     fn execute(
         &self,
         step: &BlasStep,
-        exec: &Exec<'_>,
+        exec: &mut Exec<'_>,
         a: (&[f64], isize),
         b: (&[f64], isize),
         d: (&mut [f64], isize),
@@ -92,24 +92,20 @@ fn views(data: &[Vec<f64>]) -> Vec<StridedView<'_, f64>> {
 fn forced_lane_strategies_run_the_native_step_and_sequential_keeps_the_blas_step() {
     let (spec, layouts, out_layout, data) = chain();
     let inputs = views(&data);
-    let thread_pool = rayon::ThreadPoolBuilder::new()
-        .num_threads(4)
-        .build()
-        .unwrap();
+    let thread_pool = strided_exec::Pool::builder().threads(4).build().unwrap();
     let pool = cpueinsum::Pool::borrow(&thread_pool);
 
     // The reference is the all-tcontract plan under the same forced policy: the
     // alternative planned beside a vendor-loop step is that same plan, so a
     // forced lane route must reproduce it bitwise.
     let reference = EinsumPlan::<f64>::new(&spec, &layouts, out_layout).unwrap();
-    let exec = Exec::rayon(&pool)
-        .with_budget(4)
+    let mut exec = Exec::new(&pool, 4)
         .unwrap()
         .with_batch_policy(BatchPolicy::new(BatchStrategy::Outer));
     let mut expected = vec![0.0; EXT * EXT];
     let mut out = StridedViewMut::new(&mut expected, &[EXT, EXT], &[1, EXT as isize], 0).unwrap();
     reference
-        .execute_into(&exec, &inputs, &mut out, &mut Scratch::new())
+        .execute_into(&mut exec, &inputs, &mut out, &mut Scratch::new())
         .unwrap();
 
     for strategy in [
@@ -129,13 +125,12 @@ fn forced_lane_strategies_run_the_native_step_and_sequential_keeps_the_blas_step
         let plan =
             EinsumPlan::<f64, _>::with_backend(backend, &spec, &layouts, out_layout).unwrap();
         assert_eq!(plan.backend_steps(), 2);
-        let exec = Exec::rayon(&pool)
-            .with_budget(4)
+        let mut exec = Exec::new(&pool, 4)
             .unwrap()
             .with_batch_policy(BatchPolicy::new(strategy));
         let mut got = vec![f64::NAN; EXT * EXT];
         let mut out = StridedViewMut::new(&mut got, &[EXT, EXT], &[1, EXT as isize], 0).unwrap();
-        plan.execute_into(&exec, &inputs, &mut out, &mut Scratch::new())
+        plan.execute_into(&mut exec, &inputs, &mut out, &mut Scratch::new())
             .unwrap();
         let loop_serves = matches!(strategy, BatchStrategy::Auto | BatchStrategy::Sequential);
         assert_eq!(

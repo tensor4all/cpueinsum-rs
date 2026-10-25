@@ -124,7 +124,7 @@ impl<T: Scalar> Planned<T> {
         // arena when the handle is zero. `Executor::with` holds the call in
         // flight, so the pool cannot be released under it.
         let mut call =
-            |exec: &Exec<'_>| match plan.execute_into(exec, &views, &mut out_view, scratch) {
+            |exec: &mut Exec<'_>| match plan.execute_into(exec, &views, &mut out_view, scratch) {
                 Ok(()) => CPUEINSUM_OK,
                 Err(error) => error_status(&error),
             };
@@ -142,7 +142,7 @@ impl<T: Scalar> Planned<T> {
                 }
                 status
             }
-            None => call(&Exec::serial_with_workspace(arena)),
+            None => call(&mut Exec::serial_with_workspace(arena)),
         }
     }
 }

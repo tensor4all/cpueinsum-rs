@@ -52,12 +52,12 @@ fn c1_ratio(n: usize) -> f64 {
     let mut ws =
         Workspace::with_req(&plan.native_workspace_req(&Exec::serial(), OutputContract::Fresh));
     ws.reserve(&plan.native_workspace_req(&Exec::serial(), OutputContract::Initialized));
-    let exec = Exec::serial_with_workspace(ws.as_provider());
+    let mut exec = Exec::serial_with_workspace(ws.as_provider());
     let mut accum = vec![1.0; n * n];
     let mut fresh = vec![MaybeUninit::<f64>::uninit(); n * n];
     // Warm both routes and the workspace.
     plan.execute_slices_accum(
-        &exec,
+        &mut exec,
         1.0,
         (&a, 0),
         (&b, 0),
@@ -68,7 +68,7 @@ fn c1_ratio(n: usize) -> f64 {
     .unwrap();
     let _ = plan
         .execute_uninit_slices(
-            &exec,
+            &mut exec,
             1.0,
             (&a, 0),
             (&b, 0),
@@ -82,7 +82,7 @@ fn c1_ratio(n: usize) -> f64 {
     for _ in 0..ATTEMPTS {
         accum_ns = time_ns(iterations, || {
             plan.execute_slices_accum(
-                &exec,
+                &mut exec,
                 1.0,
                 (&a, 0),
                 (&b, 0),
@@ -95,7 +95,7 @@ fn c1_ratio(n: usize) -> f64 {
         fresh_ns = time_ns(iterations, || {
             let _ = plan
                 .execute_uninit_slices(
-                    &exec,
+                    &mut exec,
                     1.0,
                     (&a, 0),
                     (&b, 0),
@@ -128,14 +128,14 @@ fn c3_ns(n: usize) -> f64 {
     let a: Vec<f64> = (0..n * n).map(|i| (i % 7) as f64).collect();
     let b: Vec<f64> = (0..n * n).map(|i| (i % 5) as f64).collect();
     let mut d = vec![0.0; n * n];
-    let exec = Exec::serial();
+    let mut exec = Exec::serial();
     let iterations = (1_000_000 / (n * n)).max(20);
     let _ = time_ns(10, || {
-        plan.execute_slices(&exec, 1.0, (&a, 0), (&b, 0), (&mut d, 0))
+        plan.execute_slices(&mut exec, 1.0, (&a, 0), (&b, 0), (&mut d, 0))
             .unwrap();
     });
     time_ns(iterations, || {
-        plan.execute_slices(&exec, 1.0, (&a, 0), (&b, 0), (&mut d, 0))
+        plan.execute_slices(&mut exec, 1.0, (&a, 0), (&b, 0), (&mut d, 0))
             .unwrap();
     })
 }
@@ -155,7 +155,7 @@ fn c4_ns(n: usize) -> (f64, f64) {
     let a: Vec<f64> = (0..n * n).map(|i| (i % 7) as f64).collect();
     let b: Vec<f64> = (0..n * n).map(|i| (i % 5) as f64).collect();
     let mut d = vec![0.0; n * n];
-    let exec = Exec::serial();
+    let mut exec = Exec::serial();
     let grouped = GroupedPlan::<f64>::new(
         &[GroupedGemmJob::new(0, 0, 0, n, n, n)],
         &PlanConfig::default(),
@@ -163,11 +163,13 @@ fn c4_ns(n: usize) -> (f64, f64) {
     .unwrap();
     let binary_ns = time_ns(200, || {
         binary
-            .execute_slices(&exec, 1.0, (&a, 0), (&b, 0), (&mut d, 0))
+            .execute_slices(&mut exec, 1.0, (&a, 0), (&b, 0), (&mut d, 0))
             .unwrap();
     });
     let grouped_ns = time_ns(200, || {
-        grouped.execute_into(&exec, 1.0, &a, &b, &mut d).unwrap();
+        grouped
+            .execute_into(&mut exec, 1.0, &a, &b, &mut d)
+            .unwrap();
     });
     (binary_ns, grouped_ns)
 }

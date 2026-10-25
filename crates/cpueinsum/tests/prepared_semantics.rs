@@ -93,7 +93,7 @@ fn all_modes<T: Elem>(conj: impl Fn(T) -> T + Copy, tolerance: f64, k: usize) {
                     };
                     let mut d = c.clone();
                     plan.execute_slices_accum(
-                        &Exec::serial(),
+                        &mut Exec::serial(),
                         alpha,
                         (&a, 1),
                         (&b, 0),
@@ -107,7 +107,7 @@ fn all_modes<T: Elem>(conj: impl Fn(T) -> T + Copy, tolerance: f64, k: usize) {
                         let mut fresh = vec![MaybeUninit::uninit(); 4];
                         let (initialized, _) = plan
                             .execute_uninit_slices(
-                                &Exec::serial(),
+                                &mut Exec::serial(),
                                 alpha,
                                 (&a, 1),
                                 (&b, 0),
@@ -172,7 +172,7 @@ fn zero_scale_nan_and_empty_k_do_not_read_unused_values() {
         let alpha = if k == 0 { f64::NAN } else { 0.0 };
         let (d, _) = plan
             .execute_uninit_slices(
-                &Exec::serial(),
+                &mut Exec::serial(),
                 alpha,
                 (&a, 0),
                 (&b, 0),
@@ -207,12 +207,9 @@ fn parallel_elementwise_fresh_output_with_broadcast_and_reversal() {
         .collect();
     let b = [Complex64::new(2.0, 1.0)];
     let alpha = Complex64::new(0.0, 2.0);
-    let tp = rayon::ThreadPoolBuilder::new()
-        .num_threads(4)
-        .build()
-        .unwrap();
+    let tp = strided_exec::Pool::builder().threads(4).build().unwrap();
     let pool = cpueinsum::Pool::borrow(&tp);
-    let exec = Exec::rayon(&pool).with_budget(2).unwrap();
+    let mut exec = Exec::new(&pool, 2).unwrap();
     for beta in [Complex64::default(), Complex64::new(-1.0, 0.5)] {
         let c = [if beta == Complex64::default() {
             Complex64::new(f64::NAN, f64::NAN)
@@ -222,7 +219,7 @@ fn parallel_elementwise_fresh_output_with_broadcast_and_reversal() {
         let mut fresh = vec![MaybeUninit::uninit(); rows * cols];
         let (d, route) = plan
             .execute_uninit_slices(
-                &exec,
+                &mut exec,
                 alpha,
                 (&a, 0),
                 (&b, 0),
@@ -245,9 +242,12 @@ fn parallel_elementwise_fresh_output_with_broadcast_and_reversal() {
             }
         }
     }
+    let root = exec
+        .token()
+        .ledger_root()
+        .expect("a pooled token is a root");
     assert!(
-        pool.stats().entries > 0,
+        strided_exec::ledger::installs(root) > 0,
         "a pooled route used its supplied 2T-budget context"
     );
-    assert_eq!(pool.stats().broadcasts, 0);
 }

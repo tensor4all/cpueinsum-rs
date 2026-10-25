@@ -30,7 +30,7 @@
 //!     StridedView::new(&c, &[2], &[1], 0).unwrap(),
 //! ];
 //! let mut dv = StridedViewMut::new(&mut d, &[2], &[1], 0).unwrap();
-//! einsum_into(&Exec::serial(), &spec, &inputs, &mut dv).unwrap();
+//! einsum_into(&mut Exec::serial(), &spec, &inputs, &mut dv).unwrap();
 //! assert_eq!(d, [4.0, 6.0]);
 //! ```
 #![forbid(unsafe_code)]

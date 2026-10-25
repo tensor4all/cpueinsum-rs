@@ -99,7 +99,7 @@ fn all_modes<T: Elem + BlasScalar>(tolerance: f64) {
                 out.copy_from_slice(&c);
                 let route = plan
                     .execute_slices_accum(
-                        &Exec::serial(),
+                        &mut Exec::serial(),
                         alpha,
                         (&a, 0),
                         (&b, 0),
@@ -117,7 +117,7 @@ fn all_modes<T: Elem + BlasScalar>(tolerance: f64) {
                 let mut fresh = vec![MaybeUninit::uninit(); 4];
                 let (out, route) = plan
                     .execute_uninit_slices(
-                        &Exec::serial(),
+                        &mut Exec::serial(),
                         alpha,
                         (&a, 0),
                         (&b, 0),
@@ -157,7 +157,7 @@ fn bounds_workspace_and_accumulation_fail_before_output_writes() {
     let mut work = vec![Complex64::default(); plan.work_len()];
     assert!(matches!(
         plan.execute_slices_accum(
-            &Exec::serial(),
+            &mut Exec::serial(),
             Complex64::new(1.0, 0.0),
             (&a[..5], 0),
             (&b, 0),
@@ -171,7 +171,7 @@ fn bounds_workspace_and_accumulation_fail_before_output_writes() {
     assert_eq!(d, [marker; 4]);
     assert!(matches!(
         plan.execute_slices_accum(
-            &Exec::serial(),
+            &mut Exec::serial(),
             Complex64::new(1.0, 0.0),
             (&a, 0),
             (&b, 0),
@@ -185,7 +185,7 @@ fn bounds_workspace_and_accumulation_fail_before_output_writes() {
     assert_eq!(d, [marker; 4]);
     assert!(matches!(
         plan.execute_slices_accum(
-            &Exec::serial(),
+            &mut Exec::serial(),
             Complex64::new(1.0, 0.0),
             (&a, 0),
             (&b, 0),
@@ -212,7 +212,7 @@ fn fresh_rejects_padding_and_gaps_and_output_reads() {
         let mut fresh = vec![MaybeUninit::new(91.0); length];
         assert!(matches!(
             plan.execute_uninit_slices(
-                &Exec::serial(),
+                &mut Exec::serial(),
                 1.0,
                 (&a, 0),
                 (&b, 0),
@@ -236,7 +236,7 @@ fn fresh_rejects_padding_and_gaps_and_output_reads() {
     let mut fresh = [MaybeUninit::uninit(); 4];
     assert!(matches!(
         plan.execute_uninit_slices(
-            &Exec::serial(),
+            &mut Exec::serial(),
             1.0,
             (&a, 0),
             (&b, 0),
@@ -260,7 +260,7 @@ fn zero_alpha_uses_prepared_native_no_read_route() {
     let mut out = [f64::NAN; 4];
     let route = plan
         .execute_slices_accum(
-            &Exec::serial(),
+            &mut Exec::serial(),
             0.0,
             (&input, 0),
             (&input, 0),
@@ -275,7 +275,7 @@ fn zero_alpha_uses_prepared_native_no_read_route() {
     let mut fresh = [MaybeUninit::uninit(); 4];
     let (out, route) = plan
         .execute_uninit_slices(
-            &Exec::serial(),
+            &mut Exec::serial(),
             0.0,
             (&input, 0),
             (&input, 0),
@@ -322,17 +322,14 @@ fn forced_lane_strategies_use_the_native_route() {
     .unwrap();
     let a: Vec<f64> = (0..6).map(|i| (i % 5) as f64 - 2.0).collect();
     let b: Vec<f64> = (0..6).map(|i| (i % 3) as f64 - 1.0).collect();
-    let thread_pool = rayon::ThreadPoolBuilder::new()
-        .num_threads(4)
-        .build()
-        .unwrap();
+    let thread_pool = strided_exec::Pool::builder().threads(4).build().unwrap();
     let pool = cpueinsum::Pool::borrow(&thread_pool);
 
     // Sequential is exactly one serial coordinator, so the loop serves it.
     let mut vendor = [0.0; 4];
     assert_eq!(
         plan.execute_slices_accum(
-            &Exec::serial(),
+            &mut Exec::serial(),
             2.0,
             (&a, 0),
             (&b, 0),
@@ -347,7 +344,7 @@ fn forced_lane_strategies_use_the_native_route() {
     let mut vendor_fresh = [MaybeUninit::uninit(); 4];
     let (vendor_fresh, route) = plan
         .execute_uninit_slices(
-            &Exec::serial(),
+            &mut Exec::serial(),
             2.0,
             (&a, 0),
             (&b, 0),
@@ -361,12 +358,13 @@ fn forced_lane_strategies_use_the_native_route() {
     assert_eq!(vendor_fresh, vendor);
 
     // `Sequential` is the same serial coordinator, so the loop keeps it too.
-    let sequential =
-        Exec::rayon(&pool).with_batch_policy(BatchPolicy::new(BatchStrategy::Sequential));
+    let mut sequential = Exec::new(&pool, pool.size())
+        .unwrap()
+        .with_batch_policy(BatchPolicy::new(BatchStrategy::Sequential));
     let mut kept = [f64::NAN; 4];
     assert_eq!(
         plan.execute_slices_accum(
-            &sequential,
+            &mut sequential,
             2.0,
             (&a, 0),
             (&b, 0),
@@ -387,14 +385,13 @@ fn forced_lane_strategies_use_the_native_route() {
             lanes: NonZeroUsize::new(2).unwrap(),
         },
     ] {
-        let exec = Exec::rayon(&pool)
-            .with_budget(4)
+        let mut exec = Exec::new(&pool, 4)
             .unwrap()
             .with_batch_policy(BatchPolicy::new(strategy));
         let mut native = [f64::NAN; 4];
         let route = plan
             .execute_slices_accum(
-                &exec,
+                &mut exec,
                 2.0,
                 (&a, 0),
                 (&b, 0),
@@ -413,7 +410,7 @@ fn forced_lane_strategies_use_the_native_route() {
         let mut fresh = [MaybeUninit::uninit(); 4];
         let (native_fresh, route) = plan
             .execute_uninit_slices(
-                &exec,
+                &mut exec,
                 2.0,
                 (&a, 0),
                 (&b, 0),
@@ -434,7 +431,7 @@ fn forced_lane_strategies_use_the_native_route() {
         let mut zero = [f64::NAN; 4];
         let route = plan
             .execute_slices_accum(
-                &exec,
+                &mut exec,
                 0.0,
                 (&a, 0),
                 (&b, 0),
@@ -459,10 +456,7 @@ fn empty_batch_is_served_by_the_native_route_under_every_strategy() {
     // the native alternative, which reports the empty route.
     let plan = BinaryPlan::<f64>::new(&empty_batch_problem(), &PlanConfig::default()).unwrap();
     assert_eq!(plan.work_len(), 0);
-    let thread_pool = rayon::ThreadPoolBuilder::new()
-        .num_threads(4)
-        .build()
-        .unwrap();
+    let thread_pool = strided_exec::Pool::builder().threads(4).build().unwrap();
     let pool = cpueinsum::Pool::borrow(&thread_pool);
     for strategy in [
         BatchStrategy::Auto,
@@ -470,15 +464,14 @@ fn empty_batch_is_served_by_the_native_route_under_every_strategy() {
         BatchStrategy::Outer,
         BatchStrategy::Inner,
     ] {
-        let exec = Exec::rayon(&pool)
-            .with_budget(4)
+        let mut exec = Exec::new(&pool, 4)
             .unwrap()
             .with_batch_policy(BatchPolicy::new(strategy));
         for alpha in [1.0, 0.0] {
             let mut out = [77.0; 4];
             let mut fresh = [MaybeUninit::uninit(); 4];
             let accum = plan.execute_slices_accum(
-                &exec,
+                &mut exec,
                 alpha,
                 (&[], 0),
                 (&[], 0),
@@ -488,7 +481,7 @@ fn empty_batch_is_served_by_the_native_route_under_every_strategy() {
                 &mut [],
             );
             let uninit = plan.execute_uninit_slices(
-                &exec,
+                &mut exec,
                 alpha,
                 (&[], 0),
                 (&[], 0),

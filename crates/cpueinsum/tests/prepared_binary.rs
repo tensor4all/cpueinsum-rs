@@ -59,13 +59,13 @@ fn reference() -> Vec<f64> {
 #[test]
 fn f64_modes_match_the_reference() {
     let expected = reference();
-    let exec = Exec::serial();
+    let mut exec = Exec::serial();
 
     // Absent: plain overwrite.
     let plan = BinaryPlan::<f64>::new(&matmul(CSpec::Absent), &PlanConfig::default()).unwrap();
     let mut d = [0.0; 4];
     let _route = plan
-        .execute_slices(&exec, 1.0, (&A_COL, 0), (&B_COL, 0), (&mut d, 0))
+        .execute_slices(&mut exec, 1.0, (&A_COL, 0), (&B_COL, 0), (&mut d, 0))
         .unwrap();
     close(&d, &expected, 1e-12);
 
@@ -76,7 +76,7 @@ fn f64_modes_match_the_reference() {
     let mut d = old;
     let _route = plan
         .execute_slices_accum(
-            &exec,
+            &mut exec,
             1.0,
             (&A_COL, 0),
             (&B_COL, 0),
@@ -102,7 +102,7 @@ fn f64_modes_match_the_reference() {
     let mut d = [0.0; 4];
     let _route = plan
         .execute_slices_accum(
-            &exec,
+            &mut exec,
             1.0,
             (&A_COL, 0),
             (&B_COL, 0),
@@ -152,18 +152,24 @@ fn complex_conjugated_view() {
     let mut d = [Complex64::new(0.0, 0.0); 4];
     let mut dv = StridedViewMut::new(&mut d, &[2, 2], &[1, 2], 0).unwrap();
     let _route = plan
-        .execute_into(&Exec::serial(), Complex64::new(1.0, 0.0), &av, &bv, &mut dv)
+        .execute_into(
+            &mut Exec::serial(),
+            Complex64::new(1.0, 0.0),
+            &av,
+            &bv,
+            &mut dv,
+        )
         .unwrap();
     close(&d, &expected, 1e-12);
 }
 
 #[test]
 fn alpha_zero_and_negative_beta() {
-    let exec = Exec::serial();
+    let mut exec = Exec::serial();
     let plan = BinaryPlan::<f64>::new(&matmul(CSpec::Absent), &PlanConfig::default()).unwrap();
     let mut d = [7.0; 4];
     let _route = plan
-        .execute_slices(&exec, 0.0, (&A_COL, 0), (&B_COL, 0), (&mut d, 0))
+        .execute_slices(&mut exec, 0.0, (&A_COL, 0), (&B_COL, 0), (&mut d, 0))
         .unwrap();
     // alpha zero reads no A/B value and overwrites D with zero.
     assert_eq!(d, [0.0; 4]);
@@ -174,7 +180,7 @@ fn alpha_zero_and_negative_beta() {
     let mut d = old;
     let _route = out
         .execute_slices_accum(
-            &exec,
+            &mut exec,
             0.0,
             (&A_COL, 0),
             (&B_COL, 0),
@@ -224,7 +230,7 @@ fn complex_alpha_beta() {
     let mut d = old;
     let _route = plan
         .execute_slices_accum(
-            &Exec::serial(),
+            &mut Exec::serial(),
             alpha,
             (&a, 0),
             (&b, 0),
@@ -269,7 +275,7 @@ fn negative_strides_and_origin() {
     let plan = BinaryPlan::<f64>::new(&problem, &PlanConfig::default()).unwrap();
     let mut d = [0.0; 4];
     let _route = plan
-        .execute_slices(&Exec::serial(), 1.0, (&a_buf, 2), (&b, 0), (&mut d, 0))
+        .execute_slices(&mut Exec::serial(), 1.0, (&a_buf, 2), (&b, 0), (&mut d, 0))
         .unwrap();
     close(&d, &expected, 1e-12);
 }
@@ -295,7 +301,7 @@ fn empty_operand_with_unreachable_strides_plans() {
     let mut d = [9.0; 6];
     let route = plan
         .execute_slices(
-            &Exec::serial(),
+            &mut Exec::serial(),
             1.0,
             (&a_empty, 0),
             (&b_empty, 0),
@@ -309,14 +315,14 @@ fn empty_operand_with_unreachable_strides_plans() {
 #[test]
 fn uninit_output_and_rejections() {
     let expected = reference();
-    let exec = Exec::serial();
+    let mut exec = Exec::serial();
     let plan = BinaryPlan::<f64>::new(&matmul(CSpec::Absent), &PlanConfig::default()).unwrap();
 
     // Dense column-major coverage initializes every slot on success.
     let mut d = [MaybeUninit::<f64>::uninit(); 4];
     let (initialized, _route) = plan
         .execute_uninit_slices(
-            &exec,
+            &mut exec,
             1.0,
             (&A_COL, 0),
             (&B_COL, 0),
@@ -331,7 +337,7 @@ fn uninit_output_and_rejections() {
     let mut padded = [MaybeUninit::<f64>::uninit(); 5];
     let err = plan
         .execute_uninit_slices(
-            &exec,
+            &mut exec,
             1.0,
             (&A_COL, 0),
             (&B_COL, 0),
@@ -348,7 +354,7 @@ fn uninit_output_and_rejections() {
     let mut d = [MaybeUninit::<f64>::uninit(); 4];
     let err = out
         .execute_uninit_slices(
-            &exec,
+            &mut exec,
             1.0,
             (&A_COL, 0),
             (&B_COL, 0),
@@ -362,7 +368,7 @@ fn uninit_output_and_rejections() {
 
 #[test]
 fn errors_leave_d_unchanged() {
-    let exec = Exec::serial();
+    let mut exec = Exec::serial();
     let plan = BinaryPlan::<f64>::new(&matmul(CSpec::Absent), &PlanConfig::default()).unwrap();
     let sentinel = [9.0; 4];
 
@@ -370,7 +376,7 @@ fn errors_leave_d_unchanged() {
     let mut d = sentinel;
     let err = plan
         .execute_slices_accum(
-            &exec,
+            &mut exec,
             1.0,
             (&A_COL, 0),
             (&B_COL, 0),
@@ -386,7 +392,7 @@ fn errors_leave_d_unchanged() {
     let mut d = sentinel;
     let err = plan
         .execute_slices_accum(
-            &exec,
+            &mut exec,
             1.0,
             (&A_COL, 0),
             (&B_COL, 0),
@@ -401,7 +407,7 @@ fn errors_leave_d_unchanged() {
     // A slice too short for the planned A range.
     let mut d = sentinel;
     let err = plan
-        .execute_slices(&exec, 1.0, (&A_COL[..3], 0), (&B_COL, 0), (&mut d, 0))
+        .execute_slices(&mut exec, 1.0, (&A_COL[..3], 0), (&B_COL, 0), (&mut d, 0))
         .unwrap_err();
     assert!(matches!(err, Error::Contract { step: 0, .. }));
     assert_eq!(d, sentinel);
@@ -413,7 +419,7 @@ fn errors_leave_d_unchanged() {
     let mut d = sentinel;
     let err = out
         .execute_slices_accum(
-            &exec,
+            &mut exec,
             1.0,
             (&A_COL, 0),
             (&B_COL, 0),
@@ -439,9 +445,9 @@ fn two_reusable_arenas() {
     let mut warm = 0usize;
     for round in 0..2 {
         for arena in [&arena1, &arena2] {
-            let exec = Exec::serial_with_workspace(arena);
+            let mut exec = Exec::serial_with_workspace(arena);
             let mut d = [0.0; 4];
-            plan.execute_slices(&exec, 1.0, (&A_COL, 0), (&B_COL, 0), (&mut d, 0))
+            plan.execute_slices(&mut exec, 1.0, (&A_COL, 0), (&B_COL, 0), (&mut d, 0))
                 .unwrap();
             close(&d, &expected, 1e-12);
         }
@@ -458,9 +464,9 @@ fn two_reusable_arenas() {
     }
 
     // A retained arena does not keep growing: the third call reuses its scratch.
-    let exec = Exec::serial_with_workspace(&arena1);
+    let mut exec = Exec::serial_with_workspace(&arena1);
     let mut d = [0.0; 4];
-    plan.execute_slices(&exec, 1.0, (&A_COL, 0), (&B_COL, 0), (&mut d, 0))
+    plan.execute_slices(&mut exec, 1.0, (&A_COL, 0), (&B_COL, 0), (&mut d, 0))
         .unwrap();
     assert_eq!(arena1.retained_bytes(), warm);
     assert_eq!(arena1.stats().leased_bytes, 0);
@@ -474,7 +480,7 @@ fn accumulation_view_source_paths() {
     let b = [1.0, 0.0, 0.0, 1.0];
     let av = StridedView::new(&a, &[2, 2], &[1, 2], 0).unwrap();
     let bv = StridedView::new(&b, &[2, 2], &[1, 2], 0).unwrap();
-    let exec = Exec::serial();
+    let mut exec = Exec::serial();
 
     let out = BinaryPlan::<f64>::new(
         &identity_matmul(CSpec::Output(Op::Identity)),
@@ -484,7 +490,7 @@ fn accumulation_view_source_paths() {
     let mut d = [10.0; 4];
     let mut dv = StridedViewMut::new(&mut d, &[2, 2], &[1, 2], 0).unwrap();
     out.execute_into_accum(
-        &exec,
+        &mut exec,
         1.0,
         &av,
         &bv,
@@ -505,7 +511,7 @@ fn accumulation_view_source_paths() {
     let mut d = [0.0; 4];
     let mut dv = StridedViewMut::new(&mut d, &[2, 2], &[1, 2], 0).unwrap();
     sep.execute_into_accum(
-        &exec,
+        &mut exec,
         1.0,
         &av,
         &bv,

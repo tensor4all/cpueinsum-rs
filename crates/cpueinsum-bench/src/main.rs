@@ -92,31 +92,18 @@ fn print_info(requested: Option<usize>) -> Result<(), String> {
     Ok(())
 }
 
-/// Refuse a request above Rayon's soft limit, which a pool build would silently
-/// clamp.
-fn check_rayon_limit(requested: usize) -> Result<(), String> {
-    let max = rayon::max_num_threads();
-    if requested > max {
-        return Err(format!(
-            "requested {requested} thread(s) but this Rayon build clamps a pool to {max}"
-        ));
-    }
-    Ok(())
-}
-
-/// The worker count a pool of `requested` threads actually gets. Rayon
-/// soft-limits a pool, so a request above that limit would be silently clamped
-/// and must be refused instead of reported as effective.
+/// The worker count a pool of `requested` threads actually gets. A pool never
+/// reports more workers than it was built with, so a mismatch is refused instead
+/// of reported as effective.
 fn observed_pool_size(requested: usize) -> Result<usize, String> {
-    check_rayon_limit(requested)?;
-    let pool = rayon::ThreadPoolBuilder::new()
-        .num_threads(requested)
+    let pool = strided_exec::Pool::builder()
+        .threads(requested)
         .build()
         .map_err(|e| format!("cannot create a {requested}-worker pool: {e}"))?;
-    let size = pool.current_num_threads();
+    let size = pool.width().get();
     if size != requested {
         return Err(format!(
-            "requested {requested} thread(s) but the rayon pool has {size} worker(s)"
+            "requested {requested} thread(s) but the pool has {size} worker(s)"
         ));
     }
     Ok(size)
@@ -318,19 +305,13 @@ fn measure(args: &Args) -> ExitCode {
     // Build the pool and the executor first, then report the counts the runtime
     // actually granted, never the request. A clamped pool or budget fails.
     let requested = args.threads.unwrap_or(1);
-    if let Err(message) = check_rayon_limit(requested) {
-        return die(&message);
-    }
-    let thread_pool = match rayon::ThreadPoolBuilder::new()
-        .num_threads(requested)
-        .build()
-    {
+    let thread_pool = match strided_exec::Pool::builder().threads(requested).build() {
         Ok(pool) => pool,
         Err(e) => return die(&format!("cannot create a {requested}-worker pool: {e}")),
     };
     let pool = Pool::borrow(&thread_pool);
     let rayon_threads = pool.size();
-    let exec = match Exec::rayon(&pool).with_budget(requested) {
+    let mut exec = match Exec::new(&pool, requested) {
         Ok(exec) => exec,
         Err(e) => return die(&format!("cannot set a {requested}-thread budget: {e}")),
     };
@@ -366,7 +347,7 @@ fn measure(args: &Args) -> ExitCode {
         reference,
     };
 
-    let (records, all_ok, compared) = harness::run_grid(&selected, &config, &exec);
+    let (records, all_ok, compared) = harness::run_grid(&selected, &config, &mut exec);
     // A verify run that made no cross-row comparison checked nothing; refuse it
     // even though every declared cell is "ok" or "skipped".
     if args.command == Command::Verify && !compared {

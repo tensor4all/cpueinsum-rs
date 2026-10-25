@@ -43,12 +43,12 @@ pub enum ExecutionRoute {
 /// let a = [1.0, 2.0, 3.0, 4.0];
 /// let b = [1.0, 0.0, 0.0, 1.0];
 /// let mut d = [0.0; 4];
-/// let route = plan.execute_slices_accum(&Exec::serial(), 2.0, (&a, 0), (&b, 0),
+/// let route = plan.execute_slices_accum(&mut Exec::serial(), 2.0, (&a, 0), (&b, 0),
 ///     0.0, SliceAccumulationSource::Absent, (&mut d, 0), &mut work)?;
 /// assert_eq!(route, ExecutionRoute::Vendor);
 /// assert_eq!(d, [2.0, 4.0, 6.0, 8.0]);
 /// let mut fresh = [MaybeUninit::uninit(); 4];
-/// let (initialized, _) = plan.execute_uninit_slices(&Exec::serial(), 1.0, (&a, 0), (&b, 0),
+/// let (initialized, _) = plan.execute_uninit_slices(&mut Exec::serial(), 1.0, (&a, 0), (&b, 0),
 ///     0.0, SliceAccumulationSource::Absent, (&mut fresh, 0), &mut work)?;
 /// assert_eq!(initialized, &a);
 /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -105,7 +105,7 @@ impl<T: BlasScalar> BinaryPlan<T> {
     /// for invalid packing views. Preflight failures leave output unchanged.
     pub fn execute_slices_accum(
         &self,
-        exec: &Exec<'_>,
+        exec: &mut Exec<'_>,
         alpha: T,
         a: (&[T], isize),
         b: (&[T], isize),
@@ -143,7 +143,7 @@ impl<T: BlasScalar> BinaryPlan<T> {
     /// own full-write and execution-admission checks.
     pub fn execute_uninit_slices<'d>(
         &self,
-        exec: &Exec<'_>,
+        exec: &mut Exec<'_>,
         alpha: T,
         a: (&[T], isize),
         b: (&[T], isize),
