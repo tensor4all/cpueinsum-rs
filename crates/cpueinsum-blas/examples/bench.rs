@@ -405,7 +405,7 @@ fn o_once() -> Opts {
 }
 
 fn worker(threads: usize, filter: Option<&str>, o: &Opts) {
-    let pool = strided_exec::Pool::builder()
+    let pool = threadteam::Pool::builder()
         .threads(threads)
         .build()
         .unwrap();

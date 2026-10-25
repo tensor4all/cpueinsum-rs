@@ -101,7 +101,7 @@ fn auto_keeps_the_vendor_loop_and_forced_lanes_use_the_native_route() {
     let plan = GroupedPlan::<f64>::new(&jobs, &PlanConfig::default()).unwrap();
     let a: Vec<f64> = (0..256).map(|i| ((i % 7) as f64) - 3.0).collect();
     let b: Vec<f64> = (0..256).map(|i| ((i % 5) as f64) - 2.0).collect();
-    let thread_pool = strided_exec::Pool::builder().threads(4).build().unwrap();
+    let thread_pool = threadteam::Pool::builder().threads(4).build().unwrap();
     let pool = cpueinsum::Pool::borrow(&thread_pool);
 
     // Auto uses the coordinator vendor loop.

@@ -195,7 +195,7 @@ fn plan_reuse_with_dirty_scratch_and_rayon() {
         EinsumPlan::<f64>::new(&spec, &layouts, Layout::new(&out_dims, &strides).unwrap()).unwrap();
     let views: Vec<_> = ops.iter().map(Operand::view).collect();
 
-    let pool = strided_exec::Pool::builder().threads(4).build().unwrap();
+    let pool = threadteam::Pool::builder().threads(4).build().unwrap();
     let pool = Pool::borrow(&pool);
     let mut execs = [Exec::serial(), Exec::new(&pool, pool.size()).unwrap()];
     let mut scratch = Scratch::with_len(plan.scratch_len() + 3);

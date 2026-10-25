@@ -130,7 +130,7 @@ fn policy(strategy: BatchStrategy) -> BatchPolicy {
 fn forced_lane_strategies_run_the_native_step_and_sequential_keeps_the_backend() {
     let (spec, layouts, out_layout, data) = chain();
     let inputs = views(&data);
-    let pool = strided_exec::Pool::builder().threads(4).build().unwrap();
+    let pool = threadteam::Pool::builder().threads(4).build().unwrap();
     let pool = cpueinsum::Pool::borrow(&pool);
 
     // The reference is the all-tcontract plan under the same forced policy: the
@@ -209,7 +209,7 @@ fn forced_lane_strategies_run_the_native_step_and_sequential_keeps_the_backend()
 fn a_backend_that_resolves_the_policy_itself_serves_every_strategy() {
     let (spec, layouts, out_layout, data) = chain();
     let inputs = views(&data);
-    let pool = strided_exec::Pool::builder().threads(4).build().unwrap();
+    let pool = threadteam::Pool::builder().threads(4).build().unwrap();
     let pool = cpueinsum::Pool::borrow(&pool);
     // The default of `vendor_loop` is `false`: such a step keeps running on the
     // backend under every policy, and no alternative is planned for it.
@@ -246,7 +246,7 @@ fn an_empty_batch_resolves_the_route_the_same_way() {
         .iter()
         .map(|d| StridedView::new(d, &[2, 2, 0], &[1, 2, 4], 0).unwrap())
         .collect();
-    let pool = strided_exec::Pool::builder().threads(2).build().unwrap();
+    let pool = threadteam::Pool::builder().threads(2).build().unwrap();
     let pool = cpueinsum::Pool::borrow(&pool);
     for (strategy, loop_serves) in [
         (BatchStrategy::Auto, true),
@@ -314,7 +314,7 @@ fn a_native_alternative_that_refuses_the_split_is_admitted_before_the_first_step
     // reserved.
     let (plan, layouts, out_layout, data) = packed_chain();
     assert_eq!(plan.steps(), 2);
-    let pool = strided_exec::Pool::builder().threads(4).build().unwrap();
+    let pool = threadteam::Pool::builder().threads(4).build().unwrap();
     let pool = cpueinsum::Pool::borrow(&pool);
     let inputs: Vec<StridedView<'_, f64>> = data
         .iter()

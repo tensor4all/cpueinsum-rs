@@ -44,8 +44,8 @@ assert_eq!(d, a);
 ```
 
 `einsum_into` plans and runs in one call; `contract_into` is a one-shot binary
-contraction. Threading is explicit: build a `strided_exec::Pool` once
-(`strided_exec::Pool::builder().threads(n).build()?`), wrap it with
+contraction. Threading is explicit: build a `threadteam::Pool` once
+(`threadteam::Pool::builder().threads(n).build()?`), wrap it with
 `Pool::borrow(&pool)`, and mint `Exec::new(&pool, budget)?` per call. Every
 operation takes the `Exec` by `&mut`, because the token that places its work is
 not copyable.
@@ -140,9 +140,9 @@ The 0.5.0 release tracks tcontract-exec 0.5.0 and strided 0.7.0. Breaking change
   and `StepBackend::execute`). `native_workspace_req` and `execution_route` still
   take `&Exec`.
 - `Exec::rayon(&pool).with_budget(n)` is `Exec::new(&pool, n)`, and a pool is a
-  `strided_exec::Pool`, not a Rayon pool. `Exec::serial()` is unchanged.
+  `threadteam::Pool`, not a Rayon pool. `Exec::serial()` is unchanged.
 - `Exec` is neither `Clone` nor `Copy`; `Exec::token()` lends the
-  `strided_exec` placement token for one call.
+  `threadteam` placement token for one call.
 - The `tcontract` and `tcontract-exec` requirements are crates.io 0.5.0.
   `tcontract-capi` (unpublished) is a git dependency on the tcontract-rs
   v0.5.0 commit, and a `[patch.crates-io]` entry points the other two at that

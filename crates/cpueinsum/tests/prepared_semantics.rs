@@ -207,7 +207,7 @@ fn parallel_elementwise_fresh_output_with_broadcast_and_reversal() {
         .collect();
     let b = [Complex64::new(2.0, 1.0)];
     let alpha = Complex64::new(0.0, 2.0);
-    let tp = strided_exec::Pool::builder().threads(4).build().unwrap();
+    let tp = threadteam::Pool::builder().threads(4).build().unwrap();
     let pool = cpueinsum::Pool::borrow(&tp);
     let mut exec = Exec::new(&pool, 2).unwrap();
     for beta in [Complex64::default(), Complex64::new(-1.0, 0.5)] {
@@ -247,7 +247,7 @@ fn parallel_elementwise_fresh_output_with_broadcast_and_reversal() {
         .ledger_root()
         .expect("a pooled token is a root");
     assert!(
-        strided_exec::ledger::installs(root) > 0,
+        threadteam::ledger::installs(root) > 0,
         "a pooled route used its supplied 2T-budget context"
     );
 }

@@ -96,7 +96,7 @@ fn print_info(requested: Option<usize>) -> Result<(), String> {
 /// reports more workers than it was built with, so a mismatch is refused instead
 /// of reported as effective.
 fn observed_pool_size(requested: usize) -> Result<usize, String> {
-    let pool = strided_exec::Pool::builder()
+    let pool = threadteam::Pool::builder()
         .threads(requested)
         .build()
         .map_err(|e| format!("cannot create a {requested}-worker pool: {e}"))?;
@@ -305,7 +305,7 @@ fn measure(args: &Args) -> ExitCode {
     // Build the pool and the executor first, then report the counts the runtime
     // actually granted, never the request. A clamped pool or budget fails.
     let requested = args.threads.unwrap_or(1);
-    let thread_pool = match strided_exec::Pool::builder().threads(requested).build() {
+    let thread_pool = match threadteam::Pool::builder().threads(requested).build() {
         Ok(pool) => pool,
         Err(e) => return die(&format!("cannot create a {requested}-worker pool: {e}")),
     };

@@ -92,7 +92,7 @@ fn views(data: &[Vec<f64>]) -> Vec<StridedView<'_, f64>> {
 fn forced_lane_strategies_run_the_native_step_and_sequential_keeps_the_blas_step() {
     let (spec, layouts, out_layout, data) = chain();
     let inputs = views(&data);
-    let thread_pool = strided_exec::Pool::builder().threads(4).build().unwrap();
+    let thread_pool = threadteam::Pool::builder().threads(4).build().unwrap();
     let pool = cpueinsum::Pool::borrow(&thread_pool);
 
     // The reference is the all-tcontract plan under the same forced policy: the

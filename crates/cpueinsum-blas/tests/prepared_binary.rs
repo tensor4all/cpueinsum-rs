@@ -322,7 +322,7 @@ fn forced_lane_strategies_use_the_native_route() {
     .unwrap();
     let a: Vec<f64> = (0..6).map(|i| (i % 5) as f64 - 2.0).collect();
     let b: Vec<f64> = (0..6).map(|i| (i % 3) as f64 - 1.0).collect();
-    let thread_pool = strided_exec::Pool::builder().threads(4).build().unwrap();
+    let thread_pool = threadteam::Pool::builder().threads(4).build().unwrap();
     let pool = cpueinsum::Pool::borrow(&thread_pool);
 
     // Sequential is exactly one serial coordinator, so the loop serves it.
@@ -456,7 +456,7 @@ fn empty_batch_is_served_by_the_native_route_under_every_strategy() {
     // the native alternative, which reports the empty route.
     let plan = BinaryPlan::<f64>::new(&empty_batch_problem(), &PlanConfig::default()).unwrap();
     assert_eq!(plan.work_len(), 0);
-    let thread_pool = strided_exec::Pool::builder().threads(4).build().unwrap();
+    let thread_pool = threadteam::Pool::builder().threads(4).build().unwrap();
     let pool = cpueinsum::Pool::borrow(&thread_pool);
     for strategy in [
         BatchStrategy::Auto,
