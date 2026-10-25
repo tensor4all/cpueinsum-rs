@@ -8,11 +8,8 @@ use std::num::NonZeroUsize;
 use std::sync::Mutex;
 
 use tcontract::api::{CSpec, Labels, LayoutSpec, Op, OperandSpec, Problem};
-use tcontract::{
-    ExecutionRoute, OutputContract, PackedRoute, Plan, PlanConfig, SliceAccumulationSource,
-    NS_PER_FLOP,
-};
-use tcontract_exec::{BatchPolicy, BatchQuery, BatchStrategy, Exec, ExecError, WorkspaceReq};
+use tcontract::{OutputContract, Plan, PlanConfig, SliceAccumulationSource, NS_PER_FLOP};
+use tcontract_exec::{BatchPolicy, BatchQuery, BatchStrategy, Exec, WorkspaceReq};
 
 use crate::{Error, Result, Scalar};
 
@@ -551,33 +548,16 @@ impl<T: Scalar> GroupedPlan<T> {
         {
             let child_exec = child_context(exec, item_threads);
             for job in &self.jobs {
-                let route = job
-                    .plan
+                // Admission only: a child that would take a packed SPMD team on the
+                // coordinator is not refused here. tcontract's packed driver checks
+                // `can_broadcast` on the token it is given, so a child running on a
+                // pool worker takes the barrier-free route, before any lane writes.
+                job.plan
                     .execution_route(&child_exec, alpha, OutputContract::Initialized)
                     .map_err(|source| Error::Contract {
                         step: job.meta.id,
                         source,
                     })?;
-                // A multi-lane dispatch runs each child on a pool worker, where a
-                // packed SPMD team (a pool broadcast) is unavailable. The coordinator
-                // preflight above resolves it as available; refuse it here, before any
-                // lane writes, rather than letting it fail mid-dispatch after another
-                // lane may already have written.
-                if lanes > 1 {
-                    if let ExecutionRoute::Packed {
-                        kind: PackedRoute::Spmd,
-                        ..
-                    } = route
-                    {
-                        return Err(Error::Contract {
-                            step: job.meta.id,
-                            source: ExecError::StrategyUnavailable {
-                                strategy: exec.batch_policy().strategy,
-                            }
-                            .into(),
-                        });
-                    }
-                }
             }
         }
 

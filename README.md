@@ -143,11 +143,13 @@ The 0.5.0 release tracks tcontract-exec 0.5.0 and strided 0.7.0. Breaking change
   `strided_exec::Pool`, not a Rayon pool. `Exec::serial()` is unchanged.
 - `Exec` is neither `Clone` nor `Copy`; `Exec::token()` lends the
   `strided_exec` placement token for one call.
-- The `cpueinsum` version requirement is 0.5.0 and the tcontract crates are
-  path dependencies on the sibling `tcontract-rs` checkout until they are
-  published at 0.5.0.
-- The `ExecError::Unavailable` refusal of a packed SPMD child in an outer lane
-  is now `ExecError::StrategyUnavailable` with the requested strategy.
+- The `tcontract` and `tcontract-exec` requirements are crates.io 0.5.0.
+  `tcontract-capi` (unpublished) is a git dependency on the tcontract-rs
+  v0.5.0 commit, and a `[patch.crates-io]` entry points the other two at that
+  commit so the graph holds one copy of each.
+- A multi-lane `Split` no longer refuses a child route that needs a packed
+  SPMD team. tcontract 0.5 runs such a child barrier-free on its pool worker,
+  so the forced strategy is honored and the result is unchanged.
 
 ## 0.3 changes
 

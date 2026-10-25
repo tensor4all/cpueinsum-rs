@@ -465,15 +465,14 @@ fn forced_inner_runs_the_child_with_the_granted_width() {
 }
 
 #[test]
-fn split_rejects_worker_incompatible_child_routes_before_dispatch() {
+fn split_runs_spmd_routed_children_barrier_free_on_workers() {
     use core::num::NonZeroUsize;
     use cpueinsum::tcontract::api::{CSpec, DType, Labels, LayoutSpec, OperandSpec, Problem};
     use cpueinsum::tcontract::{ExecutionRoute, OutputContract, PackedRoute, Partition, Plan};
     use cpueinsum::{BatchPolicy, BatchStrategy};
-    // Two packed 64^3 jobs whose budget-2 child must want an SPMD team. That
-    // team is available from the coordinator (so preflight passes) but not from
-    // the pool worker each Split lane runs on. The refusal must happen before
-    // dispatch, so a job in another lane can never have written first.
+    // Two packed 64^3 jobs whose budget-2 child wants an SPMD team. That team is
+    // available from the coordinator but not from the pool worker each Split lane
+    // runs on; the worker's token takes tcontract's barrier-free route instead.
     //
     // The child's route is host- and profile-dependent: the planner's own cost
     // model may prefer a non-SPMD cells grid on some ISAs. Pin the child's
@@ -541,16 +540,19 @@ fn split_rejects_worker_incompatible_child_routes_before_dispatch() {
         other => panic!("the child route must be an SPMD team at budget 2, got {other:?}"),
     }
 
-    let refused_root = exec
-        .token()
-        .ledger_root()
-        .expect("a pooled token is a root");
-    assert!(plan
+    // Each output entry is a 64-term sum of ones, exact in f64. The children run on
+    // pool workers, whose token cannot co-schedule a barrier-bearing team, so tcontract
+    // takes the barrier-free route for them and the result is still exact.
+    let route = plan
         .execute_into(&mut exec, 1.0, &lhs, &rhs, &mut out)
-        .is_err());
-    assert_eq!(
-        strided_exec::ledger::installs(refused_root),
-        0,
-        "a worker-incompatible child route must be refused before dispatch"
+        .expect("a forced Split runs an SPMD-routed child on its worker");
+    assert!(
+        matches!(route, GroupedRoute::Split { lanes: 2, .. }),
+        "expected two lanes, got {route:?}"
+    );
+    assert!(
+        out.iter().all(|&x| x == 64.0),
+        "the lanes must write every output entry: first {:?}",
+        &out[..4]
     );
 }
