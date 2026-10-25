@@ -219,8 +219,8 @@ Execution:
 1. Validate complete A/B/D slice bounds for every job before any write.
    No-op/empty jobs get the same metadata checks.
 2. Choose GroupedRoute::Empty (zero jobs only), Serial, or Outer { lanes } from job count,
-   total prepared work and exec.budget(), using existing tprims WidthPolicy
-   rather than adding thresholds. Clamp lanes to number of jobs. Children
+   total prepared work and exec.budget(), using the token's width rule
+   (`Exec::width_for`, one section) rather than adding thresholds. Clamp lanes to number of jobs. Children
    always run serially with the outer workspace; there is no inner fan-out or
    SPMD child and no resource-dependent failure after a different job writes.
 3. Split the D buffer safely with split_at_mut in prepared offset order,
@@ -237,7 +237,7 @@ Execution:
    the outer Exec provider (or bare serial only if the caller chose no reuse).
    contract_batched is not reused because its BatchItem API requires views,
    builds reads and per-item Mutex arrays, and loses original failing job IDs. Reuse Exec's partition
-   primitive and existing WidthPolicy; do not add a second numerical kernel.
+   primitive and the token's width rule; do not add a second numerical kernel.
 5. Return GroupedRoute and preserve original job identity in failures.
    Exactly one execution per job on success; order between disjoint jobs is
    unspecified. Runtime failure need not roll back already written jobs.

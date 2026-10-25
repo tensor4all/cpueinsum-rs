@@ -21,7 +21,7 @@ repository = "https://github.com/tensor4all/cpueinsum-rs"
 # `[patch.crates-io]` block below resolves them to git.
 tcontract = { version = "0.6.0" }
 tcontract-exec = { version = "0.6.0" }
-tcontract-capi = { git = "https://github.com/tensor4all/tcontract-rs.git", rev = "96d775ac8ac410596bc5fed0f038bda72d7181b9", version = "0.1.0" }
+tcontract-capi = { git = "https://github.com/tensor4all/tcontract-rs.git", rev = "4ea7f5cbb0347ab8689e112654466b596fdab9c3", version = "0.1.0" }
 # One strided release train: the registry resolves one version of each crate, so
 # `StridedView` and `threadteam::Exec` stay single types across the graph.
 strided-basic = { version = "0.8.0", default-features = false }
@@ -63,16 +63,21 @@ debug = 0
 [profile.bench]
 inherits = "release"
 
-# Unpublished upstreams: delete the entries once the crates are on crates.io.
+# Unpublished upstreams: delete the entries once the crates are on crates.io. They are branch
+# revs (threadteam-rs, strided-rs, tcontract-rs `feat/dispatch-cost`, faer `exp/par-team-lifetime`)
+# that agree on one threadteam rev, so `Exec` and `TeamExec` are single types. t4a-faer is
+# patched here because tcontract's own patch section does not reach its dependents.
 # Each crate appears once in the graph: threadteam from threadteam-rs, the strided
 # crates from strided-rs main, tcontract and tcontract-exec from tcontract-rs
 # (the commit tcontract-capi pulls them from). Patches are not part of a published
 # manifest, so the version requirements above are what downstream users resolve.
 [patch.crates-io]
-threadteam = { git = "https://github.com/tensor4all/threadteam-rs.git", rev = "97404b580951aa9d89910a739618ce044e988b16" }
-strided-traits = { git = "https://github.com/tensor4all/strided-rs.git", rev = "d24474d89dd3c6ca8ebdc16a5638289787376575" }
-strided-view = { git = "https://github.com/tensor4all/strided-rs.git", rev = "d24474d89dd3c6ca8ebdc16a5638289787376575" }
-strided-perm = { git = "https://github.com/tensor4all/strided-rs.git", rev = "d24474d89dd3c6ca8ebdc16a5638289787376575" }
-strided-basic = { git = "https://github.com/tensor4all/strided-rs.git", rev = "d24474d89dd3c6ca8ebdc16a5638289787376575" }
-tcontract = { git = "https://github.com/tensor4all/tcontract-rs.git", rev = "96d775ac8ac410596bc5fed0f038bda72d7181b9" }
-tcontract-exec = { git = "https://github.com/tensor4all/tcontract-rs.git", rev = "96d775ac8ac410596bc5fed0f038bda72d7181b9" }
+threadteam = { git = "https://github.com/tensor4all/threadteam-rs.git", rev = "5afe0b4d2ea604d0d8fe6b563bacf4c80f2d0bc4" }
+strided-traits = { git = "https://github.com/tensor4all/strided-rs.git", rev = "6821b53e201a9684520ac8458467656143c934f2" }
+strided-view = { git = "https://github.com/tensor4all/strided-rs.git", rev = "6821b53e201a9684520ac8458467656143c934f2" }
+strided-perm = { git = "https://github.com/tensor4all/strided-rs.git", rev = "6821b53e201a9684520ac8458467656143c934f2" }
+strided-basic = { git = "https://github.com/tensor4all/strided-rs.git", rev = "6821b53e201a9684520ac8458467656143c934f2" }
+tcontract = { git = "https://github.com/tensor4all/tcontract-rs.git", rev = "4ea7f5cbb0347ab8689e112654466b596fdab9c3" }
+tcontract-exec = { git = "https://github.com/tensor4all/tcontract-rs.git", rev = "4ea7f5cbb0347ab8689e112654466b596fdab9c3" }
+t4a-faer = { git = "https://github.com/tensor4all/faer.git", rev = "9cd64f022a275071b64fbd0872e7c1f4d8d51bf9" }
+t4a-faer-traits = { git = "https://github.com/tensor4all/faer.git", rev = "9cd64f022a275071b64fbd0872e7c1f4d8d51bf9" }

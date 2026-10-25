@@ -59,12 +59,12 @@ fn parallel_grouped_allocation_bound_scales_with_lanes() {
     // batch (one per job) would blow the lane-parameterized bound at 256 jobs
     // even though it passed at four.
     let jobs: Vec<_> = (0..256)
-        .map(|i| GroupedGemmJob::new(i * 256, i * 256, i * 256, 16, 16, 16))
+        .map(|i| GroupedGemmJob::new(i * 1024, i * 1024, i * 1024, 32, 32, 32))
         .collect();
     let plan = GroupedPlan::<f64>::new(&jobs, &PlanConfig::packed()).unwrap();
-    let lhs = vec![1.0; 256 * 256];
-    let rhs = vec![1.0; 256 * 256];
-    let mut out = vec![0.0; 256 * 256];
+    let lhs = vec![1.0; 256 * 1024];
+    let rhs = vec![1.0; 256 * 1024];
+    let mut out = vec![0.0; 256 * 1024];
     let thread_pool = threadteam::Pool::builder().threads(4).build().unwrap();
     let pool = cpueinsum::Pool::borrow(&thread_pool);
     let mut exec = Exec::new(&pool, 4).unwrap();
