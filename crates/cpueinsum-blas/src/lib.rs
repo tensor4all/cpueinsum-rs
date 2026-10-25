@@ -259,7 +259,7 @@ fn pack_in<T: BlasScalar>(
     p.to_packed
         .as_ref()
         .expect("an input pack compiles the operand-to-packed plan")
-        .execute(&mut w, &s, strided_exec::Exec::serial())
+        .execute(&mut w, &s, threadteam::Exec::serial())
         .map_err(err)
 }
 
@@ -319,7 +319,7 @@ fn run<T: BlasScalar>(
         p.from_packed
             .as_ref()
             .expect("the output pack compiles the write-back plan")
-            .execute(&mut o, &s, strided_exec::Exec::serial())
+            .execute(&mut o, &s, threadteam::Exec::serial())
             .map_err(err)?;
     }
     Ok(())

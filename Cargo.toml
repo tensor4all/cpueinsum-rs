@@ -15,18 +15,19 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/tensor4all/cpueinsum-rs"
 
 [workspace.dependencies]
-# The tcontract 0.5.0 stack (strided-rs 0.7 `Exec` token, tcontract-exec 0.5),
-# all from crates.io except tcontract-capi, which is unpublished (publish = false)
-# and is taken from the tcontract-rs v0.5.0 release commit.
-tcontract = { version = "0.5.0" }
-tcontract-exec = { version = "0.5.0" }
-tcontract-capi = { git = "https://github.com/tensor4all/tcontract-rs.git", rev = "33ee64621c646033fd6cea9244247b08877f6aed", version = "0.1.0" }
-# One strided release train (basic/view/exec): the registry resolves one 0.7.x
-# version, so `StridedView` and `strided_exec::Exec` stay single types.
-strided-basic = { version = "0.7.0", default-features = false }
+# The tcontract 0.6.0 stack (tcontract-exec 0.6, strided-basic 0.8 on threadteam),
+# version-only. tcontract-capi is unpublished (publish = false) and is taken from
+# the tcontract-rs main commit (PR #145, merged). None of these are on crates.io yet: the
+# `[patch.crates-io]` block below resolves them to git.
+tcontract = { version = "0.6.0" }
+tcontract-exec = { version = "0.6.0" }
+tcontract-capi = { git = "https://github.com/tensor4all/tcontract-rs.git", rev = "96d775ac8ac410596bc5fed0f038bda72d7181b9", version = "0.1.0" }
+# One strided release train: the registry resolves one version of each crate, so
+# `StridedView` and `threadteam::Exec` stay single types across the graph.
+strided-basic = { version = "0.8.0", default-features = false }
 strided-view = "0.7.0"
-strided-exec = "0.7.0"
-cpueinsum = { version = "0.5.0", path = "crates/cpueinsum" }
+threadteam = "0.1.0"
+cpueinsum = { version = "0.6.0", path = "crates/cpueinsum" }
 # CBLAS declarations only; a provider is linked by the final binary
 # (blas-src, or any crate that links a CBLAS library).
 cblas-sys = "0.1"
@@ -62,11 +63,16 @@ debug = 0
 [profile.bench]
 inherits = "release"
 
-# tcontract-capi is git-only, and its git manifest pulls tcontract and
-# tcontract-exec from the same repository. Patching the registry names to that
-# commit keeps one copy of each in the graph (the release tag v0.5.0). Patches
-# are not part of a published manifest, so the crates.io requirements above are
-# what downstream users resolve.
+# Unpublished upstreams: delete the entries once the crates are on crates.io.
+# Each crate appears once in the graph: threadteam from threadteam-rs, the strided
+# crates from strided-rs main, tcontract and tcontract-exec from tcontract-rs
+# (the commit tcontract-capi pulls them from). Patches are not part of a published
+# manifest, so the version requirements above are what downstream users resolve.
 [patch.crates-io]
-tcontract = { git = "https://github.com/tensor4all/tcontract-rs.git", rev = "33ee64621c646033fd6cea9244247b08877f6aed" }
-tcontract-exec = { git = "https://github.com/tensor4all/tcontract-rs.git", rev = "33ee64621c646033fd6cea9244247b08877f6aed" }
+threadteam = { git = "https://github.com/tensor4all/threadteam-rs.git", rev = "97404b580951aa9d89910a739618ce044e988b16" }
+strided-traits = { git = "https://github.com/tensor4all/strided-rs.git", rev = "d24474d89dd3c6ca8ebdc16a5638289787376575" }
+strided-view = { git = "https://github.com/tensor4all/strided-rs.git", rev = "d24474d89dd3c6ca8ebdc16a5638289787376575" }
+strided-perm = { git = "https://github.com/tensor4all/strided-rs.git", rev = "d24474d89dd3c6ca8ebdc16a5638289787376575" }
+strided-basic = { git = "https://github.com/tensor4all/strided-rs.git", rev = "d24474d89dd3c6ca8ebdc16a5638289787376575" }
+tcontract = { git = "https://github.com/tensor4all/tcontract-rs.git", rev = "96d775ac8ac410596bc5fed0f038bda72d7181b9" }
+tcontract-exec = { git = "https://github.com/tensor4all/tcontract-rs.git", rev = "96d775ac8ac410596bc5fed0f038bda72d7181b9" }

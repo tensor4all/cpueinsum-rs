@@ -60,7 +60,7 @@ fn check_inline<T: BlasScalar>(exec: &mut Exec<'_>) {
 
 #[test]
 fn actual_cblas_calls_stay_on_coordinator_without_selected_pool_dispatch() {
-    let thread_pool = strided_exec::Pool::builder().threads(4).build().unwrap();
+    let thread_pool = threadteam::Pool::builder().threads(4).build().unwrap();
     let pool = Pool::borrow(&thread_pool);
     assert_eq!(pool.size(), 4);
     for mut exec in [Exec::serial(), Exec::new(&pool, pool.size()).unwrap()] {
@@ -85,6 +85,6 @@ fn actual_cblas_calls_stay_on_coordinator_without_selected_pool_dispatch() {
         assert_eq!(calls, [thread::current().id(); 2]);
         assert_eq!(out, [3.0; 8]);
         // No pool entry: every call is serial or runs on the coordinator.
-        assert_eq!(root.map_or(0, strided_exec::ledger::installs), 0);
+        assert_eq!(root.map_or(0, threadteam::ledger::installs), 0);
     }
 }

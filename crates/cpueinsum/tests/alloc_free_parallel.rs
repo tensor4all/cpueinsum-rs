@@ -65,7 +65,7 @@ fn parallel_grouped_allocation_bound_scales_with_lanes() {
     let lhs = vec![1.0; 256 * 256];
     let rhs = vec![1.0; 256 * 256];
     let mut out = vec![0.0; 256 * 256];
-    let thread_pool = strided_exec::Pool::builder().threads(4).build().unwrap();
+    let thread_pool = threadteam::Pool::builder().threads(4).build().unwrap();
     let pool = cpueinsum::Pool::borrow(&thread_pool);
     let mut exec = Exec::new(&pool, 4).unwrap();
 

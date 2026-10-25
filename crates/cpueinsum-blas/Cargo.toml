@@ -1,6 +1,6 @@
 [package]
 name = "cpueinsum-blas"
-version = "0.5.0"
+version = "0.6.0"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -9,7 +9,7 @@ description = "A CBLAS step backend for cpueinsum: binary steps on the linked BL
 
 [dependencies]
 cblas-sys = { workspace = true }
-strided-exec = { workspace = true }
+threadteam = { workspace = true }
 cpueinsum = { workspace = true }
 num-complex = { workspace = true }
 strided-basic = { workspace = true }
@@ -25,7 +25,7 @@ blas-src = { workspace = true, features = ["openblas"] }
 openblas-src = { workspace = true, features = ["cblas", "system"] }
 
 [dev-dependencies]
-strided-exec = { workspace = true, features = ["ledger"] }
+threadteam = { workspace = true, features = ["ledger"] }
 rand = { workspace = true }
 rand_chacha = { workspace = true }
 # Naming the typed execution refusal the N-ary route reports; the library itself

@@ -29,7 +29,7 @@ fn tiny_scalar_jobs_stay_serial_under_auto() {
         GroupedGemmJob::new(0, 0, 1, 1, 1, 1),
     ];
     let plan = GroupedPlan::<f64>::new(&jobs, &PlanConfig::default()).unwrap();
-    let thread_pool = strided_exec::Pool::builder().threads(2).build().unwrap();
+    let thread_pool = threadteam::Pool::builder().threads(2).build().unwrap();
     let pool = cpueinsum::Pool::borrow(&thread_pool);
     let mut exec = Exec::new(&pool, 2).unwrap();
     let route = plan
@@ -50,7 +50,7 @@ fn forced_strategies_are_honored_or_refused() {
     let plan = GroupedPlan::<f64>::new(&jobs, &PlanConfig::default()).unwrap();
     let lhs: Vec<f64> = (0..4 * 4096).map(|i| ((i % 7) as f64) - 3.0).collect();
     let rhs: Vec<f64> = (0..4 * 4096).map(|i| ((i % 5) as f64) - 2.0).collect();
-    let thread_pool = strided_exec::Pool::builder().threads(4).build().unwrap();
+    let thread_pool = threadteam::Pool::builder().threads(4).build().unwrap();
     let pool = cpueinsum::Pool::borrow(&thread_pool);
 
     // The reference is the serial route (all item kernels serial, one lane).
@@ -262,7 +262,7 @@ fn bounded_pool_uses_outer_lanes_without_nested_entries() {
     let lhs = vec![1.; 4 * 4096];
     let rhs = vec![1.; 4 * 4096];
     let mut out = vec![1.; 4 * 4096];
-    let thread_pool = strided_exec::Pool::builder().threads(4).build().unwrap();
+    let thread_pool = threadteam::Pool::builder().threads(4).build().unwrap();
     let pool = cpueinsum::Pool::borrow(&thread_pool);
     let mut exec = Exec::new(&pool, 2).unwrap();
     let root = exec
@@ -275,7 +275,7 @@ fn bounded_pool_uses_outer_lanes_without_nested_entries() {
     assert!(matches!(route, GroupedRoute::Outer { lanes: 2 }));
     // Accumulation detects duplicate job execution, unlike idempotent overwrite.
     assert!(out.iter().all(|&x| x == 65.));
-    assert_eq!(strided_exec::ledger::installs(root), 1);
+    assert_eq!(threadteam::ledger::installs(root), 1);
 
     for budget in [1, 4] {
         out.fill(1.0);
@@ -289,10 +289,10 @@ fn bounded_pool_uses_outer_lanes_without_nested_entries() {
             .unwrap();
         if budget == 1 {
             assert_eq!(route, GroupedRoute::Serial);
-            assert_eq!(strided_exec::ledger::installs(root), 0);
+            assert_eq!(threadteam::ledger::installs(root), 0);
         } else {
             assert!(matches!(route, GroupedRoute::Outer { lanes } if lanes > 1 && lanes <= budget));
-            assert_eq!(strided_exec::ledger::installs(root), 1);
+            assert_eq!(threadteam::ledger::installs(root), 1);
         }
         assert!(out.iter().all(|&x| x == 65.));
     }
@@ -401,7 +401,7 @@ fn empty_jobs_do_not_move_parallel_chunk_boundaries_backwards() {
         GroupedGemmJob::new(0, 0, 0, 0, 1, 1),
     ];
     let plan = GroupedPlan::<f64>::new(&jobs, &PlanConfig::default()).unwrap();
-    let thread_pool = strided_exec::Pool::builder().threads(2).build().unwrap();
+    let thread_pool = threadteam::Pool::builder().threads(2).build().unwrap();
     let pool = cpueinsum::Pool::borrow(&thread_pool);
     let mut exec = Exec::new(&pool, 2)
         .unwrap()
@@ -428,7 +428,7 @@ fn forced_inner_runs_the_child_with_the_granted_width() {
     let lhs = vec![1.0; n * n];
     let rhs = vec![1.0; n * n];
     let mut out = vec![0.0; n * n];
-    let thread_pool = strided_exec::Pool::builder().threads(4).build().unwrap();
+    let thread_pool = threadteam::Pool::builder().threads(4).build().unwrap();
     let pool = cpueinsum::Pool::borrow(&thread_pool);
 
     // Forced Sequential: one lane, serial child, the pool is never entered.
@@ -441,7 +441,7 @@ fn forced_inner_runs_the_child_with_the_granted_width() {
         .token()
         .ledger_root()
         .expect("a pooled token is a root");
-    let sequential_uses = strided_exec::ledger::installs(sequential_root);
+    let sequential_uses = threadteam::ledger::installs(sequential_root);
 
     // Forced Inner: the item is granted the whole budget, and the child must
     // actually execute at that width. The pre-fix Auto child fell below Auto's
@@ -457,7 +457,7 @@ fn forced_inner_runs_the_child_with_the_granted_width() {
         .token()
         .ledger_root()
         .expect("a pooled token is a root");
-    let inner_uses = strided_exec::ledger::installs(inner_root);
+    let inner_uses = threadteam::ledger::installs(inner_root);
     assert!(
         inner_uses > sequential_uses,
         "forced Inner did not exercise its granted width: sequential={sequential_uses}, inner={inner_uses}"
@@ -494,7 +494,7 @@ fn split_runs_spmd_routed_children_barrier_free_on_workers() {
     let lhs = vec![1.0; 2 * 4096];
     let rhs = vec![1.0; 2 * 4096];
     let mut out = vec![77.0; 2 * 4096];
-    let thread_pool = strided_exec::Pool::builder().threads(4).build().unwrap();
+    let thread_pool = threadteam::Pool::builder().threads(4).build().unwrap();
     let pool = cpueinsum::Pool::borrow(&thread_pool);
     let mut exec = Exec::new(&pool, 4)
         .unwrap()
