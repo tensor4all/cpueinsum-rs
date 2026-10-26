@@ -1,6 +1,6 @@
 mod common;
 
-use common::{close, naive, Elem, Operand};
+use common::{close, naive, pool_with_reference_costs, Elem, Operand};
 use core::mem::MaybeUninit;
 use cpueinsum::tcontract::api::{CSpec, Labels, LayoutSpec, Op, OperandSpec, Problem};
 use cpueinsum::tcontract::{PlanConfig, SliceAccumulationSource};
@@ -207,7 +207,7 @@ fn parallel_elementwise_fresh_output_with_broadcast_and_reversal() {
         .collect();
     let b = [Complex64::new(2.0, 1.0)];
     let alpha = Complex64::new(0.0, 2.0);
-    let tp = threadteam::Pool::builder().threads(4).build().unwrap();
+    let tp = pool_with_reference_costs(4);
     let pool = cpueinsum::Pool::borrow(&tp);
     let mut exec = Exec::new(&pool, 2).unwrap();
     for beta in [Complex64::default(), Complex64::new(-1.0, 0.5)] {

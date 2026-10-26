@@ -8,7 +8,8 @@ use std::num::NonZeroUsize;
 use std::sync::Mutex;
 
 use tcontract::api::{CSpec, Labels, LayoutSpec, Op, OperandSpec, Problem};
-use tcontract::{OutputContract, Plan, PlanConfig, SliceAccumulationSource, NS_PER_FLOP};
+use tcontract::ns_per_flop;
+use tcontract::{OutputContract, Plan, PlanConfig, SliceAccumulationSource};
 use tcontract_exec::{BatchPolicy, BatchQuery, BatchStrategy, Exec, WorkspaceReq};
 
 use crate::{Error, Result, Scalar};
@@ -705,7 +706,7 @@ impl<T: Scalar> GroupedPlan<T> {
     fn lane_decision(&self, exec: &Exec<'_>) -> Result<(usize, usize)> {
         if let BatchStrategy::Auto = exec.batch_policy().strategy {
             let serial_ns =
-                2.0 * self.work as f64 * NS_PER_FLOP * if T::IS_COMPLEX { 4.0 } else { 1.0 };
+                2.0 * self.work as f64 * ns_per_flop() * if T::IS_COMPLEX { 4.0 } else { 1.0 };
             let lanes = exec
                 .width_for(serial_ns, GROUPED_SECTIONS)
                 .min(exec.budget())

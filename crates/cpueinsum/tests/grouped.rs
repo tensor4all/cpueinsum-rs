@@ -1,6 +1,6 @@
 mod common;
 
-use common::{close, naive, Elem, Operand};
+use common::{close, naive, pool_with_reference_costs, Elem, Operand};
 use cpueinsum::tcontract::{api::Op, PlanConfig};
 use cpueinsum::{BatchPolicy, BatchStrategy, Exec as BatchExec};
 use cpueinsum::{Error, Exec, GroupedError, GroupedGemmJob, GroupedPlan, GroupedRoute};
@@ -262,7 +262,7 @@ fn bounded_pool_uses_outer_lanes_without_nested_entries() {
     let lhs = vec![1.; 4 * 16384];
     let rhs = vec![1.; 4 * 16384];
     let mut out = vec![1.; 4 * 16384];
-    let thread_pool = threadteam::Pool::builder().threads(4).build().unwrap();
+    let thread_pool = pool_with_reference_costs(4);
     let pool = cpueinsum::Pool::borrow(&thread_pool);
     let mut exec = Exec::new(&pool, 2).unwrap();
     let root = exec
