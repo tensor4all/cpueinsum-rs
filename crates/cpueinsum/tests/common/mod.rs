@@ -207,3 +207,31 @@ pub fn close<T: Elem>(got: &[T], expected: &[T], tol: f64) {
         );
     }
 }
+
+/// The Apple M5 dispatch costs (microseconds at widths 2, 4, 6: team 3.0, 2.3, 1.4; in pool
+/// 6.0, 11, 5.5; outside 14, 18, 19) scaled by this host class's GEMM rate over the M5's
+/// (`ns_per_flop() / 0.0185`). Tests that pin a route or a pool install were written against
+/// that pair of costs and rate; scaling the costs with the rate keeps the ratio of dispatch
+/// cost to work the same on every host class, so they do not depend on the host's table.
+pub fn reference_costs() -> threadteam::DispatchCosts {
+    use std::time::Duration;
+    use threadteam::WidthCosts;
+    let scale = cpueinsum::tcontract::ns_per_flop() / 0.0185;
+    let row = |us: [f64; 3]| {
+        WidthCosts::new(us.map(|x| Duration::from_nanos((x * 1000.0 * scale).round() as u64)))
+    };
+    threadteam::DispatchCosts::new(
+        row([3.0, 2.3, 1.4]),
+        row([6.0, 11.0, 5.5]),
+        row([14.0, 18.0, 19.0]),
+    )
+}
+
+/// A pool of `n` workers with the [`reference_costs`], independent of the host table.
+pub fn pool_with_reference_costs(n: usize) -> threadteam::Pool {
+    threadteam::Pool::builder()
+        .threads(n)
+        .dispatch_costs(reference_costs())
+        .build()
+        .expect("pool")
+}

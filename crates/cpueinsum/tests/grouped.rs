@@ -1,6 +1,6 @@
 mod common;
 
-use common::{close, naive, Elem, Operand};
+use common::{close, naive, pool_with_reference_costs, Elem, Operand};
 use cpueinsum::tcontract::{api::Op, PlanConfig};
 use cpueinsum::{BatchPolicy, BatchStrategy, Exec as BatchExec};
 use cpueinsum::{Error, Exec, GroupedError, GroupedGemmJob, GroupedPlan, GroupedRoute};
@@ -23,7 +23,7 @@ fn gemm(a: &[f64], b: &[f64], rows: usize, contracted: usize, cols: usize) -> Ve
 #[test]
 fn tiny_scalar_jobs_stay_serial_under_auto() {
     // The shared generic Auto would fan two one-multiply-add jobs onto two
-    // lanes; this route keeps today's width_for decision, which stays serial.
+    // lanes; this route takes the token's width_for decision, which stays serial.
     let jobs = [
         GroupedGemmJob::new(0, 0, 0, 1, 1, 1),
         GroupedGemmJob::new(0, 0, 1, 1, 1, 1),
@@ -41,20 +41,20 @@ fn tiny_scalar_jobs_stay_serial_under_auto() {
 #[test]
 fn forced_strategies_are_honored_or_refused() {
     use core::num::NonZeroUsize;
-    // Four 64x64x64 items: big enough that the Auto width_for decision leaves
-    // the serial threshold, small enough for a fast test. Offsets keep every
-    // job's ranges disjoint.
+    // Four 128x128x128 items (about 78 us each at the reference rate): the total
+    // pays the dispatch cost of a plain token from outside the pool, small enough
+    // for a fast test. Offsets keep every job's ranges disjoint.
     let jobs: Vec<_> = (0..4)
-        .map(|i| GroupedGemmJob::new(i * 4096, i * 4096, i * 4096, 64, 64, 64))
+        .map(|i| GroupedGemmJob::new(i * 16384, i * 16384, i * 16384, 128, 128, 128))
         .collect();
     let plan = GroupedPlan::<f64>::new(&jobs, &PlanConfig::default()).unwrap();
-    let lhs: Vec<f64> = (0..4 * 4096).map(|i| ((i % 7) as f64) - 3.0).collect();
-    let rhs: Vec<f64> = (0..4 * 4096).map(|i| ((i % 5) as f64) - 2.0).collect();
+    let lhs: Vec<f64> = (0..4 * 16384).map(|i| ((i % 7) as f64) - 3.0).collect();
+    let rhs: Vec<f64> = (0..4 * 16384).map(|i| ((i % 5) as f64) - 2.0).collect();
     let thread_pool = threadteam::Pool::builder().threads(4).build().unwrap();
     let pool = cpueinsum::Pool::borrow(&thread_pool);
 
     // The reference is the serial route (all item kernels serial, one lane).
-    let mut reference = vec![0.0; 4 * 4096];
+    let mut reference = vec![0.0; 4 * 16384];
     assert_eq!(
         plan.execute_into(&mut Exec::serial(), 1.0, &lhs, &rhs, &mut reference)
             .unwrap(),
@@ -62,7 +62,7 @@ fn forced_strategies_are_honored_or_refused() {
     );
 
     // Auto under four threads: outer lanes.
-    let mut auto = vec![0.0; 4 * 4096];
+    let mut auto = vec![0.0; 4 * 16384];
     let mut exec = Exec::new(&pool, 4).unwrap();
     let route = plan
         .execute_into(&mut exec, 1.0, &lhs, &rhs, &mut auto)
@@ -71,7 +71,7 @@ fn forced_strategies_are_honored_or_refused() {
     close(&auto, &reference, 1e-12);
 
     // Forced Outer: the per-item kernels are unchanged, so bitwise equal.
-    let mut outer = vec![0.0; 4 * 4096];
+    let mut outer = vec![0.0; 4 * 16384];
     let mut exec = Exec::new(&pool, pool.size())
         .unwrap()
         .with_batch_policy(BatchPolicy::new(BatchStrategy::Outer));
@@ -83,7 +83,7 @@ fn forced_strategies_are_honored_or_refused() {
     assert_eq!(outer, reference);
 
     // Forced Sequential ignores the budget and is bitwise equal too.
-    let mut sequential = vec![0.0; 4 * 4096];
+    let mut sequential = vec![0.0; 4 * 16384];
     let mut exec = Exec::new(&pool, pool.size())
         .unwrap()
         .with_batch_policy(BatchPolicy::new(BatchStrategy::Sequential));
@@ -95,7 +95,7 @@ fn forced_strategies_are_honored_or_refused() {
     assert_eq!(sequential, reference);
 
     // Forced Split on the original budget: two lanes, two item threads each.
-    let mut split = vec![0.0; 4 * 4096];
+    let mut split = vec![0.0; 4 * 16384];
     let mut exec = Exec::new(&pool, 4)
         .unwrap()
         .with_batch_policy(BatchPolicy::new(BatchStrategy::Split {
@@ -113,7 +113,7 @@ fn forced_strategies_are_honored_or_refused() {
     close(&split, &reference, 1e-12);
 
     // Forced Inner: one lane, the whole budget per item.
-    let mut inner = vec![0.0; 4 * 4096];
+    let mut inner = vec![0.0; 4 * 16384];
     let mut exec = Exec::new(&pool, 4)
         .unwrap()
         .with_batch_policy(BatchPolicy::new(BatchStrategy::Inner));
@@ -127,7 +127,7 @@ fn forced_strategies_are_honored_or_refused() {
     // The serial context carries a policy too, so a forced route at one thread
     // resolves there as well.
     let mut exec = BatchExec::serial().with_batch_policy(BatchPolicy::new(BatchStrategy::Inner));
-    let mut one = vec![0.0; 4 * 4096];
+    let mut one = vec![0.0; 4 * 16384];
     assert_eq!(
         plan.execute_into(&mut exec, 1.0, &lhs, &rhs, &mut one)
             .unwrap(),
@@ -256,13 +256,13 @@ fn empty_jobs_are_validated_and_zero_jobs_are_empty() {
 #[test]
 fn bounded_pool_uses_outer_lanes_without_nested_entries() {
     let jobs: Vec<_> = (0..4)
-        .map(|i| GroupedGemmJob::new(i * 4096, i * 4096, i * 4096, 64, 64, 64))
+        .map(|i| GroupedGemmJob::new(i * 16384, i * 16384, i * 16384, 128, 128, 128))
         .collect();
     let plan = GroupedPlan::<f64>::new(&jobs, &PlanConfig::default()).unwrap();
-    let lhs = vec![1.; 4 * 4096];
-    let rhs = vec![1.; 4 * 4096];
-    let mut out = vec![1.; 4 * 4096];
-    let thread_pool = threadteam::Pool::builder().threads(4).build().unwrap();
+    let lhs = vec![1.; 4 * 16384];
+    let rhs = vec![1.; 4 * 16384];
+    let mut out = vec![1.; 4 * 16384];
+    let thread_pool = pool_with_reference_costs(4);
     let pool = cpueinsum::Pool::borrow(&thread_pool);
     let mut exec = Exec::new(&pool, 2).unwrap();
     let root = exec
@@ -274,7 +274,7 @@ fn bounded_pool_uses_outer_lanes_without_nested_entries() {
         .unwrap();
     assert!(matches!(route, GroupedRoute::Outer { lanes: 2 }));
     // Accumulation detects duplicate job execution, unlike idempotent overwrite.
-    assert!(out.iter().all(|&x| x == 65.));
+    assert!(out.iter().all(|&x| x == 129.));
     assert_eq!(threadteam::ledger::installs(root), 1);
 
     for budget in [1, 4] {
@@ -294,7 +294,7 @@ fn bounded_pool_uses_outer_lanes_without_nested_entries() {
             assert!(matches!(route, GroupedRoute::Outer { lanes } if lanes > 1 && lanes <= budget));
             assert_eq!(threadteam::ledger::installs(root), 1);
         }
-        assert!(out.iter().all(|&x| x == 65.));
+        assert!(out.iter().all(|&x| x == 129.));
     }
 }
 
@@ -418,9 +418,9 @@ fn empty_jobs_do_not_move_parallel_chunk_boundaries_backwards() {
 fn forced_inner_runs_the_child_with_the_granted_width() {
     use cpueinsum::{BatchPolicy, BatchStrategy};
     // A 64^3 packed item is large enough for a team when the whole budget is
-    // forced, but its ~26 us of work falls below Auto's 50 us serial threshold:
-    // the pre-fix Auto child stayed serial while the route reported four
-    // threads. The test isolates the child by comparing against forced
+    // forced, but its ~10 us of work does not repay the dispatch cost Auto
+    // charges a team: an Auto child would stay serial while the route reported
+    // four threads. The test isolates the child by comparing against forced
     // Sequential at the same budget.
     let n = 64;
     let jobs = [GroupedGemmJob::new(0, 0, 0, n, n, n)];
@@ -444,8 +444,8 @@ fn forced_inner_runs_the_child_with_the_granted_width() {
     let sequential_uses = threadteam::ledger::installs(sequential_root);
 
     // Forced Inner: the item is granted the whole budget, and the child must
-    // actually execute at that width. The pre-fix Auto child fell below Auto's
-    // 50 us threshold and stayed serial while the route reported four threads.
+    // actually execute at that width: an Auto child would not repay the dispatch
+    // cost and would stay serial while the route reported four threads.
     let mut exec = Exec::new(&pool, 4)
         .unwrap()
         .with_batch_policy(BatchPolicy::new(BatchStrategy::Inner));

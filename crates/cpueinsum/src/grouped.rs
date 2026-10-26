@@ -8,7 +8,8 @@ use std::num::NonZeroUsize;
 use std::sync::Mutex;
 
 use tcontract::api::{CSpec, Labels, LayoutSpec, Op, OperandSpec, Problem};
-use tcontract::{OutputContract, Plan, PlanConfig, SliceAccumulationSource, NS_PER_FLOP};
+use tcontract::ns_per_flop;
+use tcontract::{OutputContract, Plan, PlanConfig, SliceAccumulationSource};
 use tcontract_exec::{BatchPolicy, BatchQuery, BatchStrategy, Exec, WorkspaceReq};
 
 use crate::{Error, Result, Scalar};
@@ -137,10 +138,14 @@ impl std::fmt::Display for GroupedOperand {
     }
 }
 
+/// Dispatches the lanes of a grouped execution perform, declared to the token's width
+/// rule: one fork over the jobs.
+const GROUPED_SECTIONS: u32 = 1;
+
 /// The scheduler route selected for a grouped execution.
 ///
 /// The route is resolved from the caller's [`Exec`] batch policy before any
-/// write: `Auto` keeps the legacy `width_for` decision, and a forced strategy
+/// write: `Auto` takes the token's `width_for` decision, and a forced strategy
 /// is honored or refused up front. [`GroupedRoute::Outer`], `Inner` and `Split`
 /// report how many outer lanes and how many threads per item actually ran.
 ///
@@ -689,22 +694,21 @@ impl<T: Scalar> GroupedPlan<T> {
 
     /// Resolve `(lanes, item_threads)` from the caller's batch policy.
     ///
-    /// `Auto` keeps this route's historical decision exactly -- the total
-    /// estimated work narrowed through the Exec's [`WidthPolicy`](tcontract_exec::WidthPolicy),
-    /// clamped to the budget and the job count -- because neither the shared
-    /// generic `Auto` formula (which fans two tiny scalar jobs onto two lanes)
-    /// nor the packed balanced-lanes rule (which adds a near-even restriction
-    /// here absent) reproduces it. The `WidthPolicy` still comes from the Exec,
-    /// so a caller can configure it.
+    /// `Auto` is the width the total estimated work pays for under the token's
+    /// dispatch cost (`Exec::width_for`, one section: the lanes are one fork over
+    /// the jobs), clamped to the budget and the job count -- because neither the
+    /// shared generic `Auto` formula (which fans two tiny scalar jobs onto two
+    /// lanes) nor the packed balanced-lanes rule (which adds a near-even
+    /// restriction here absent) is this route's rule.
     ///
     /// Every forced strategy goes through [`Exec::batch_decision`] on the
     /// original host budget, which clamps but never falls back.
     fn lane_decision(&self, exec: &Exec<'_>) -> Result<(usize, usize)> {
         if let BatchStrategy::Auto = exec.batch_policy().strategy {
             let serial_ns =
-                2.0 * self.work as f64 * NS_PER_FLOP * if T::IS_COMPLEX { 4.0 } else { 1.0 };
+                2.0 * self.work as f64 * ns_per_flop() * if T::IS_COMPLEX { 4.0 } else { 1.0 };
             let lanes = exec
-                .width_for(serial_ns, &exec.batch_policy().model.width)
+                .width_for(serial_ns, GROUPED_SECTIONS)
                 .min(exec.budget())
                 .min(self.jobs.len())
                 .max(1);
