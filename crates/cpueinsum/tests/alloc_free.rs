@@ -65,6 +65,14 @@ fn operand(dims: &[usize], strides: &[isize]) -> OperandSpec {
     OperandSpec::new(LayoutSpec::new(dims, strides, 0).unwrap())
 }
 
+/// `count` disjoint 2x2x2 `f64` jobs: planning one of their child plans
+/// allocates nothing, so the grouped container's own allocation shows through.
+fn tiny_grouped_jobs(count: usize) -> Vec<GroupedGemmJob> {
+    (0..count)
+        .map(|i| GroupedGemmJob::new(i * 4, i * 4, i * 4, 2, 2, 2))
+        .collect()
+}
+
 #[test]
 fn raw_steady_state_paths_allocate_no_rust_memory() {
     // G1/G2: a native prepared binary plan through a caller workspace.
@@ -163,4 +171,27 @@ fn raw_steady_state_paths_allocate_no_rust_memory() {
             .unwrap();
     });
     assert_eq!(allocations, 0, "grouped execute_into serial");
+
+    // G8: preparing a grouped plan stays at O(1) allocations in the job count.
+    // Each child plan of these tiny f64 jobs allocates nothing, so what is left
+    // is the prepared-job container itself; collecting its entries through a
+    // `Result<Vec<_>>` instead of pre-sizing regrows it about log2(J) times.
+    let mut plan_allocations = Vec::new();
+    for job_count in [2usize, 8, 64] {
+        let jobs = tiny_grouped_jobs(job_count);
+        let allocations = measure(|| {
+            let plan = GroupedPlan::<f64>::new(&jobs, &PlanConfig::default()).unwrap();
+            std::hint::black_box(&plan);
+        });
+        eprintln!("grouped plan allocations at J={job_count}: {allocations}");
+        plan_allocations.push(allocations);
+    }
+    assert_eq!(
+        plan_allocations[1], plan_allocations[0],
+        "grouped plan allocations: J=8 vs J=2"
+    );
+    assert_eq!(
+        plan_allocations[2], plan_allocations[1],
+        "grouped plan allocations: J=64 vs J=8"
+    );
 }

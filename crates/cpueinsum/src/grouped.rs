@@ -352,37 +352,38 @@ impl<T: Scalar> GroupedPlan<T> {
             }
         }
         // Validate every descriptor and overlap before preparing numerical plans.
+        //
+        // Pre-size the job vector and push in order: a `Result` collect has no
+        // lower size hint, so it would regrow this vector about log2(J) times,
+        // each regrow copying a full `Plan<T>` per job.
         let mut child_config = config.clone();
         child_config.fresh_output = false;
-        let prepared = prepared
-            .into_iter()
-            .map(|meta| {
-                let job = jobs[meta.id];
-                // Dimension-to-stride conversions were checked above for every job.
-                let rows = (job.rows as isize).max(1);
-                let contracted = (job.contracted as isize).max(1);
-                let problem = Problem::from_labels(
-                    T::STORAGE,
-                    spec(&[job.rows, job.contracted], &[1, rows], ops[0]),
-                    spec(&[job.contracted, job.cols], &[1, contracted], ops[1]),
-                    CSpec::Output(ops[2]),
-                    spec(&[job.rows, job.cols], &[1, rows], ops[2]),
-                    &Labels::new(&[0, 1], &[1, 2], &[0, 2]),
-                )
-                .map_err(|source| Error::Contract {
-                    step: meta.id,
-                    source,
-                })?;
-                let plan =
-                    Plan::new(&problem, &child_config).map_err(|source| Error::Contract {
-                        step: meta.id,
-                        source,
-                    })?;
-                Ok(PreparedJob { meta, plan })
-            })
-            .collect::<Result<Vec<_>>>()?;
+        let mut planned = Vec::with_capacity(prepared.len());
+        for meta in prepared {
+            let job = jobs[meta.id];
+            // Dimension-to-stride conversions were checked above for every job.
+            let rows = (job.rows as isize).max(1);
+            let contracted = (job.contracted as isize).max(1);
+            let problem = Problem::from_labels(
+                T::STORAGE,
+                spec(&[job.rows, job.contracted], &[1, rows], ops[0]),
+                spec(&[job.contracted, job.cols], &[1, contracted], ops[1]),
+                CSpec::Output(ops[2]),
+                spec(&[job.rows, job.cols], &[1, rows], ops[2]),
+                &Labels::new(&[0, 1], &[1, 2], &[0, 2]),
+            )
+            .map_err(|source| Error::Contract {
+                step: meta.id,
+                source,
+            })?;
+            let plan = Plan::new(&problem, &child_config).map_err(|source| Error::Contract {
+                step: meta.id,
+                source,
+            })?;
+            planned.push(PreparedJob { meta, plan });
+        }
         Ok(Self {
-            jobs: prepared,
+            jobs: planned,
             required_lhs,
             required_rhs,
             required_out,
