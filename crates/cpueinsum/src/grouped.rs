@@ -640,8 +640,9 @@ impl<T: Scalar> GroupedPlan<T> {
 
         // Parallel: one contiguous job range per lane, each owning the output
         // chunk that covers its jobs' ranges. Only `lanes` (already clamped to
-        // the budget) chunks are collected -- never one slot per job, and no
-        // Mutex per lane either, since each lane holds its own range.
+        // the budget) chunks are collected -- never one slot per job. Each
+        // chunk sits behind its own uncontended `Mutex` only to lend it to its
+        // lane through the shared `fork` callback.
         //
         // Boundaries are monotone even though empty jobs sort last and may carry
         // a smaller offset: an empty job contributes no output, so it must never
