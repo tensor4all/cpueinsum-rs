@@ -390,6 +390,77 @@ fn grouped_all_dtypes_conjugation_empty_k_and_warm_workspace() {
 }
 
 #[test]
+fn lowest_job_id_names_the_failure_for_serial_and_lane_routes() {
+    // Job ids run against the stored (output-offset) order: the empty job 0 owns
+    // the largest offset, so it sorts last, and its output range is the furthest
+    // one. Three of the four jobs fail the pre-write bounds scan, and the first
+    // failure in stored order belongs to job 2 (rhs), not to job 0 (lhs).
+    let jobs = [
+        // Empty (rows * cols == 0) with the largest output offset.
+        GroupedGemmJob::new(10, 0, 20, 2, 2, 0),
+        // The only job whose ranges all fit the short buffers below.
+        GroupedGemmJob::new(0, 0, 12, 2, 2, 2),
+        // Fails the rhs check: rhs needs [8, 9).
+        GroupedGemmJob::new(0, 8, 0, 1, 1, 2),
+        // Fails the lhs check: lhs needs [6, 8).
+        GroupedGemmJob::new(6, 0, 8, 2, 1, 2),
+    ];
+    let plan = GroupedPlan::<f64>::new(&jobs, &PlanConfig::default()).unwrap();
+    assert_eq!(plan.required_lhs_len(), 14);
+    assert_eq!(plan.required_rhs_len(), 10);
+    assert_eq!(plan.required_out_len(), 20);
+
+    let lhs = vec![1.0; plan.required_lhs_len()];
+    let rhs = vec![1.0; plan.required_rhs_len()];
+    let mut out = vec![0.0; plan.required_out_len()];
+
+    // One multi-lane context, proven multi-lane by a run with full buffers.
+    let thread_pool = pool_with_reference_costs(4);
+    let pool = cpueinsum::Pool::borrow(&thread_pool);
+    let mut lanes = Exec::new(&pool, 4)
+        .unwrap()
+        .with_batch_policy(BatchPolicy::new(BatchStrategy::Outer));
+    let route = plan
+        .execute_into(&mut lanes, 1.0, &lhs, &rhs, &mut out)
+        .unwrap();
+    assert!(
+        matches!(route, GroupedRoute::Outer { lanes } if lanes > 1),
+        "the lane context must resolve several lanes, got {route:?}"
+    );
+
+    // Short lhs and rhs: jobs 0, 2 and 3 fail their own range checks.
+    let short_lhs = &lhs[..6];
+    let short_rhs = &rhs[..6];
+    let expected = |err: Error| {
+        assert!(
+            matches!(
+                err,
+                Error::Grouped(GroupedError::Bounds {
+                    job: 0,
+                    operand: cpueinsum::GroupedOperand::Lhs,
+                    end: 14,
+                    available: 6,
+                })
+            ),
+            "the reported failure must name job 0, got {err:?}"
+        );
+    };
+
+    out.fill(77.0);
+    expected(
+        plan.execute_into(&mut Exec::serial(), 1.0, short_lhs, short_rhs, &mut out)
+            .unwrap_err(),
+    );
+    assert_eq!(out, [77.0; 20], "a pre-write failure leaves out untouched");
+
+    expected(
+        plan.execute_into(&mut lanes, 1.0, short_lhs, short_rhs, &mut out)
+            .unwrap_err(),
+    );
+    assert_eq!(out, [77.0; 20], "a pre-write failure leaves out untouched");
+}
+
+#[test]
 fn empty_jobs_do_not_move_parallel_chunk_boundaries_backwards() {
     use cpueinsum::{BatchPolicy, BatchStrategy};
     // A scalar output at offset 0, then an empty job whose (0, 0) descriptor

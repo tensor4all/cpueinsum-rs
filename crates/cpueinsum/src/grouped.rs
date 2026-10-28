@@ -464,8 +464,13 @@ impl<T: Scalar> GroupedPlan<T> {
     /// # Errors
     ///
     /// Returns [`Error::Grouped`] when any declared range is outside a shared
-    /// buffer, and [`Error::Contract`] for a child execution failure. All
-    /// bounds and route checks happen before the first write.
+    /// buffer, and [`Error::Contract`] for a child execution failure.
+    ///
+    /// All bounds and route checks happen before the first write, so a
+    /// pre-write failure leaves the output untouched; a child execution failure
+    /// may leave other jobs' outputs written. When several jobs fail, the
+    /// error returned names the job with the lowest original descriptor index,
+    /// identical for serial and multi-lane execution.
     pub fn execute_into(
         &self,
         exec: &mut Exec<'_>,
@@ -495,8 +500,13 @@ impl<T: Scalar> GroupedPlan<T> {
     /// # Errors
     ///
     /// Returns [`Error::Grouped`] when any declared range is outside a shared
-    /// buffer, and [`Error::Contract`] for a child execution failure. All
-    /// bounds and route checks happen before the first write.
+    /// buffer, and [`Error::Contract`] for a child execution failure.
+    ///
+    /// All bounds and route checks happen before the first write, so a
+    /// pre-write failure leaves the output untouched; a child execution failure
+    /// may leave other jobs' outputs written. When several jobs fail, the
+    /// error returned names the job with the lowest original descriptor index,
+    /// identical for serial and multi-lane execution.
     pub fn execute_into_accum(
         &self,
         exec: &mut Exec<'_>,
@@ -509,6 +519,9 @@ impl<T: Scalar> GroupedPlan<T> {
         self.execute(exec, alpha, lhs, rhs, beta, true, out)
     }
 
+    /// One error rule for every failure site: the reported failure names the
+    /// lowest original job id, so it never depends on the stored (output-offset)
+    /// order or on lane scheduling.
     fn execute(
         &self,
         exec: &mut Exec<'_>,
@@ -523,28 +536,39 @@ impl<T: Scalar> GroupedPlan<T> {
         // any write, so the outer width is fixed before the children run.
         let (lanes, item_threads) = self.lane_decision(exec)?;
 
+        // Scan every job before any write and report the failure naming the
+        // lowest original job id: the stored order is by output offset, so it
+        // must not pick the error.
+        let mut bounds_failure: Option<(usize, Error)> = None;
         for job in &self.jobs {
-            check_bounds(
-                job.meta.id,
-                GroupedOperand::Lhs,
-                job.meta.lhs_offset,
-                job.meta.lhs_len,
-                lhs.len(),
-            )?;
-            check_bounds(
-                job.meta.id,
-                GroupedOperand::Rhs,
-                job.meta.rhs_offset,
-                job.meta.rhs_len,
-                rhs.len(),
-            )?;
-            check_bounds(
-                job.meta.id,
-                GroupedOperand::Output,
-                job.meta.out_offset,
-                job.meta.out_len,
-                out.len(),
-            )?;
+            let id = job.meta.id;
+            for (operand, offset, len, available) in [
+                (
+                    GroupedOperand::Lhs,
+                    job.meta.lhs_offset,
+                    job.meta.lhs_len,
+                    lhs.len(),
+                ),
+                (
+                    GroupedOperand::Rhs,
+                    job.meta.rhs_offset,
+                    job.meta.rhs_len,
+                    rhs.len(),
+                ),
+                (
+                    GroupedOperand::Output,
+                    job.meta.out_offset,
+                    job.meta.out_len,
+                    out.len(),
+                ),
+            ] {
+                if let Err(error) = check_bounds(id, operand, offset, len, available) {
+                    keep_lowest(&mut bounds_failure, id, error);
+                }
+            }
+        }
+        if let Some((_, error)) = bounds_failure {
+            return Err(error);
         }
         let source = if accumulate && beta != T::default() {
             SliceAccumulationSource::Output
@@ -553,17 +577,22 @@ impl<T: Scalar> GroupedPlan<T> {
         };
         {
             let child_exec = child_context(exec, item_threads);
+            let mut route_failure: Option<(usize, Error)> = None;
             for job in &self.jobs {
+                let id = job.meta.id;
                 // Admission only: a child that would take a packed SPMD team on the
                 // coordinator is not refused here. tcontract's packed driver checks
                 // `can_broadcast` on the token it is given, so a child running on a
                 // pool worker takes the barrier-free route, before any lane writes.
-                job.plan
-                    .execution_route(&child_exec, alpha, OutputContract::Initialized)
-                    .map_err(|source| Error::Contract {
-                        step: job.meta.id,
-                        source,
-                    })?;
+                if let Err(source) =
+                    job.plan
+                        .execution_route(&child_exec, alpha, OutputContract::Initialized)
+                {
+                    keep_lowest(&mut route_failure, id, Error::Contract { step: id, source });
+                }
+            }
+            if let Some((_, error)) = route_failure {
+                return Err(error);
             }
         }
 
@@ -579,6 +608,7 @@ impl<T: Scalar> GroupedPlan<T> {
             let mut child_exec = child_context(exec, item_threads);
             let mut cursor = 0usize;
             let mut remaining: &mut [T] = out;
+            let mut failure: Option<(usize, Error)> = None;
             for job in &self.jobs {
                 let d = if job.meta.out_len == 0 {
                     &mut [][..]
@@ -599,9 +629,13 @@ impl<T: Scalar> GroupedPlan<T> {
                     rhs: &rhs[job.meta.rhs_offset..job.meta.rhs_offset + job.meta.rhs_len],
                     out: d,
                 };
-                run_item(&mut item, &mut child_exec, alpha, beta, source)?;
+                if let Err(error) = run_item(&mut item, &mut child_exec, alpha, beta, source) {
+                    // Keep running the remaining jobs: a failure here must not
+                    // hide a lower-id one that runs later in stored order.
+                    keep_lowest(&mut failure, item.id, error);
+                }
             }
-            return Ok(route);
+            return failure.map_or(Ok(route), |(_, error)| Err(error));
         }
 
         // Parallel: one contiguous job range per lane, each owning the output
@@ -644,7 +678,7 @@ impl<T: Scalar> GroupedPlan<T> {
             lane_chunks.push(Mutex::new((cursor, chunk)));
             cursor = end;
         }
-        let failure = Mutex::new(None);
+        let failure: Mutex<Option<(usize, Error)>> = Mutex::new(None);
         // Each lane is one forked child of the caller's token: `fork` gives
         // lane `i` its share of the budget, and every share is at least
         // `item_threads` because `lanes * item_threads <= budget`.
@@ -680,17 +714,17 @@ impl<T: Scalar> GroupedPlan<T> {
                     out: d,
                 };
                 if let Err(error) = run_item(&mut item, &mut lane_exec, alpha, beta, source) {
-                    let mut first = failure.lock().unwrap_or_else(|poison| poison.into_inner());
-                    if first.is_none() {
-                        *first = Some(error);
-                    }
+                    let mut slot = failure.lock().unwrap_or_else(|poison| poison.into_inner());
+                    // Recording by id, not by arrival, keeps the reported error
+                    // independent of lane scheduling.
+                    keep_lowest(&mut slot, item.id, error);
                 }
             }
         });
         failure
             .into_inner()
             .unwrap_or_else(|poison| poison.into_inner())
-            .map_or(Ok(route), Err)
+            .map_or(Ok(route), |(_, error)| Err(error))
     }
 
     /// Resolve `(lanes, item_threads)` from the caller's batch policy.
@@ -847,4 +881,53 @@ fn check_bounds(
         }));
     }
     Ok(())
+}
+
+/// Keep the failure naming the lowest original job id.
+///
+/// Jobs are stored by output offset and lanes observe failures in scheduling
+/// order, so the first failure seen is not the one a serial run reports.
+/// Recording by id makes the reported error independent of both.
+fn keep_lowest(slot: &mut Option<(usize, Error)>, id: usize, error: Error) {
+    match slot {
+        Some((recorded, _)) if *recorded <= id => {}
+        _ => *slot = Some((id, error)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::keep_lowest;
+    use crate::{Error, GroupedError, GroupedOperand};
+
+    fn bounds(job: usize) -> Error {
+        Error::Grouped(GroupedError::Bounds {
+            job,
+            operand: GroupedOperand::Lhs,
+            end: job + 1,
+            available: job,
+        })
+    }
+
+    #[test]
+    fn lowest_job_id_wins_in_any_arrival_order() {
+        // Lane children fail in scheduling order, so the reduction must not
+        // depend on it.
+        for order in [[5usize, 2, 9], [2, 5, 9], [9, 5, 2], [9, 2, 5]] {
+            let mut slot = None;
+            for job in order {
+                keep_lowest(&mut slot, job, bounds(job));
+            }
+            match slot {
+                Some((job, error)) => {
+                    assert_eq!(job, 2, "arrival order {order:?}");
+                    assert!(
+                        matches!(error, Error::Grouped(GroupedError::Bounds { job: 2, .. })),
+                        "arrival order {order:?}"
+                    );
+                }
+                None => panic!("a failure was recorded for order {order:?}"),
+            }
+        }
+    }
 }
