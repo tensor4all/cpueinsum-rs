@@ -31,9 +31,9 @@ is tensor4all/tcontract-rs#62.
   against operand slices at execution and dimensions at planning; fresh output
   is never represented by initialized references before completion.
 - tcontract, tcontract-exec, threadteam, strided-basic and strided-view are
-  crates.io version requirements (0.7.1, 0.7.1, 0.1.0, 0.8.0, 0.7.0). The private
+  crates.io version requirements (0.8.0, 0.8.0, 0.1.0, 0.8.0, 0.7.0). The private
   `tcontract-capi` is a git dependency on the tcontract-rs commit that released
-  tcontract 0.7.1, and the `[patch."https://github.com/tensor4all/tcontract-rs.git"]`
+  tcontract 0.8.0, and the `[patch."https://github.com/tensor4all/tcontract-rs.git"]`
   block points that repository's own crates at the registry releases, so each crate
   exists once in the graph (check with `cargo tree -d`). Bump the tcontract and
   strided requirements, and the capi rev, together.
