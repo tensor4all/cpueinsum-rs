@@ -15,12 +15,12 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/tensor4all/cpueinsum-rs"
 
 [workspace.dependencies]
-# The tcontract 0.7.0 stack (tcontract-exec 0.7, strided-basic 0.8 on threadteam),
+# The tcontract 0.7.1 stack (tcontract-exec 0.7, strided-basic 0.8 on threadteam),
 # from crates.io. tcontract-capi is unpublished (publish = false) and is taken from
-# the tcontract-rs main commit that released tcontract 0.7.0.
-tcontract = { version = "0.7.0" }
-tcontract-exec = { version = "0.7.0" }
-tcontract-capi = { git = "https://github.com/tensor4all/tcontract-rs.git", rev = "83d18f42", version = "0.1.0" }
+# the tcontract-rs main commit that released tcontract 0.7.1.
+tcontract = { version = "0.7.1" }
+tcontract-exec = { version = "0.7.1" }
+tcontract-capi = { git = "https://github.com/tensor4all/tcontract-rs.git", rev = "f54bf570", version = "0.1.0" }
 # One strided release train: the registry resolves one version of each crate, so
 # `StridedView` and `threadteam::Exec` stay single types across the graph.
 strided-basic = { version = "0.8.0", default-features = false }
@@ -66,6 +66,6 @@ inherits = "release"
 # dependencies would otherwise be a second copy of tcontract, tcontract-exec and
 # tcontract-kernel; point them at the published releases so each exists once.
 [patch."https://github.com/tensor4all/tcontract-rs.git"]
-tcontract = { version = "0.7.0" }
-tcontract-exec = { version = "0.7.0" }
+tcontract = { version = "0.7.1" }
+tcontract-exec = { version = "0.7.1" }
 tcontract-kernel = { version = "0.3.0" }

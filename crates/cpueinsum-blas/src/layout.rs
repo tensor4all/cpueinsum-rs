@@ -1,8 +1,8 @@
 //! Planning one step: the GEMM, and what is packed into work space.
 //!
 //! The index groups M (A, D), N (B, D) and K (A, B) are each put in one order
-//! and fused per operand as tenferro's CPU `dot_general` does (via
-//! tcontract's faer strategy, which ported it): an operand whose groups
+//! and fused per operand with tcontract's GEMM-axis fusion rule
+//! (`tcontract::api::fuse_axes`, `sort_by_stride`): an operand whose groups
 //! fuse and whose fused matrix has a unit stride on one axis with a valid
 //! leading dimension is handed to BLAS in place. Any other operand is packed
 //! into column-major work space first (and the output copied back after).
@@ -10,6 +10,9 @@
 
 use cpueinsum::tcontract::api::{is_injective_layout, OperandId, Problem, RoleAxis};
 use strided_basic::CopyPlan;
+// The shared GEMM-axis fusion rule is new in tcontract 0.7.1, which this crate
+// requires directly (cpueinsum itself accepts any 0.7).
+use tcontract::api::{fuse_axes, sort_by_stride};
 
 use crate::ffi::{BlasScalar, Gemm, Trans};
 
@@ -99,26 +102,10 @@ impl BlasStep {
     }
 }
 
-/// Whether `order` fuses the group in operand `o`: the strides of the
-/// non-unit axes must chain. Returns the fused stride (one for an empty
-/// group).
+/// The fused stride of the group in operand `o` along `order` (one for an
+/// empty group), as tcontract's GEMM-axis fusion rule computes it.
 fn fuse(group: &[RoleAxis], order: &[usize], o: OperandId) -> Option<isize> {
-    let mut first: Option<isize> = None;
-    let mut expect = 0isize;
-    for &e in order {
-        let d = group[e].extent();
-        if d == 1 {
-            continue;
-        }
-        let s = group[e].stride(o);
-        match first {
-            None => first = Some(s),
-            Some(_) if s != expect => return None,
-            Some(_) => {}
-        }
-        expect = s.checked_mul(isize::try_from(d).ok()?)?;
-    }
-    Some(first.unwrap_or(1))
+    fuse_axes(group, order, o).map(|(_, stride)| stride)
 }
 
 /// The order of a group: the first carrier's stride order that fuses in every
@@ -126,7 +113,7 @@ fn fuse(group: &[RoleAxis], order: &[usize], o: OperandId) -> Option<isize> {
 fn choose(group: &[RoleAxis], carriers: &[OperandId]) -> Vec<usize> {
     let sorted = |o: OperandId| {
         let mut v: Vec<usize> = (0..group.len()).collect();
-        v.sort_by_key(|&e| group[e].stride(o).unsigned_abs());
+        sort_by_stride(group, o, &mut v);
         v
     };
     let candidates: Vec<Vec<usize>> = carriers.iter().map(|&o| sorted(o)).collect();
