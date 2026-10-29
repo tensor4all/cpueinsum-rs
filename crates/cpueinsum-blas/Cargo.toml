@@ -1,6 +1,6 @@
 [package]
 name = "cpueinsum-blas"
-version = "0.7.0"
+version = "0.7.1"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -11,6 +11,9 @@ description = "A CBLAS step backend for cpueinsum: binary steps on the linked BL
 cblas-sys = { workspace = true }
 threadteam = { workspace = true }
 cpueinsum = { workspace = true }
+# The same tcontract cpueinsum re-exports, required directly at the release that
+# has the shared GEMM-axis fusion rule (`tcontract::api::fuse_axes`, tensor4all/tcontract-rs#148).
+tcontract = { workspace = true }
 num-complex = { workspace = true }
 strided-basic = { workspace = true }
 strided-view = { workspace = true }
@@ -29,7 +32,7 @@ threadteam = { workspace = true, features = ["ledger"] }
 rand = { workspace = true }
 rand_chacha = { workspace = true }
 # Naming the typed execution refusal the N-ary route reports; the library itself
-# depends on cpueinsum and the strided crates only.
+# depends on cpueinsum, tcontract (the fusion rule) and the strided crates only.
 tcontract-exec = { workspace = true }
 
 [[bench]]
