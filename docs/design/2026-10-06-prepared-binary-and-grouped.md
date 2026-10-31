@@ -188,8 +188,8 @@ Validation and semantics:
 
 Introduce GroupedGemmJob with six checked-on-plan facts: lhs_offset,
  rhs_offset, out_offset, rows, contracted, cols (element units). GroupedPlan<T>
-prepares compact column-major per-job ordinary tprims Plans (initialized-only;
-no unused fresh-output preparation) with C mode Output, so
+prepares compact column-major per-job ordinary tprims Plans (shared by
+initialized and fresh execution; no unused fresh-output preparation) with C mode Output, so
 execute_into is overwrite (beta=0) and execute_into_accum explicitly reads
 previous D for nonzero beta. Separate C is part of the general BinaryPlan
 contract, not a new grouped descriptor requirement; do not add a speculative
@@ -201,6 +201,11 @@ Planning:
 
 - Compute products, offsets+length, byte limits and isize dimensions with
   checked arithmetic. Plans know required buffer lengths, not buffer pointers.
+- Fresh output is a second entry point, not a flag: `execute_uninit` requires
+  exact coverage by the same sorted nonempty intervals (cursor starts at 0, each
+  offset equals it, each length is checked-added, the final cursor equals the
+  destination length). The constructor already proves disjointness and
+  representable products, so this is one allocation-free scan.
 - Sort nonempty D intervals by offset once, reject any overlap in a linear
   scan, and retain sorted execution order/job IDs. Empty ranges do not overlap.
   Keep empty jobs separately for bounds validation and successful exactly-once
@@ -249,10 +254,26 @@ it through Exec. Metadata item construction may allocate; document/count it,
 then remove avoidable per-job metadata allocation with slice entries rather
 than claiming an allocation-free boundary without a test.
 
-Grouped execution in this PR accepts initialized output only. The requested
-fresh MaybeUninit contract is supplied by BinaryPlan; no grouped uninit contract
-is required by issue #4 or the existing downstream grouped caller. Do not add
-an aggregate conversion or pretend output holes are initialized.
+Grouped `execute_into`/`execute_into_accum` accept initialized output only and
+leave holes unchanged. Issue #53 adds one separate method,
+`GroupedPlan::execute_uninit(exec, alpha, lhs, rhs, beta,
+out: &mut [MaybeUninit<T>])`: `beta` must be zero and the plan's jobs must cover
+`0..out.len()` exactly once without gaps (a runtime `GroupedError::NonzeroBeta`
+or `GroupedError::FreshCoverage` before any write), and it returns the
+initialized destination plus the route only on success. It reuses the one
+scheduler by parameterizing the destination element and the per-item receipt
+(`()` for initialized, the job's initialized slice for fresh), so the serial and
+parallel rules and error reduction are shared. Initialized receipts are
+zero-sized; fresh calls collect the per-job initialized slices. The whole
+destination is published once by tcontract's `execute_uninit_with` after every
+job succeeded. No pre-write aggregate conversion, no output holes treated as
+initialized, and no unsafe in the cpueinsum library. The cpueinsum-blas group mirrors the
+same contract: the native checker validates `beta`/coverage first, every vendor
+job is preflighted before the first write, and the vendor loop splits fresh
+storage by output offset for publication while the initialized order is
+unchanged. Backend execution errors may leave partial writes, but return no
+initialized destination slice; beta/coverage validation errors leave storage
+unchanged.
 
 ## Verification and evidence
 
@@ -293,7 +314,7 @@ because cpueinsum currently lacks hosted CI.
   active widths? Do not conflate budget with active width.
 - Does the single safe slice scheduler retain job IDs, safely split outputs
   including empty jobs, and avoid per-job view/arena construction?
-- Is initialized-only grouped output faithful to the actual downstream contract,
-  while BinaryPlan supplies the separate fresh MaybeUninit entry?
+- Do grouped fresh-output calls reject gaps and nonzero beta before writing,
+  and publish only after every job supplies an initialized slice?
 - Remove duplicate descriptors/helpers, capability flags without current
   callers, and unsupported promises. Prefer the smallest coherent boundary.

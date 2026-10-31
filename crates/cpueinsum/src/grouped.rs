@@ -4,12 +4,16 @@
 //! caller lends flat input and output buffers at execution time; no pointers
 //! or executors are retained by the plan.
 
+use core::mem::MaybeUninit;
 use std::num::NonZeroUsize;
 use std::sync::Mutex;
 
 use tcontract::api::{CSpec, Labels, LayoutSpec, Op, OperandSpec, Problem};
 use tcontract::ns_per_flop;
-use tcontract::{OutputContract, Plan, PlanConfig, SliceAccumulationSource};
+use tcontract::{
+    execute_uninit_with, OutputContract, Plan, PlanConfig, SliceAccumulationSource,
+    UninitOutputError,
+};
 use tcontract_exec::{BatchPolicy, BatchQuery, BatchStrategy, Exec, WorkspaceReq};
 
 use crate::{Error, Result, Scalar};
@@ -108,6 +112,12 @@ pub enum GroupedError {
         /// Second job in prepared output order.
         second: usize,
     },
+    /// A fresh-output call was given a nonzero `beta`.
+    #[error("fresh grouped output requires beta = 0")]
+    NonzeroBeta,
+    /// The jobs do not cover the fresh output exactly once, in order, from 0.
+    #[error("grouped jobs do not cover the fresh output exactly once without gaps")]
+    FreshCoverage,
 }
 
 /// A grouped buffer named by a [`GroupedError::Bounds`] failure.
@@ -273,7 +283,8 @@ impl<T: Scalar> GroupedPlan<T> {
     ///
     /// The third operation is also used for the in-place accumulation source,
     /// matching tcontract's `CSpec::Output` semantics. The config's
-    /// `fresh_output` capability is unused: grouped output is initialized.
+    /// `fresh_output` capability is unused: the same child plans support both
+    /// initialized and fresh execution contracts.
     ///
     /// # Errors
     ///
@@ -519,6 +530,128 @@ impl<T: Scalar> GroupedPlan<T> {
         self.execute(exec, alpha, lhs, rhs, beta, true, out)
     }
 
+    /// Reject a `beta`/coverage combination a fresh-output call cannot support.
+    ///
+    /// Coverage is exact physical coverage of `0..out_len` by the plan's jobs:
+    /// nonempty jobs, in the stored output order, start at the running cursor
+    /// and advance it, and the final cursor is exactly `out_len`. Empty jobs
+    /// contribute nothing. The constructor already proves the ranges disjoint
+    /// and their products representable, so this is one linear scan with no
+    /// allocation. Both conditions are checked before any write.
+    ///
+    /// # Errors
+    ///
+    /// [`GroupedError::NonzeroBeta`] when `beta` is not the additive identity,
+    /// and [`GroupedError::FreshCoverage`] when the jobs leave a gap or do not
+    /// stop exactly at `out_len`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cpueinsum::{GroupedGemmJob, GroupedPlan};
+    /// let jobs = [GroupedGemmJob::new(0, 0, 0, 2, 2, 2)];
+    /// let plan = GroupedPlan::<f64>::new(&jobs, &Default::default())?;
+    /// assert!(plan.validate_uninit(0.0, 4).is_ok());
+    /// assert!(plan.validate_uninit(0.0, 5).is_err());
+    /// assert!(plan.validate_uninit(1.0, 4).is_err());
+    /// # Ok::<(), cpueinsum::Error>(())
+    /// ```
+    pub fn validate_uninit(&self, beta: T, out_len: usize) -> Result<()> {
+        if beta != T::default() {
+            return Err(grouped(GroupedError::NonzeroBeta));
+        }
+        let mut cursor = 0usize;
+        for job in &self.jobs {
+            if job.meta.out_len == 0 {
+                continue;
+            }
+            // Stored order is by output offset, so exact coverage means each
+            // nonempty job starts where the previous one stopped.
+            if job.meta.out_offset != cursor {
+                return Err(grouped(GroupedError::FreshCoverage));
+            }
+            cursor = job
+                .meta
+                .out_offset
+                .checked_add(job.meta.out_len)
+                .ok_or_else(|| {
+                    grouped(GroupedError::Overflow {
+                        job: job.meta.id,
+                        what: "fresh output coverage",
+                    })
+                })?;
+        }
+        if cursor != out_len {
+            return Err(grouped(GroupedError::FreshCoverage));
+        }
+        Ok(())
+    }
+
+    /// Overwrite all jobs into fresh storage and return it only on success.
+    ///
+    /// `beta` must be zero and the jobs must cover `out` exactly once without
+    /// gaps; both are checked before the first write, so a refused call leaves
+    /// every element of `out` untouched and no initialized slice exists. The
+    /// returned slice is the whole output, initialized by this call, plus the
+    /// route resolved before it.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use core::mem::MaybeUninit;
+    /// use cpueinsum::{Exec, GroupedGemmJob, GroupedPlan, GroupedRoute};
+    /// let jobs = [GroupedGemmJob::new(0, 0, 0, 2, 2, 1)];
+    /// let plan = GroupedPlan::<f64>::new(&jobs, &Default::default())?;
+    /// let mut d = [MaybeUninit::uninit(); 2];
+    /// let (d, route) = plan.execute_uninit(&mut Exec::serial(), 2.0,
+    ///     &[1., 2., 3., 4.], &[1., 1.], 0.0, &mut d)?;
+    /// assert_eq!(d, [8.0, 12.0]);
+    /// assert_eq!(route, GroupedRoute::Serial);
+    /// # Ok::<(), cpueinsum::Error>(())
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Grouped`] with [`GroupedError::NonzeroBeta`] for a nonzero
+    /// `beta` and [`GroupedError::FreshCoverage`] for gaps or trailing output,
+    /// then [`Error::Grouped`] for out-of-range input/output spans and
+    /// [`Error::Contract`] for a child execution failure. Bounds, coverage and
+    /// route checks all happen before the first write; a child failure may leave
+    /// some output slots written but exposes no initialized slice and the lowest
+    /// original job id names the error.
+    pub fn execute_uninit<'d>(
+        &self,
+        exec: &mut Exec<'_>,
+        alpha: T,
+        lhs: &[T],
+        rhs: &[T],
+        beta: T,
+        out: &'d mut [MaybeUninit<T>],
+    ) -> Result<(&'d mut [T], GroupedRoute)> {
+        self.validate_uninit(beta, out.len())?;
+        let (lanes, item_threads) =
+            self.prepare(exec, alpha, lhs, rhs, out.len(), OutputContract::Fresh)?;
+        let source = SliceAccumulationSource::Absent;
+        // One publication: the lower helper proves the jobs' receipts cover the
+        // storage, then hands out the initialized whole slice on success only.
+        execute_uninit_with(out, |storage| {
+            let (route, receipts) = self.run_lanes(
+                exec,
+                lanes,
+                item_threads,
+                lhs,
+                rhs,
+                storage,
+                |item, exec| run_item_uninit(item, exec, alpha, beta, source),
+            )?;
+            Ok((receipts, route))
+        })
+        .map_err(|source| match source {
+            UninitOutputError::Execution(source) => source,
+            UninitOutputError::Coverage => grouped(GroupedError::FreshCoverage),
+        })
+    }
+
     /// One error rule for every failure site: the reported failure names the
     /// lowest original job id, so it never depends on the stored (output-offset)
     /// order or on lane scheduling.
@@ -532,6 +665,37 @@ impl<T: Scalar> GroupedPlan<T> {
         accumulate: bool,
         out: &mut [T],
     ) -> Result<GroupedRoute> {
+        let (lanes, item_threads) = self.prepare(
+            exec,
+            alpha,
+            lhs,
+            rhs,
+            out.len(),
+            OutputContract::Initialized,
+        )?;
+        let source = if accumulate && beta != T::default() {
+            SliceAccumulationSource::Output
+        } else {
+            SliceAccumulationSource::Absent
+        };
+        let (route, _receipts) =
+            self.run_lanes(exec, lanes, item_threads, lhs, rhs, out, |item, exec| {
+                run_item(item, exec, alpha, beta, source)
+            })?;
+        Ok(route)
+    }
+
+    /// Resolve the route and run every pre-write check: buffer bounds, then child
+    /// admission for the given output contract. Returns the resolved widths.
+    fn prepare(
+        &self,
+        exec: &mut Exec<'_>,
+        alpha: T,
+        lhs: &[T],
+        rhs: &[T],
+        out_len: usize,
+        contract: OutputContract,
+    ) -> Result<(usize, usize)> {
         // Resolve the route first, before bounds checks, the empty shortcut or
         // any write, so the outer width is fixed before the children run.
         let (lanes, item_threads) = self.lane_decision(exec)?;
@@ -559,7 +723,7 @@ impl<T: Scalar> GroupedPlan<T> {
                     GroupedOperand::Output,
                     job.meta.out_offset,
                     job.meta.out_len,
-                    out.len(),
+                    out_len,
                 ),
             ] {
                 if let Err(error) = check_bounds(id, operand, offset, len, available) {
@@ -570,11 +734,6 @@ impl<T: Scalar> GroupedPlan<T> {
         if let Some((_, error)) = bounds_failure {
             return Err(error);
         }
-        let source = if accumulate && beta != T::default() {
-            SliceAccumulationSource::Output
-        } else {
-            SliceAccumulationSource::Absent
-        };
         {
             let child_exec = child_context(exec, item_threads);
             let mut route_failure: Option<(usize, Error)> = None;
@@ -584,10 +743,7 @@ impl<T: Scalar> GroupedPlan<T> {
                 // coordinator is not refused here. tcontract's packed driver checks
                 // `can_broadcast` on the token it is given, so a child running on a
                 // pool worker takes the barrier-free route, before any lane writes.
-                if let Err(source) =
-                    job.plan
-                        .execution_route(&child_exec, alpha, OutputContract::Initialized)
-                {
+                if let Err(source) = job.plan.execution_route(&child_exec, alpha, contract) {
                     keep_lowest(&mut route_failure, id, Error::Contract { step: id, source });
                 }
             }
@@ -595,47 +751,80 @@ impl<T: Scalar> GroupedPlan<T> {
                 return Err(error);
             }
         }
+        Ok((lanes, item_threads))
+    }
 
+    /// Drive every job on the resolved widths, one receipt per successful job.
+    ///
+    /// The destination element type and the receipt type are the only things the
+    /// initialized and the fresh path change: `D = T, R = ()` for an overwrite
+    /// and `D = MaybeUninit<T>, R = &mut [T]` for fresh storage. Initialized
+    /// receipts use no heap (`Vec<()>`); fresh receipts collect the initialized
+    /// sub-slices. Parallel execution collects them lane-locally.
+    fn run_lanes<'d, D, R, F>(
+        &self,
+        exec: &mut Exec<'_>,
+        lanes: usize,
+        item_threads: usize,
+        lhs: &[T],
+        rhs: &[T],
+        out: &'d mut [D],
+        run: F,
+    ) -> Result<(GroupedRoute, Vec<R>)>
+    where
+        D: Send,
+        R: Send,
+        F: Fn(JobItem<'_, 'd, T, D>, &mut Exec<'_>) -> Result<R> + Sync,
+    {
         if self.jobs.is_empty() {
-            return Ok(GroupedRoute::Empty);
+            return Ok((GroupedRoute::Empty, Vec::new()));
         }
         let route = grouped_route(lanes, item_threads);
 
         if lanes == 1 {
-            // Serial: drive the jobs by index and carve each output slice in
-            // turn. Nothing is collected, so this path allocates none of its
-            // own (tcontract's own workspace aside).
+            // Serial: carve disjoint output slices, retaining completion
+            // receipts (zero-sized for initialized output).
             let mut child_exec = child_context(exec, item_threads);
             let mut cursor = 0usize;
-            let mut remaining: &mut [T] = out;
+            let mut remaining: &'d mut [D] = out;
             let mut failure: Option<(usize, Error)> = None;
+            let mut receipts: Vec<R> = Vec::new();
             for job in &self.jobs {
+                let id = job.meta.id;
+                let current = core::mem::take(&mut remaining);
                 let d = if job.meta.out_len == 0 {
-                    &mut [][..]
+                    // An empty job writes nothing; borrow the empty front of the
+                    // remaining output so the slice keeps the output lifetime.
+                    let (slice, tail) = current.split_at_mut(0);
+                    remaining = tail;
+                    slice
                 } else {
                     let start = job.meta.out_offset;
                     let end = start + job.meta.out_len;
-                    let current = core::mem::take(&mut remaining);
                     let (_, rest) = current.split_at_mut(start - cursor);
                     let (slice, tail) = rest.split_at_mut(end - start);
                     remaining = tail;
                     cursor = end;
                     slice
                 };
-                let mut item = JobItem {
-                    id: job.meta.id,
+                let item = JobItem {
+                    id,
                     plan: &job.plan,
                     lhs: &lhs[job.meta.lhs_offset..job.meta.lhs_offset + job.meta.lhs_len],
                     rhs: &rhs[job.meta.rhs_offset..job.meta.rhs_offset + job.meta.rhs_len],
                     out: d,
                 };
-                if let Err(error) = run_item(&mut item, &mut child_exec, alpha, beta, source) {
+                match run(item, &mut child_exec) {
+                    Ok(receipt) => receipts.push(receipt),
                     // Keep running the remaining jobs: a failure here must not
                     // hide a lower-id one that runs later in stored order.
-                    keep_lowest(&mut failure, item.id, error);
+                    Err(error) => keep_lowest(&mut failure, id, error),
                 }
             }
-            return failure.map_or(Ok(route), |(_, error)| Err(error));
+            return match failure {
+                Some((_, error)) => Err(error),
+                None => Ok((route, receipts)),
+            };
         }
 
         // Parallel: one contiguous job range per lane, each owning the output
@@ -656,7 +845,7 @@ impl<T: Scalar> GroupedPlan<T> {
         };
         let mut lane_chunks = Vec::with_capacity(lanes);
         let out_len = out.len();
-        let mut remaining: &mut [T] = out;
+        let mut remaining: &'d mut [D] = out;
         let mut cursor = 0usize;
         for lane in 0..lanes {
             let (lo, hi) = lane_range(lane);
@@ -680,6 +869,9 @@ impl<T: Scalar> GroupedPlan<T> {
             cursor = end;
         }
         let failure: Mutex<Option<(usize, Error)>> = Mutex::new(None);
+        // Successful receipts are disjoint output slices, so they are collected
+        // lane-locally and appended once per lane after the fork.
+        let receipts: Mutex<Vec<R>> = Mutex::new(Vec::new());
         // Each lane is one forked child of the caller's token: `fork` gives
         // lane `i` its share of the budget, and every share is at least
         // `item_threads` because `lanes * item_threads <= budget`.
@@ -689,6 +881,7 @@ impl<T: Scalar> GroupedPlan<T> {
         exec.token().fork(lanes, |lane, token| {
             let mut lane_exec = Exec::from_token(token.limit(item_budget), workspace, policy);
             let (lo, hi) = lane_range(lane);
+            let mut lane_receipts: Vec<R> = Vec::new();
             let mut guard = lane_chunks[lane]
                 .lock()
                 .unwrap_or_else(|poison| poison.into_inner());
@@ -696,36 +889,55 @@ impl<T: Scalar> GroupedPlan<T> {
             let base_offset = *base_offset;
             let mut lane_cursor = 0usize;
             for job in &self.jobs[lo..hi] {
+                let current = core::mem::take(chunk);
                 let d = if job.meta.out_len == 0 {
-                    &mut [][..]
+                    let (slice, tail) = current.split_at_mut(0);
+                    *chunk = tail;
+                    slice
                 } else {
                     let start = job.meta.out_offset - base_offset;
-                    let current = core::mem::take(chunk);
                     let (_, rest) = current.split_at_mut(start - lane_cursor);
                     let (slice, tail) = rest.split_at_mut(job.meta.out_len);
                     *chunk = tail;
                     lane_cursor = start + job.meta.out_len;
                     slice
                 };
-                let mut item = JobItem {
+                let item = JobItem {
                     id: job.meta.id,
                     plan: &job.plan,
                     lhs: &lhs[job.meta.lhs_offset..job.meta.lhs_offset + job.meta.lhs_len],
                     rhs: &rhs[job.meta.rhs_offset..job.meta.rhs_offset + job.meta.rhs_len],
                     out: d,
                 };
-                if let Err(error) = run_item(&mut item, &mut lane_exec, alpha, beta, source) {
-                    let mut slot = failure.lock().unwrap_or_else(|poison| poison.into_inner());
-                    // Recording by id, not by arrival, keeps the reported error
-                    // independent of lane scheduling.
-                    keep_lowest(&mut slot, item.id, error);
+                match run(item, &mut lane_exec) {
+                    Ok(receipt) => lane_receipts.push(receipt),
+                    Err(error) => {
+                        let mut slot = failure.lock().unwrap_or_else(|poison| poison.into_inner());
+                        // Recording by id, not by arrival, keeps the reported error
+                        // independent of lane scheduling.
+                        keep_lowest(&mut slot, job.meta.id, error);
+                    }
                 }
             }
+            if !lane_receipts.is_empty() {
+                receipts
+                    .lock()
+                    .unwrap_or_else(|poison| poison.into_inner())
+                    .append(&mut lane_receipts);
+            }
         });
-        failure
+        match failure
             .into_inner()
             .unwrap_or_else(|poison| poison.into_inner())
-            .map_or(Ok(route), |(_, error)| Err(error))
+        {
+            Some((_, error)) => Err(error),
+            None => Ok((
+                route,
+                receipts
+                    .into_inner()
+                    .unwrap_or_else(|poison| poison.into_inner()),
+            )),
+        }
     }
 
     /// Resolve `(lanes, item_threads)` from the caller's batch policy.
@@ -807,16 +1019,16 @@ fn grouped_route(lanes: usize, item_threads: usize) -> GroupedRoute {
     }
 }
 
-struct JobItem<'a, T: Scalar> {
+struct JobItem<'p, 'd, T: Scalar, D> {
     id: usize,
-    plan: &'a Plan<T>,
-    lhs: &'a [T],
-    rhs: &'a [T],
-    out: &'a mut [T],
+    plan: &'p Plan<T>,
+    lhs: &'p [T],
+    rhs: &'p [T],
+    out: &'d mut [D],
 }
 
 fn run_item<T: Scalar>(
-    item: &mut JobItem<'_, T>,
+    item: JobItem<'_, '_, T, T>,
     exec: &mut Exec<'_>,
     alpha: T,
     beta: T,
@@ -824,6 +1036,29 @@ fn run_item<T: Scalar>(
 ) -> Result<()> {
     item.plan
         .execute_slices_accum(
+            exec,
+            alpha,
+            (item.lhs, 0),
+            (item.rhs, 0),
+            beta,
+            source,
+            (item.out, 0),
+        )
+        .map_err(|source| Error::Contract {
+            step: item.id,
+            source,
+        })
+}
+
+fn run_item_uninit<'d, T: Scalar>(
+    item: JobItem<'_, 'd, T, MaybeUninit<T>>,
+    exec: &mut Exec<'_>,
+    alpha: T,
+    beta: T,
+    source: SliceAccumulationSource<'_, T>,
+) -> Result<&'d mut [T]> {
+    item.plan
+        .execute_uninit_slices(
             exec,
             alpha,
             (item.lhs, 0),

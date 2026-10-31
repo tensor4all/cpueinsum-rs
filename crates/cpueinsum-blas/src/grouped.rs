@@ -1,7 +1,11 @@
 //! Whole-group preparation and preflight; vendor jobs run on the coordinator.
 
+use core::mem::MaybeUninit;
+
 use cpueinsum::tcontract::api::{CSpec, Labels, LayoutSpec, Op, OperandSpec, Problem};
-use cpueinsum::tcontract::{PlanConfig, SliceAccumulationSource};
+use cpueinsum::tcontract::{
+    execute_uninit_with, PlanConfig, SliceAccumulationSource, UninitOutputError,
+};
 use cpueinsum::{Exec, GroupedGemmJob};
 
 use crate::prepared::VendorPlan;
@@ -27,14 +31,15 @@ struct VendorJob {
     lhs_offset: isize,
     rhs_offset: isize,
     out_offset: isize,
+    out_len: usize,
     plan: VendorPlan,
 }
 
-/// Prepared grouped GEMMs over shared, initialized caller buffers.
+/// Prepared grouped GEMMs over shared caller buffers.
 ///
 /// Every descriptor is validated during preparation. If any child cannot use
 /// direct vendor output, the whole group selects a prepared native alternative.
-/// Fresh grouped backing storage is deliberately not supported.
+/// [`Self::execute_uninit`] accepts fresh storage with zero beta and exact coverage.
 ///
 /// # Examples
 ///
@@ -65,7 +70,8 @@ impl<T: BlasScalar> GroupedPlan<T> {
     ///
     /// # Errors
     ///
-    /// As [`Self::new_with_ops`].
+    /// Returns [`BlasError::Prepare`] for overflowing geometry, overlapping
+    /// outputs, invalid configuration or a rejected child problem.
     pub fn new(jobs: &[GroupedGemmJob], config: &PlanConfig) -> Result<Self, BlasError> {
         Self::new_with_ops(jobs, [Op::Identity; 3], config)
     }
@@ -117,6 +123,7 @@ impl<T: BlasScalar> GroupedPlan<T> {
                 lhs_offset: job.lhs_offset as isize,
                 rhs_offset: job.rhs_offset as isize,
                 out_offset: job.out_offset as isize,
+                out_len: job.rows * job.cols,
                 plan,
             });
         }
@@ -141,7 +148,9 @@ impl<T: BlasScalar> GroupedPlan<T> {
     ///
     /// # Errors
     ///
-    /// As [`Self::execute_into_accum`].
+    /// Returns [`BlasError::Native`] for native admission/execution failures or
+    /// [`BlasError::Grouped`] for a vendor job's bounds, workspace, packing or
+    /// execution failure. Every job is preflighted before writes.
     pub fn execute_into(
         &self,
         exec: &mut Exec<'_>,
@@ -177,6 +186,136 @@ impl<T: BlasScalar> GroupedPlan<T> {
         work: &mut [T],
     ) -> Result<GroupedRoute, BlasError> {
         self.execute(exec, alpha, lhs, rhs, beta, true, out, work)
+    }
+
+    /// Overwrite fresh grouped storage and publish it only after full completion.
+    ///
+    /// The vendor loop keeps its prepared route; the native alternative runs
+    /// when a job cannot use direct vendor output, when `alpha` is zero, or when
+    /// the executor's batch policy forces lanes. `beta` must be zero and the
+    /// group's jobs must cover `out` exactly once without gaps, both checked
+    /// before any write.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BlasError::Accumulation`] for a nonzero `beta`,
+    /// [`BlasError::FreshCoverage`] for holes or padding, [`BlasError::Grouped`]
+    /// retaining the original job ID for a vendor bounds, workspace, packing or
+    /// execution failure, and [`BlasError::Native`] for a selected native
+    /// failure. Every pre-write check runs before the first write, and no
+    /// initialized slice escapes on failure.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # extern crate blas_src as _;
+    /// use core::mem::MaybeUninit;
+    /// use cpueinsum::{Exec, GroupedGemmJob, tcontract::PlanConfig};
+    /// use cpueinsum_blas::{GroupedPlan, GroupedRoute};
+    /// let jobs = [GroupedGemmJob::new(0, 0, 0, 2, 2, 2)];
+    /// let plan = GroupedPlan::<f64>::new(&jobs, &PlanConfig::default())?;
+    /// let a = [1.0, 2.0, 3.0, 4.0];
+    /// let b = [1.0, 0.0, 0.0, 1.0];
+    /// let mut work = vec![0.0; plan.work_len()];
+    /// let mut out = [MaybeUninit::uninit(); 4];
+    /// let (out, route) = plan.execute_uninit(&mut Exec::serial(), 1.0, &a, &b, 0.0,
+    ///     &mut out, &mut work)?;
+    /// assert_eq!(out, a);
+    /// assert_eq!(route, GroupedRoute::Vendor { jobs: 1 });
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn execute_uninit<'d>(
+        &self,
+        exec: &mut Exec<'_>,
+        alpha: T,
+        lhs: &[T],
+        rhs: &[T],
+        beta: T,
+        out: &'d mut [MaybeUninit<T>],
+        work: &mut [T],
+    ) -> Result<(&'d mut [T], GroupedRoute), BlasError> {
+        // The vendor jobs share the native descriptors, so the native checker
+        // proves the same beta and exact-coverage conditions before any write.
+        self.native
+            .validate_uninit(beta, out.len())
+            .map_err(validation)?;
+        let vendor_route = crate::vendor_loop_route(exec);
+        let Some(jobs) = self
+            .vendor
+            .as_ref()
+            .filter(|_| alpha != T::default() && vendor_route)
+        else {
+            return self
+                .native
+                .execute_uninit(exec, alpha, lhs, rhs, beta, out)
+                .map(|(out, route)| (out, GroupedRoute::Native(route)))
+                .map_err(|source| BlasError::Native { source });
+        };
+        execute_uninit_with(out, |storage| {
+            if jobs.is_empty() {
+                return Ok((Vec::new(), GroupedRoute::Empty));
+            }
+            // Every vendor job is preflighted with no accumulation source before
+            // the first write, in descriptor order so the error names the lowest
+            // failing job id.
+            for job in jobs {
+                job.plan
+                    .preflight(
+                        (lhs, job.lhs_offset),
+                        (rhs, job.rhs_offset),
+                        beta,
+                        SliceAccumulationSource::Absent,
+                        storage.len(),
+                        job.out_offset,
+                        work,
+                    )
+                    .map_err(|source| BlasError::Grouped {
+                        job: job.id,
+                        source: Box::new(source),
+                    })?;
+            }
+            // Fresh output is split by increasing output offset; the initialized
+            // loop's descriptor order is left alone.
+            let mut sorted: Vec<&VendorJob> = jobs.iter().collect();
+            sorted.sort_unstable_by_key(|job| job.out_offset);
+            let mut receipts = Vec::with_capacity(sorted.len());
+            let mut remaining: &mut [MaybeUninit<T>] = storage;
+            let mut cursor = 0usize;
+            for job in sorted {
+                // Exact coverage was proven above, so this job starts at the
+                // cursor and its slice is exactly its own output range.
+                let start = job.out_offset as usize;
+                let current = core::mem::take(&mut remaining);
+                let (_, rest) = current.split_at_mut(start - cursor);
+                let (slice, tail) = rest.split_at_mut(job.out_len);
+                remaining = tail;
+                cursor = start + job.out_len;
+                let initialized = job
+                    .plan
+                    .execute_uninit_slices(
+                        alpha,
+                        (lhs, job.lhs_offset),
+                        (rhs, job.rhs_offset),
+                        beta,
+                        SliceAccumulationSource::Absent,
+                        // The slice is exactly the job's output domain, so its
+                        // own origin is zero; the whole-buffer origin above is
+                        // the preflight's.
+                        (slice, 0),
+                        work,
+                    )
+                    .map_err(|source| BlasError::Grouped {
+                        job: job.id,
+                        source: Box::new(source),
+                    })?;
+                receipts.push(initialized);
+            }
+            Ok((receipts, GroupedRoute::Vendor { jobs: jobs.len() }))
+        })
+        .map_err(|source| match source {
+            UninitOutputError::Execution(source) => source,
+            UninitOutputError::Coverage => BlasError::FreshCoverage,
+        })
     }
 
     fn execute(
@@ -257,5 +396,16 @@ impl<T: BlasScalar> GroupedPlan<T> {
                 })?;
         }
         Ok(GroupedRoute::Vendor { jobs: jobs.len() })
+    }
+}
+
+/// Map the shared native fresh-output check onto this crate's error names.
+fn validation(source: cpueinsum::Error) -> BlasError {
+    match source {
+        cpueinsum::Error::Grouped(cpueinsum::GroupedError::FreshCoverage) => {
+            BlasError::FreshCoverage
+        }
+        cpueinsum::Error::Grouped(cpueinsum::GroupedError::NonzeroBeta) => BlasError::Accumulation,
+        source => BlasError::Native { source },
     }
 }
