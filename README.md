@@ -66,9 +66,13 @@ rejects overlapping output ranges, and resolves its scheduler from the caller's
 `Exec` batch policy: `Auto` keeps the historical lane decision, a forced
 `Sequential`/`Outer`/`Inner`/`Split` is honored (clamped to the items and the
 budget, never silently downgraded).
-Children run with the decided item width. Grouped output is initialized; output
-holes stay unchanged. Serial callers can retain `ArenaProvider`, and parallel
-callers retain `Pool`.
+Children run with the decided item width. `execute_into`/`execute_into_accum`
+take an initialized output and leave holes unchanged;
+[`execute_uninit`](crates/cpueinsum/src/grouped.rs) instead takes
+`&mut [MaybeUninit<T>]`, requires `beta = 0` and exact coverage of the whole
+destination by the jobs, checks both before the first write, and returns the
+initialized slice only on success. Serial callers can retain `ArenaProvider`,
+and parallel callers retain `Pool`.
 
 The shared-input overwrite/accumulation example lives in
 [`GroupedPlan`'s executable rustdoc](crates/cpueinsum/src/grouped.rs), checked
@@ -109,7 +113,8 @@ layouts write output directly through coordinator-inline CBLAS calls with
 alpha/beta. Unsupported vendor geometry/C modes select native plans before
 execution; scalar-degenerate calls use a prepared native branch, never retry.
 Fresh binary output requires exact physical coverage and no old-output reads;
-grouped output remains initialized and every job is preflighted before writes.
+grouped `execute_uninit` requires exact job coverage, `beta = 0` and no
+old-output reads, and every job is preflighted before writes on both routes.
 A group is entirely vendor or entirely native, not mixed after mutation.
 Executable examples live in the adapters' rustdoc; see the
 [prepared BLAS design](docs/design/prepared-blas-integration.md).

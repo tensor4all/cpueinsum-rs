@@ -1312,8 +1312,7 @@ dependencies = [
 [[package]]
 name = "tcontract"
 version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "368f497288746835d1e4d65948a9f6045358d6b4b673992985eaf5a0582a312e"
+source = "git+https://github.com/tensor4all/tcontract-rs.git?rev=625ed7a7124beb9537660b607c3c453d822d4dc8#625ed7a7124beb9537660b607c3c453d822d4dc8"
 dependencies = [
  "num-complex",
  "num-traits",
@@ -1330,7 +1329,7 @@ dependencies = [
 [[package]]
 name = "tcontract-capi"
 version = "0.1.0"
-source = "git+https://github.com/tensor4all/tcontract-rs.git?rev=9f793ed#9f793ede6b8076fd7ce2251594a9552ad66aa339"
+source = "git+https://github.com/tensor4all/tcontract-rs.git?rev=625ed7a7124beb9537660b607c3c453d822d4dc8#625ed7a7124beb9537660b607c3c453d822d4dc8"
 dependencies = [
  "num-complex",
  "strided-view",
@@ -1353,8 +1352,7 @@ dependencies = [
 [[package]]
 name = "tcontract-kernel"
 version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1ca7f3b0f6c0c1e4e03b9ee51ab4b4e77ba75b17a6b5f2a8c6f7a6176394f248"
+source = "git+https://github.com/tensor4all/tcontract-rs.git?rev=625ed7a7124beb9537660b607c3c453d822d4dc8#625ed7a7124beb9537660b607c3c453d822d4dc8"
 dependencies = [
  "num-complex",
 ]
