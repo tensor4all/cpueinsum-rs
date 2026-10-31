@@ -140,8 +140,8 @@ fn vendor_plan_construction_reuses_group_order_storage() {
     );
     for (count, native, vendor) in groups {
         assert!(
-            native <= 2,
-            "native preparation remains constant in job count"
+            native <= 4,
+            "one geometry: native metadata, geometry map, compact jobs and one child buffer"
         );
         assert_eq!(
             vendor,
