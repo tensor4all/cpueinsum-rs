@@ -172,10 +172,9 @@ fn raw_steady_state_paths_allocate_no_rust_memory() {
     });
     assert_eq!(allocations, 0, "grouped execute_into serial");
 
-    // G8: preparing a grouped plan stays at O(1) allocations in the job count.
-    // Each child plan of these tiny f64 jobs allocates nothing, so what is left
-    // is the prepared-job container itself; collecting its entries through a
-    // `Result<Vec<_>>` instead of pre-sizing regrows it about log2(J) times.
+    // G8: at fixed geometry count, preparation stays at O(1) allocations in J.
+    // Tiny f64 children allocate nothing internally; exact job/child capacities
+    // and the geometry map must not introduce per-job allocation or Vec growth.
     let mut plan_allocations = Vec::new();
     for job_count in [2usize, 8, 64] {
         let jobs = tiny_grouped_jobs(job_count);

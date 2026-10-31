@@ -1,10 +1,11 @@
 //! Prepared heterogeneous column-major GEMM groups.
 //!
-//! A [`GroupedPlan`] owns one immutable tcontract plan per job.  The
+//! A [`GroupedPlan`] owns one immutable tcontract plan per distinct geometry. The
 //! caller lends flat input and output buffers at execution time; no pointers
 //! or executors are retained by the plan.
 
 use core::mem::MaybeUninit;
+use std::collections::{hash_map::Entry, HashMap};
 use std::num::NonZeroUsize;
 use std::sync::Mutex;
 
@@ -199,9 +200,9 @@ struct JobMeta {
 }
 
 #[derive(Debug)]
-struct PreparedJob<T: Scalar> {
+struct PreparedJob {
     meta: JobMeta,
-    plan: Plan<T>,
+    plan: u32,
 }
 
 /// Immutable plans and aggregate metadata for heterogeneous GEMM jobs.
@@ -228,7 +229,8 @@ struct PreparedJob<T: Scalar> {
 /// ```
 #[derive(Debug)]
 pub struct GroupedPlan<T: Scalar> {
-    jobs: Vec<PreparedJob<T>>,
+    jobs: Vec<PreparedJob>,
+    plans: Vec<Plan<T>>,
     required_lhs: usize,
     required_rhs: usize,
     required_out: usize,
@@ -363,38 +365,55 @@ impl<T: Scalar> GroupedPlan<T> {
             }
         }
         // Validate every descriptor and overlap before preparing numerical plans.
-        //
-        // Pre-size the job vector and push in order: a `Result` collect has no
-        // lower size hint, so it would regrow this vector about log2(J) times,
-        // each regrow copying a full `Plan<T>` per job.
+        // Count raw geometries first so child capacity is G, not J.
+        // Zero and one differ; max(1) applies only to strides.
+        let mut geometries = HashMap::new();
+        for meta in &prepared {
+            let job = jobs[meta.id];
+            let next = geometries.len();
+            if let Entry::Vacant(entry) = geometries.entry((job.rows, job.contracted, job.cols)) {
+                entry.insert(child_index(meta.id, next)?);
+            }
+        }
+        let mut plans = Vec::with_capacity(geometries.len());
         let mut child_config = config.clone();
         child_config.fresh_output = false;
         let mut planned = Vec::with_capacity(prepared.len());
         for meta in prepared {
             let job = jobs[meta.id];
-            // Dimension-to-stride conversions were checked above for every job.
-            let rows = (job.rows as isize).max(1);
-            let contracted = (job.contracted as isize).max(1);
-            let problem = Problem::from_labels(
-                T::STORAGE,
-                spec(&[job.rows, job.contracted], &[1, rows], ops[0]),
-                spec(&[job.contracted, job.cols], &[1, contracted], ops[1]),
-                CSpec::Output(ops[2]),
-                spec(&[job.rows, job.cols], &[1, rows], ops[2]),
-                &Labels::new(&[0, 1], &[1, 2], &[0, 2]),
-            )
-            .map_err(|source| Error::Contract {
-                step: meta.id,
-                source,
-            })?;
-            let plan = Plan::new(&problem, &child_config).map_err(|source| Error::Contract {
-                step: meta.id,
-                source,
-            })?;
+            let plan = geometries[&(job.rows, job.contracted, job.cols)];
+            // INVARIANT: both passes visit the same sorted jobs, so a new
+            // index names the next child; all smaller indices are already built.
+            if plan as usize == plans.len() {
+                // Dimension-to-stride conversions were checked above for every job.
+                let rows = (job.rows as isize).max(1);
+                let contracted = (job.contracted as isize).max(1);
+                let problem = Problem::from_labels(
+                    T::STORAGE,
+                    spec(&[job.rows, job.contracted], &[1, rows], ops[0]),
+                    spec(&[job.contracted, job.cols], &[1, contracted], ops[1]),
+                    CSpec::Output(ops[2]),
+                    spec(&[job.rows, job.cols], &[1, rows], ops[2]),
+                    &Labels::new(&[0, 1], &[1, 2], &[0, 2]),
+                )
+                .map_err(|source| Error::Contract {
+                    step: meta.id,
+                    source,
+                })?;
+                let child =
+                    Plan::new(&problem, &child_config).map_err(|source| Error::Contract {
+                        step: meta.id,
+                        source,
+                    })?;
+                #[cfg(test)]
+                tests::PLAN_CONSTRUCTIONS.with(|count| count.set(count.get() + 1));
+                plans.push(child);
+            }
             planned.push(PreparedJob { meta, plan });
         }
         Ok(Self {
             jobs: planned,
+            plans,
             required_lhs,
             required_rhs,
             required_out,
@@ -443,8 +462,8 @@ impl<T: Scalar> GroupedPlan<T> {
     /// for the workspace-preparation contract.
     pub fn native_workspace_req(&self, exec: &Exec<'_>, output: OutputContract) -> WorkspaceReq {
         let mut req = WorkspaceReq::default();
-        for job in &self.jobs {
-            let r = job.plan.workspace_req(exec, output);
+        for plan in &self.plans {
+            let r = plan.workspace_req(exec, output);
             req.a_bytes = req.a_bytes.max(r.a_bytes);
             req.tile_bytes = req.tile_bytes.max(r.tile_bytes);
             req.worker_scatter = req.worker_scatter.max(r.worker_scatter);
@@ -700,39 +719,45 @@ impl<T: Scalar> GroupedPlan<T> {
         // any write, so the outer width is fixed before the children run.
         let (lanes, item_threads) = self.lane_decision(exec)?;
 
-        // Scan every job before any write and report the failure naming the
-        // lowest original job id: the stored order is by output offset, so it
-        // must not pick the error.
-        let mut bounds_failure: Option<(usize, Error)> = None;
-        for job in &self.jobs {
-            let id = job.meta.id;
-            for (operand, offset, len, available) in [
-                (
-                    GroupedOperand::Lhs,
-                    job.meta.lhs_offset,
-                    job.meta.lhs_len,
-                    lhs.len(),
-                ),
-                (
-                    GroupedOperand::Rhs,
-                    job.meta.rhs_offset,
-                    job.meta.rhs_len,
-                    rhs.len(),
-                ),
-                (
-                    GroupedOperand::Output,
-                    job.meta.out_offset,
-                    job.meta.out_len,
-                    out_len,
-                ),
-            ] {
-                if let Err(error) = check_bounds(id, operand, offset, len, available) {
-                    keep_lowest(&mut bounds_failure, id, error);
+        // Construction checked every endpoint against these aggregate lengths.
+        if lhs.len() < self.required_lhs_len()
+            || rhs.len() < self.required_rhs_len()
+            || out_len < self.required_out_len()
+        {
+            // Stored order is by output offset; retain lowest original error ID.
+            let mut bounds_failure: Option<(usize, Error)> = None;
+            for job in &self.jobs {
+                #[cfg(test)]
+                tests::BOUNDS_VISITS.with(|count| count.set(count.get() + 1));
+                let id = job.meta.id;
+                for (operand, offset, len, available) in [
+                    (
+                        GroupedOperand::Lhs,
+                        job.meta.lhs_offset,
+                        job.meta.lhs_len,
+                        lhs.len(),
+                    ),
+                    (
+                        GroupedOperand::Rhs,
+                        job.meta.rhs_offset,
+                        job.meta.rhs_len,
+                        rhs.len(),
+                    ),
+                    (
+                        GroupedOperand::Output,
+                        job.meta.out_offset,
+                        job.meta.out_len,
+                        out_len,
+                    ),
+                ] {
+                    if let Err(error) = check_bounds(id, operand, offset, len, available) {
+                        keep_lowest(&mut bounds_failure, id, error);
+                    }
                 }
             }
-        }
-        if let Some((_, error)) = bounds_failure {
-            return Err(error);
+            if let Some((_, error)) = bounds_failure {
+                return Err(error);
+            }
         }
         {
             let child_exec = child_context(exec, item_threads);
@@ -743,7 +768,9 @@ impl<T: Scalar> GroupedPlan<T> {
                 // coordinator is not refused here. tcontract's packed driver checks
                 // `can_broadcast` on the token it is given, so a child running on a
                 // pool worker takes the barrier-free route, before any lane writes.
-                if let Err(source) = job.plan.execution_route(&child_exec, alpha, contract) {
+                if let Err(source) =
+                    self.plans[job.plan as usize].execution_route(&child_exec, alpha, contract)
+                {
                     keep_lowest(&mut route_failure, id, Error::Contract { step: id, source });
                 }
             }
@@ -809,7 +836,7 @@ impl<T: Scalar> GroupedPlan<T> {
                 };
                 let item = JobItem {
                     id,
-                    plan: &job.plan,
+                    plan: &self.plans[job.plan as usize],
                     lhs: &lhs[job.meta.lhs_offset..job.meta.lhs_offset + job.meta.lhs_len],
                     rhs: &rhs[job.meta.rhs_offset..job.meta.rhs_offset + job.meta.rhs_len],
                     out: d,
@@ -904,7 +931,7 @@ impl<T: Scalar> GroupedPlan<T> {
                 };
                 let item = JobItem {
                     id: job.meta.id,
-                    plan: &job.plan,
+                    plan: &self.plans[job.plan as usize],
                     lhs: &lhs[job.meta.lhs_offset..job.meta.lhs_offset + job.meta.lhs_len],
                     rhs: &rhs[job.meta.rhs_offset..job.meta.rhs_offset + job.meta.rhs_len],
                     out: d,
@@ -1073,6 +1100,15 @@ fn run_item_uninit<'d, T: Scalar>(
         })
 }
 
+fn child_index(job: usize, index: usize) -> Result<u32> {
+    u32::try_from(index).map_err(|_| {
+        grouped(GroupedError::Overflow {
+            job,
+            what: "child index",
+        })
+    })
+}
+
 fn spec(dims: &[usize], strides: &[isize], op: Op) -> OperandSpec {
     OperandSpec::new(LayoutSpec::new(dims, strides, 0).expect("validated dimensions")).with_op(op)
 }
@@ -1132,38 +1168,4 @@ fn keep_lowest(slot: &mut Option<(usize, Error)>, id: usize, error: Error) {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::keep_lowest;
-    use crate::{Error, GroupedError, GroupedOperand};
-
-    fn bounds(job: usize) -> Error {
-        Error::Grouped(GroupedError::Bounds {
-            job,
-            operand: GroupedOperand::Lhs,
-            end: job + 1,
-            available: job,
-        })
-    }
-
-    #[test]
-    fn lowest_job_id_wins_in_any_arrival_order() {
-        // Lane children fail in scheduling order, so the reduction must not
-        // depend on it.
-        for order in [[5usize, 2, 9], [2, 5, 9], [9, 5, 2], [9, 2, 5]] {
-            let mut slot = None;
-            for job in order {
-                keep_lowest(&mut slot, job, bounds(job));
-            }
-            match slot {
-                Some((job, error)) => {
-                    assert_eq!(job, 2, "arrival order {order:?}");
-                    assert!(
-                        matches!(error, Error::Grouped(GroupedError::Bounds { job: 2, .. })),
-                        "arrival order {order:?}"
-                    );
-                }
-                None => panic!("a failure was recorded for order {order:?}"),
-            }
-        }
-    }
-}
+mod tests;
