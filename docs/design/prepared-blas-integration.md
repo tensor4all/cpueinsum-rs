@@ -44,15 +44,25 @@ with explicit safety proofs and preserved provenance notices.
 
 ## Grouped adapter
 
-Keep grouped output initialized. Prepare a vendor group only when every child
-qualifies; otherwise prepare one whole-group native alternative. A mixed-plan
-framework and fresh grouped output are unnecessary.
+`execute_into`/`execute_into_accum` keep grouped output initialized. Prepare a
+vendor group only when every child qualifies; otherwise prepare one whole-group
+native alternative. A mixed-plan framework is unnecessary.
+
+Issue #53 adds `GroupedPlan::execute_uninit(.., out: &mut [MaybeUninit<T>], ..)`:
+the shared native checker validates `beta = 0` and exact coverage by the jobs
+before any write, so a gap or a nonzero beta is a typed error with the storage
+untouched. Every vendor job is then preflighted with an Absent source before the
+first write; the vendor loop splits fresh storage by increasing output offset and
+publishes one initialized receipt per job, and tcontract's `execute_uninit_with`
+publishes the whole destination once after every job succeeded. The initialized
+vendor order and its error selection are unchanged.
 
 Before the first write, validate all jobs' checked arithmetic and byte spans,
 output disjointness, runtime bounds, workspace capacity, packing-view
 construction and selected native execution capability. A loop of individually
-validating binary calls is insufficient. Gaps between jobs stay initialized;
-they do not constitute proof of fresh backing-allocation completion. Preserve
+validating binary calls is insufficient. Gaps between jobs stay initialized in
+the initialized entry points; the fresh entry point refuses them instead of
+treating them as completion. Preserve
 original job IDs and deterministic failures. Vendor groups execute a
 library-owned serial loop on the coordinator; native groups retain native
 scheduling. Expose actual observed routes rather than a declared host label.

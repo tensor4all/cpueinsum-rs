@@ -4,6 +4,7 @@ extern crate blas_src as _;
 mod common;
 
 use common::{close, naive, Elem, Operand};
+use core::mem::MaybeUninit;
 use cpueinsum::tcontract::api::Op;
 use cpueinsum::tcontract::PlanConfig;
 use cpueinsum::{Exec, GroupedGemmJob};
@@ -87,6 +88,35 @@ fn modes<T: Elem + BlasScalar>(tolerance: f64) {
             );
             close(&out, &expected, tolerance);
         }
+        // The same heterogeneous, unsorted jobs with compact output exercise
+        // fresh vendor publication for all four dtypes and all conjugations.
+        let compact = [
+            GroupedGemmJob {
+                out_offset: 3,
+                ..jobs[0]
+            },
+            jobs[1],
+        ];
+        let fresh_plan =
+            GroupedPlan::<T>::new_with_ops(&compact, ops, &PlanConfig::default()).unwrap();
+        let mut expected = vec![T::default(); 7];
+        fresh_plan
+            .execute_into(&mut Exec::serial(), alpha, &a, &b, &mut expected, &mut work)
+            .unwrap();
+        let mut fresh = vec![MaybeUninit::uninit(); 7];
+        let (out, route) = fresh_plan
+            .execute_uninit(
+                &mut Exec::serial(),
+                alpha,
+                &a,
+                &b,
+                T::default(),
+                &mut fresh,
+                &mut work,
+            )
+            .unwrap();
+        assert_eq!(route, GroupedRoute::Vendor { jobs: 2 });
+        close(out, &expected, tolerance);
     }
 }
 
@@ -148,6 +178,20 @@ fn auto_keeps_the_vendor_loop_and_forced_lanes_use_the_native_route() {
             "{strategy:?} -> {route:?}"
         );
         close(&native, &vendor, 1e-12);
+        let mut fresh = vec![MaybeUninit::uninit(); 512];
+        let (out, fresh_route) = plan
+            .execute_uninit(
+                &mut exec,
+                1.0,
+                &a,
+                &b,
+                0.0,
+                &mut fresh,
+                &mut vec![0.0; plan.work_len()],
+            )
+            .unwrap();
+        assert_eq!(fresh_route, route);
+        close(out, &vendor, 1e-12);
     }
 
     // Forced Sequential is exactly one serial coordinator, which the loop
@@ -224,6 +268,23 @@ fn late_vendor_bounds_and_workspace_errors_precede_every_output_write() {
         Err(BlasError::Grouped { job: 0, .. })
     ));
     assert_eq!(out, [value; 8]);
+    let mut fresh = [MaybeUninit::new(value); 8];
+    assert!(matches!(
+        plan.execute_uninit(
+            &mut Exec::serial(),
+            value,
+            &[value; 6],
+            &[value; 6],
+            Default::default(),
+            &mut fresh,
+            &mut []
+        ),
+        Err(BlasError::Grouped { job: 0, .. })
+    ));
+    // SAFETY: every slot began initialized; workspace rejection precedes writes.
+    assert!(fresh
+        .into_iter()
+        .all(|slot| unsafe { slot.assume_init() } == value));
 }
 
 #[test]
@@ -317,4 +378,161 @@ fn no_materialize_selects_whole_group_native_for_conjugate_input_packing() {
         .unwrap();
     assert!(matches!(route, GroupedRoute::Native(_)));
     assert_eq!(out, [Complex64::new(12.0, -9.0); 8]);
+}
+
+// ---- fresh (uninitialized) grouped vendor output ----
+
+/// Every slot of a refused fresh call must still hold this value.
+const SENTINEL: f64 = 91.0;
+
+fn fresh_pair() -> ([f64; 4], [f64; 4]) {
+    ([1.0, 2.0, 3.0, 4.0], [1.0, -1.0, 0.5, 2.0])
+}
+
+#[test]
+fn fresh_full_coverage_overwrites_the_sentinel_and_matches_vendor_reference() {
+    let jobs = [
+        GroupedGemmJob::new(0, 0, 0, 2, 2, 2),
+        GroupedGemmJob::new(0, 0, 4, 2, 2, 1),
+    ];
+    let plan = GroupedPlan::<f64>::new(&jobs, &PlanConfig::default()).unwrap();
+    let (a, b) = fresh_pair();
+    let mut work = vec![0.0; plan.work_len()];
+    let mut reference = [0.0; 6];
+    assert_eq!(
+        plan.execute_into(&mut Exec::serial(), 1.5, &a, &b, &mut reference, &mut work)
+            .unwrap(),
+        GroupedRoute::Vendor { jobs: 2 }
+    );
+    let mut fresh = [MaybeUninit::new(SENTINEL); 6];
+    let (out, route) = plan
+        .execute_uninit(&mut Exec::serial(), 1.5, &a, &b, 0.0, &mut fresh, &mut work)
+        .unwrap();
+    assert_eq!(route, GroupedRoute::Vendor { jobs: 2 });
+    assert_eq!(out, reference);
+    assert!(
+        out.iter().all(|&v| v != SENTINEL),
+        "an untouched sentinel survived a full fresh write: {out:?}"
+    );
+}
+
+#[test]
+fn fresh_uncovered_element_errors_and_leaves_every_sentinel() {
+    let jobs = [GroupedGemmJob::new(0, 0, 0, 2, 2, 2)];
+    let plan = GroupedPlan::<f64>::new(&jobs, &PlanConfig::default()).unwrap();
+    let (a, b) = fresh_pair();
+    let mut work = vec![0.0; plan.work_len()];
+    for len in [3usize, 5] {
+        let mut fresh = vec![MaybeUninit::new(SENTINEL); len];
+        let error = plan
+            .execute_uninit(&mut Exec::serial(), 1.0, &a, &b, 0.0, &mut fresh, &mut work)
+            .unwrap_err();
+        assert!(
+            matches!(error, BlasError::FreshCoverage),
+            "len {len}: {error:?}"
+        );
+        for slot in fresh {
+            assert_eq!(unsafe { slot.assume_init() }, SENTINEL);
+        }
+    }
+}
+
+#[test]
+fn fresh_nonzero_beta_errors_before_writes() {
+    let jobs = [GroupedGemmJob::new(0, 0, 0, 2, 2, 2)];
+    let plan = GroupedPlan::<f64>::new(&jobs, &PlanConfig::default()).unwrap();
+    let (a, b) = fresh_pair();
+    let mut work = vec![0.0; plan.work_len()];
+    for (beta, alpha) in [(1.0, 1.0), (f64::NAN, 1.0), (1.0, 0.0)] {
+        let mut fresh = [MaybeUninit::new(SENTINEL); 4];
+        let error = plan
+            .execute_uninit(
+                &mut Exec::serial(),
+                alpha,
+                &a,
+                &b,
+                beta,
+                &mut fresh,
+                &mut work,
+            )
+            .unwrap_err();
+        assert!(
+            matches!(error, BlasError::Accumulation),
+            "beta {beta}, alpha {alpha}: {error:?}"
+        );
+        for slot in fresh {
+            assert_eq!(unsafe { slot.assume_init() }, SENTINEL);
+        }
+    }
+    let mut empty: [MaybeUninit<f64>; 0] = [];
+    assert!(matches!(
+        plan.execute_uninit(
+            &mut Exec::serial(),
+            0.0,
+            &[],
+            &[],
+            1.0,
+            &mut empty,
+            &mut work
+        ),
+        Err(BlasError::Accumulation)
+    ));
+}
+
+#[test]
+fn fresh_zero_alpha_uses_the_native_route_and_late_bounds_precede_writes() {
+    let jobs = [
+        GroupedGemmJob::new(0, 0, 0, 2, 2, 2),
+        GroupedGemmJob::new(0, 0, 4, 2, 2, 1),
+    ];
+    let plan = GroupedPlan::<f64>::new(&jobs, &PlanConfig::default()).unwrap();
+    let (a, b) = fresh_pair();
+    let mut work = vec![0.0; plan.work_len()];
+    // Alpha zero reads no operand and takes the native fresh alternative.
+    let mut reference = [0.0; 6];
+    plan.execute_into(&mut Exec::serial(), 0.0, &a, &b, &mut reference, &mut work)
+        .unwrap();
+    let mut fresh = [MaybeUninit::uninit(); 6];
+    let (out, route) = plan
+        .execute_uninit(
+            &mut Exec::serial(),
+            0.0,
+            &[f64::NAN; 4],
+            &[f64::NAN; 4],
+            0.0,
+            &mut fresh,
+            &mut work,
+        )
+        .unwrap();
+    assert!(matches!(route, GroupedRoute::Native(_)), "{route:?}");
+    assert_eq!(out, reference.as_slice());
+    assert_eq!(out, [0.0; 6]);
+
+    // Late vendor bounds are preflighted before any write.
+    let jobs = [
+        GroupedGemmJob::new(0, 0, 0, 2, 2, 2),
+        GroupedGemmJob::new(64, 0, 4, 2, 2, 1),
+    ];
+    let plan = GroupedPlan::<f64>::new(&jobs, &PlanConfig::default()).unwrap();
+    let mut work = vec![0.0; plan.work_len()];
+    let mut fresh = [MaybeUninit::new(SENTINEL); 6];
+    let error = plan
+        .execute_uninit(&mut Exec::serial(), 1.0, &a, &b, 0.0, &mut fresh, &mut work)
+        .unwrap_err();
+    assert!(
+        matches!(error, BlasError::Grouped { job: 1, .. }),
+        "{error:?}"
+    );
+    for slot in fresh {
+        assert_eq!(unsafe { slot.assume_init() }, SENTINEL);
+    }
+
+    // An empty group publishes an empty destination.
+    let plan = GroupedPlan::<f64>::new(&[], &PlanConfig::default()).unwrap();
+    let mut none: [MaybeUninit<f64>; 0] = [];
+    let (out, route) = plan
+        .execute_uninit(&mut Exec::serial(), 1.0, &[], &[], 0.0, &mut none, &mut [])
+        .unwrap();
+    assert!(out.is_empty());
+    assert_eq!(route, GroupedRoute::Empty);
 }

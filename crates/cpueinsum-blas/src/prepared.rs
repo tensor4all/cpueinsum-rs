@@ -164,29 +164,53 @@ impl<T: BlasScalar> BinaryPlan<T> {
                 .map(|(out, route)| (out, ExecutionRoute::Native(route)))
                 .map_err(|source| BlasError::Native { source });
         };
-        plan.preflight(a, b, beta, source, d.0.len(), d.1, work)?;
-        if beta != T::default() {
-            return Err(BlasError::Accumulation);
-        }
-        let (lo, hi) = plan.step.spans[2];
-        if plan.output_count != Some(d.0.len())
-            || lo + d.1 as i128 != 0
-            || hi + d.1 as i128 + 1 != d.0.len() as i128
-        {
-            return Err(BlasError::FreshCoverage);
-        }
-        plan.run_vendor(alpha, a, b, beta, d.0.as_mut_ptr().cast::<T>(), d.1, work)?;
-        // SAFETY: planning proves injectivity over the reduced output domain;
-        // count and endpoints above prove that domain covers every physical slot.
-        // Direct-D beta-zero GEMMs form no initialized D references/read no D,
-        // and successful completion wrote every slot with valid T values.
-        let initialized =
-            unsafe { core::slice::from_raw_parts_mut(d.0.as_mut_ptr().cast::<T>(), d.0.len()) };
+        let initialized = plan.execute_uninit_slices(alpha, a, b, beta, source, d, work)?;
         Ok((initialized, ExecutionRoute::Vendor))
     }
 }
 
 impl VendorPlan {
+    /// Overwrite one vendor job's fresh storage and return it initialized.
+    ///
+    /// The caller has already validated every pre-write condition it needs to
+    /// validate ahead of any write in the group; this repeats the job's own
+    /// preflight, then requires `beta = 0` and exact dense physical coverage so
+    /// the successful GEMM has written every slot exactly once.
+    ///
+    /// # Errors
+    ///
+    /// As [`VendorPlan::preflight`], plus [`BlasError::Accumulation`] for a
+    /// nonzero `beta` and [`BlasError::FreshCoverage`] when the prepared output
+    /// domain has holes or padding. All of them precede the write.
+    pub(crate) fn execute_uninit_slices<'d, T: BlasScalar>(
+        &self,
+        alpha: T,
+        a: (&[T], isize),
+        b: (&[T], isize),
+        beta: T,
+        source: SliceAccumulationSource<'_, T>,
+        d: (&'d mut [MaybeUninit<T>], isize),
+        work: &mut [T],
+    ) -> Result<&'d mut [T], BlasError> {
+        self.preflight(a, b, beta, source, d.0.len(), d.1, work)?;
+        if beta != T::default() {
+            return Err(BlasError::Accumulation);
+        }
+        let (lo, hi) = self.step.spans[2];
+        if self.output_count != Some(d.0.len())
+            || lo + d.1 as i128 != 0
+            || hi + d.1 as i128 + 1 != d.0.len() as i128
+        {
+            return Err(BlasError::FreshCoverage);
+        }
+        self.run_vendor(alpha, a, b, beta, d.0.as_mut_ptr().cast::<T>(), d.1, work)?;
+        // SAFETY: planning proves injectivity over the reduced output domain;
+        // count and endpoints above prove that domain covers every physical slot.
+        // Direct-D beta-zero GEMMs form no initialized D references and read no
+        // D, and successful completion wrote every slot with valid T values.
+        Ok(unsafe { core::slice::from_raw_parts_mut(d.0.as_mut_ptr().cast::<T>(), d.0.len()) })
+    }
+
     pub(crate) fn new<T: BlasScalar>(problem: &Problem, config: &PlanConfig) -> Option<Self> {
         let step = crate::layout::plan_prepared::<T>(problem)?;
         if config.no_materialize && step.packed().contains(&true) {
