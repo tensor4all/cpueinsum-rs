@@ -10,8 +10,6 @@
 
 use cpueinsum::tcontract::api::{is_injective_layout, OperandId, Problem, RoleAxis};
 use strided_basic::CopyPlan;
-// The shared GEMM-axis fusion rule is new in tcontract 0.7.1, which this crate
-// requires directly (cpueinsum itself accepts any 0.7).
 use tcontract::api::{fuse_axes, sort_by_stride};
 
 use crate::ffi::{BlasScalar, Gemm, Trans};
@@ -110,24 +108,27 @@ fn fuse(group: &[RoleAxis], order: &[usize], o: OperandId) -> Option<isize> {
 
 /// The order of a group: the first carrier's stride order that fuses in every
 /// carrier, else one that fuses in the first carrier, else the first.
-fn choose(group: &[RoleAxis], carriers: &[OperandId]) -> Vec<usize> {
-    let sorted = |o: OperandId| {
-        let mut v: Vec<usize> = (0..group.len()).collect();
-        sort_by_stride(group, o, &mut v);
-        v
+fn choose(group: &[RoleAxis], carriers: &[OperandId; 2], order: &mut [usize]) {
+    let sorted = |o, order: &mut [usize]| {
+        // Reset ties to natural axis order before every stable sort.
+        for (i, axis) in order.iter_mut().enumerate() {
+            *axis = i;
+        }
+        sort_by_stride(group, o, order);
     };
-    let candidates: Vec<Vec<usize>> = carriers.iter().map(|&o| sorted(o)).collect();
-    let fits_all = |ord: &[usize]| carriers.iter().all(|&o| fuse(group, ord, o).is_some());
-    if let Some(c) = candidates.iter().find(|c| fits_all(c)) {
-        return c.clone();
+    for &o in carriers {
+        sorted(o, order);
+        if carriers.iter().all(|&o| fuse(group, order, o).is_some()) {
+            return;
+        }
     }
-    if let Some(c) = candidates
-        .iter()
-        .find(|c| fuse(group, c, carriers[0]).is_some())
-    {
-        return c.clone();
+    for &o in carriers {
+        sorted(o, order);
+        if fuse(group, order, carriers[0]).is_some() {
+            return;
+        }
     }
-    candidates.into_iter().next().unwrap_or_default()
+    sorted(carriers[0], order);
 }
 
 fn extent(group: &[RoleAxis]) -> Option<usize> {
@@ -172,21 +173,33 @@ pub(crate) fn orient(
 /// One group in a chosen order.
 struct Group<'p> {
     axes: &'p [RoleAxis],
-    order: Vec<usize>,
+    order: &'p [usize],
     extent: usize,
 }
 
 impl Group<'_> {
-    fn new<'p>(axes: &'p [RoleAxis], carriers: &[OperandId]) -> Option<Group<'p>> {
+    fn new<'p>(
+        axes: &'p [RoleAxis],
+        carriers: &[OperandId; 2],
+        order: &'p mut [usize],
+    ) -> Option<Group<'p>> {
+        let order = match axes.len() {
+            0 => &[],
+            1 => &[0][..],
+            _ => {
+                choose(axes, carriers, order);
+                &*order
+            }
+        };
         Some(Group {
             axes,
-            order: choose(axes, carriers),
+            order,
             extent: extent(axes)?,
         })
     }
 
     fn stride(&self, o: OperandId) -> Option<isize> {
-        fuse(self.axes, &self.order, o)
+        fuse(self.axes, self.order, o)
     }
 
     /// `(extent, stride in o)` of each axis, in order.
@@ -352,9 +365,15 @@ fn plan_impl<T: BlasScalar>(p: &Problem, allow_output_c: bool) -> Option<BlasSte
     let ca = c(p.a().op().is_conj()) != conj_d;
     let cb = c(p.b().op().is_conj()) != conj_d;
 
-    let m = Group::new(r.m(), &[D, A])?;
-    let n = Group::new(r.n(), &[D, B])?;
-    let k = Group::new(r.k(), &[A, B])?;
+    // One temporary order buffer, partitioned across groups; scalar axes need none.
+    let order_len = |axes: &[RoleAxis]| if axes.len() > 1 { axes.len() } else { 0 };
+    let (ml, nl, kl) = (order_len(r.m()), order_len(r.n()), order_len(r.k()));
+    let mut order = vec![0; ml + nl + kl];
+    let (mo, rest) = order.split_at_mut(ml);
+    let (no, ko) = rest.split_at_mut(nl);
+    let m = Group::new(r.m(), &[D, A], mo)?;
+    let n = Group::new(r.n(), &[D, B], no)?;
+    let k = Group::new(r.k(), &[A, B], ko)?;
     let h: Vec<RoleAxis> = r.h().iter().copied().filter(|x| x.extent() != 1).collect();
     let batch_items = extent(&h)?;
     let dim = |e: usize| i32::try_from(e).ok();
@@ -424,6 +443,9 @@ fn plan_impl<T: BlasScalar>(p: &Problem, allow_output_c: bool) -> Option<BlasSte
         work_len: work.len,
     })
 }
+
+#[cfg(test)]
+mod order_tests;
 
 #[cfg(test)]
 mod tests {

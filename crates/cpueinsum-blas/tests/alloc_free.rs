@@ -70,8 +70,90 @@ fn problem(b_strides: &[isize]) -> Problem {
     .unwrap()
 }
 
+// Planning must not add per-job order allocations on top of the native fallback (#52).
+fn vendor_plan_construction_reuses_group_order_storage() {
+    let config = PlanConfig::default();
+    let p = problem(&[1, 4]);
+    let native = measure(|| {
+        std::hint::black_box(cpueinsum::BinaryPlan::<f64>::new(&p, &config).unwrap());
+    });
+    let vendor = measure(|| {
+        std::hint::black_box(BinaryPlan::<f64>::new(&p, &config).unwrap());
+    });
+    println!("plan allocations: direct binary native={native}, vendor={vendor}");
+    let direct = (native, vendor);
+
+    let p = problem(&[2, 5]);
+    let native = measure(|| {
+        std::hint::black_box(cpueinsum::BinaryPlan::<f64>::new(&p, &config).unwrap());
+    });
+    let vendor = measure(|| {
+        std::hint::black_box(BinaryPlan::<f64>::new(&p, &config).unwrap());
+    });
+    println!("plan allocations: packed binary native={native}, vendor={vendor}");
+    let packed = (native, vendor);
+
+    let p = Problem::from_labels(
+        DType::F64,
+        operand(&[2, 2, 4], &[1, 2, 4]),
+        operand(&[4, 2, 2], &[1, 4, 8]),
+        CSpec::Absent,
+        operand(&[2, 2, 2, 2], &[1, 2, 4, 8]),
+        &Labels::new(&[0, 1, 4], &[4, 2, 3], &[0, 1, 2, 3]),
+    )
+    .unwrap();
+    let native = measure(|| {
+        std::hint::black_box(cpueinsum::BinaryPlan::<f64>::new(&p, &config).unwrap());
+    });
+    let vendor = measure(|| {
+        std::hint::black_box(BinaryPlan::<f64>::new(&p, &config).unwrap());
+    });
+    println!("plan allocations: multi-axis binary native={native}, vendor={vendor}");
+    let multi_axis = (native, vendor);
+    let mut groups = Vec::new();
+    for count in [0, 1, 5, 32] {
+        let jobs: Vec<_> = (0..count)
+            .map(|i| GroupedGemmJob::new(0, 0, i * 16, 4, 4, 4))
+            .collect();
+        let native = measure(|| {
+            std::hint::black_box(cpueinsum::GroupedPlan::<f64>::new(&jobs, &config).unwrap());
+        });
+        let vendor = measure(|| {
+            std::hint::black_box(GroupedPlan::<f64>::new(&jobs, &config).unwrap());
+        });
+        println!("plan allocations: grouped jobs={count}, native={native}, vendor={vendor}");
+        groups.push((count, native, vendor));
+    }
+    assert_eq!(
+        direct.1, direct.0,
+        "direct binary layout must allocate nothing"
+    );
+    assert_eq!(
+        packed.1,
+        packed.0 + 4,
+        "only the input packing metadata allocates"
+    );
+    assert_eq!(
+        multi_axis.1,
+        multi_axis.0 + 1,
+        "multi-axis groups share one order buffer"
+    );
+    for (count, native, vendor) in groups {
+        assert!(
+            native <= 2,
+            "native preparation remains constant in job count"
+        );
+        assert_eq!(
+            vendor,
+            native + usize::from(count != 0),
+            "only the single vendor job buffer may allocate: {count} jobs"
+        );
+    }
+}
+
 #[test]
 fn blas_vendor_steady_state_allocates_no_rust_memory() {
+    vendor_plan_construction_reuses_group_order_storage();
     let a: Vec<f64> = (0..16).map(|i| (i % 7) as f64).collect();
     // B with strides [2, 5]: no unit stride on either axis, so BLAS can read it
     // neither in place nor transposed and the plan-time CopyPlan packing path
