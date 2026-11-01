@@ -6,6 +6,9 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "CPU einsum over tcontract: integer labels, caller-supplied contraction order, BLAS through a separate backend crate"
+keywords = ["einsum", "tensor", "contraction", "blas", "cpu"]
+categories = ["algorithms", "mathematics", "science"]
+documentation = "https://docs.rs/cpueinsum"
 
 [dependencies]
 num-complex = { workspace = true }
