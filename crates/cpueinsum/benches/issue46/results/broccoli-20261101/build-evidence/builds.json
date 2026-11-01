@@ -1,0 +1,40 @@
+{
+  "baseline": {
+    "command": [
+      "nice",
+      "-n",
+      "5",
+      "cargo",
+      "bench",
+      "--locked",
+      "-p",
+      "cpueinsum",
+      "--bench",
+      "issue46_grouped",
+      "--no-run",
+      "-j8",
+      "--message-format=json"
+    ],
+    "source_sha256": "2c6e4a2c1fb65f9abf0121623ce3f0b33262bc9c9553f66c4f5da8b3f1673e5c",
+    "binary_sha256": "b902289983b61dabdc36784f88d053f9a3d886d41d263504e7316f436263494a"
+  },
+  "candidate": {
+    "command": [
+      "nice",
+      "-n",
+      "5",
+      "cargo",
+      "bench",
+      "--locked",
+      "-p",
+      "cpueinsum",
+      "--bench",
+      "issue46_grouped",
+      "--no-run",
+      "-j8",
+      "--message-format=json"
+    ],
+    "source_sha256": "794bac21d92372a82022da98a4b8682c8bcf78e400d224299af3c5fbdac125b9",
+    "binary_sha256": "cfc5578aa260b001146940601a08966e7b86b459d4f427b94a9b849c0a57a944"
+  }
+}

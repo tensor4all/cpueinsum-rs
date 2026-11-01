@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 import statistics
 import subprocess
+import tempfile
 import time
 
 HERE = Path(__file__).resolve().parent
@@ -154,16 +155,23 @@ def milliseconds(ns):
 def summarize(out):
     records = [json.loads(line) for line in (out / "raw.jsonl").read_text().splitlines()]
     cells = [r for r in records if r["event"] == "cell"]
-    hz = json.loads((out / "environment.json").read_text())["clock_ticks"]
+    environment = json.loads((out / "environment.json").read_text())
+    hz = environment["clock_ticks"]
+    cpu_note = []
+    for width, cpus in environment["cpu_sets"].items():
+        domains = sum(bool(set(cpus) & set(d)) for d in environment["domains"])
+        mask = f"{cpus[0]}-{cpus[-1]}" if len(cpus) > 1 and cpus == list(range(cpus[0], cpus[-1]+1)) else ",".join(map(str, cpus))
+        cpu_note.append(f"{width}T={mask}/{domains} L3")
     lines = ["# Same-library diagnostic (not official performance)", "",
              "All times are warm median ms (7 calls); ratios are exact fractions relative to the fastest of the five arms.",
              "CPU% includes waiting/spinning; it is not a measure of useful arithmetic. See raw windows for tick quantization.",
-             "Measured CPUs/L3 domains: 1T=0/1, 8T=0-7/2, 16T=0-15/4, 32T=0-31/8, 64T=0-63/16.",
-             "Observer=60-63; **64T: 観測側と共有 / reference only**. Sets are derived from environment.json.", "",
+             "Measured CPUs/L3 domains: " + "; ".join(cpu_note),
+             f"Observer={environment['observer']}; **64T: 観測側と共有 / reference only**. Sets are derived from environment.json.", "",
              "| Workload | Threads | Baseline Auto ms (relative) | Inner | Split2 | Split4 | Candidate Auto |",
              "|---|---:|---:|---:|---:|---:|---:|"]
     diagnostics = ["| Workload | T | Arm | Strategy | lanes × item threads | item Auto width | median CPU% | max/min time | lane MAC min–max |", "|---|---:|---|---|---|---:|---:|---:|---|"]
     summary = []
+    comparisons = []
     for w in WORKLOADS:
         for n in THREADS:
             samples = {}
@@ -181,7 +189,8 @@ def summarize(out):
                 item = {"workload": w, "threads": n, "arm": arm, "strategy": strategy,
                         "median_ns": mid, "min_ns": min(times), "max_ns": max(times),
                         "unstable": spread > Fraction(5, 4), "cpu_percent_exact": str(cpu),
-                        "samples_ns": times, "lanes": sorted({r["lanes"] for r in rows}),
+                        "samples_ns": times, "rounds": [r["round"] for r in good],
+                        "lanes": sorted({r["lanes"] for r in rows}),
                         "item_threads": sorted({r["item_threads"] for r in rows})}
                 summary.append(item)
                 samples[arm, strategy] = item
@@ -197,12 +206,33 @@ def summarize(out):
                     ratio = Fraction(value["median_ns"], best)
                     values.append(f"{milliseconds(value['median_ns'])} ({'1.00' if ratio == 1 else str(ratio)})" + (" UNSTABLE" if value["unstable"] else ""))
             lines.append(f"| {w} | {n}{'†' if n == 64 else ''} | " + " | ".join(values) + " |")
+            if all(samples.values()):
+                auto, inner, s2, s4, candidate = (samples[arm] for arm in ARMS)
+                assert all(v['rounds'] == list(range(7)) for v in samples.values())
+                ni = sum(Fraction(a, b) > Fraction(5, 4) for a, b in zip(auto['samples_ns'], inner['samples_ns']))
+                ns = sum(Fraction(a, min(b, c)) > Fraction(5, 4) for a, b, c in zip(auto['samples_ns'], s2['samples_ns'], s4['samples_ns']))
+                ratio_i = Fraction(auto['median_ns'], inner['median_ns'])
+                ratio_s = Fraction(auto['median_ns'], min(s2['median_ns'], s4['median_ns']))
+                comparisons.append({'workload': w, 'threads': n, 'auto_over_inner': str(ratio_i),
+                    'auto_over_best_split': str(ratio_s), 'auto_slower_inner_pairs': ni,
+                    'auto_slower_best_split_pairs': ns,
+                    'candidate_over_auto': str(Fraction(candidate['median_ns'], auto['median_ns'])),
+                    'candidate_slower_10pct_pairs': sum(Fraction(c, a) > Fraction(11, 10) for c, a in zip(candidate['samples_ns'], auto['samples_ns'])),
+                    'candidate_or_auto_unstable': candidate['unstable'] or auto['unstable'],
+                    'reproduction_gate': n in (8,16,32) and ratio_i > Fraction(5,4) and ratio_s > Fraction(5,4) and ni >= 6 and ns >= 6})
     failures = [{k: v for k, v in r.items() if k not in ("before", "after")} for r in cells if "row" not in r or "error" in r]
     guards = [{"event": r["event"], "round": r["round"], "busy_fraction": r["idle"]["busy_fraction"]} for r in records if "idle" in r]
+    lines += ["", "## Paired direction (thresholds from PROTOCOL.md)", "",
+        "| Workload | T | Auto/Inner | Auto/best Split | pairs >1.25 Inner | pairs >1.25 best Split | candidate/Auto | candidate >1.10 Auto pairs |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|"]
+    lines += [f"| {r['workload']} | {r['threads']} | {r['auto_over_inner']} | {r['auto_over_best_split']} | {r['auto_slower_inner_pairs']}/7 | {r['auto_slower_best_split_pairs']}/7 | {r['candidate_over_auto']} | {r['candidate_slower_10pct_pairs']}/7 |" for r in comparisons]
     lines += ["", "## Scheduler / CPU diagnostics (exact fractions)", ""] + diagnostics
     lines += ["", f"Failed/incomplete executions: {len(failures)}", "", "## Idle windows", "", "```json", json.dumps(guards, indent=2), "```", ""]
     (out / "tables.md").write_text("\n".join(lines))
-    (out / "summary.json").write_text(json.dumps({"cells": summary, "failures": failures, "idle": guards}, indent=2) + "\n")
+    gates = [r['threads'] for r in comparisons if r['workload'] == 'A' and r['reproduction_gate']]
+    (out / "summary.json").write_text(json.dumps({"cells": summary, "comparisons": comparisons,
+        "reproduction_widths": gates, "large_job_reproduced": len(gates) >= 2,
+        "failures": failures, "idle": guards}, indent=2) + "\n")
 
 
 def self_test():
@@ -211,7 +241,27 @@ def self_test():
     assert milliseconds(0) == "0.000000"
     assert Fraction(statistics.median([3, 1, 4, 5, 2]), 2) == Fraction(3, 2)
     assert len(set(ARMS)) == 5 and len(WORKLOADS) * len(THREADS) * len(ARMS) * 7 == 875
-    print("recorder self-check passed")
+    with tempfile.TemporaryDirectory() as tmp:
+        out = Path(tmp)
+        (out / "environment.json").write_text(json.dumps({"clock_ticks": 100,
+            "cpu_sets": {"1": [0]}, "domains": [[0]], "observer": [1]}))
+        records = [{"event": "cell", "round": i, "workload": "A", "threads": 1,
+            "arm": "baseline", "strategy": "Auto", "row": {"wall_ns": t,
+            "cpu_ticks": 1, "cpu_wall_ns": 10000000, "lanes": 1, "item_threads": 1,
+            "item_auto_width": 1, "lane_min_macs": 1, "lane_max_macs": 1}}
+            for i,t in enumerate([7, 6, 5, 4, 3, 2, 1])]
+        (out / "raw.jsonl").write_text("".join(json.dumps(r)+"\n" for r in records))
+        summarize(out)
+        result = json.loads((out / "summary.json").read_text())["cells"][0]
+        assert result["median_ns"] == 4 and result["unstable"]
+        assert result["cpu_percent_exact"] == "100"
+        records[-1]["error"] = "synthetic failed condition"
+        (out / "raw.jsonl").write_text("".join(json.dumps(r)+"\n" for r in records))
+        summarize(out)
+        result = json.loads((out / "summary.json").read_text())
+        assert not result["cells"] and len(result["failures"]) == 1
+        assert "FAILED / incomplete" in (out / "tables.md").read_text()
+    print("recorder self-check passed (aggregation, exact units, failures)")
 
 
 if __name__ == "__main__":

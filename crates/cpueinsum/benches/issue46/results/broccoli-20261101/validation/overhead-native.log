@@ -1,0 +1,12 @@
+    Finished `bench` profile [optimized] target(s) in 0.07s
+     Running benches/overhead_smoke.rs (target/release/deps/overhead_smoke-9cbfd763031fa645)
+id  case                    ns/op       gate
+C1  accumulate/uninit n=2          1.0  ratio 1.013 <= 1.5 ok
+C1  accumulate/uninit n=4          1.0  ratio 1.024 <= 1.5 ok
+C1  accumulate/uninit n=16         1.1  ratio 1.055 <= 1.5 ok
+C3  prepared binary n=2         183.4  report
+C3  prepared binary n=4         229.6  report
+C4  binary n=8                  292.7  report
+C4  grouped n=8                 422.2  report (ratio 1.442)
+C4  binary n=16                 757.1  report
+C4  grouped n=16                868.8  report (ratio 1.148)

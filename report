@@ -1,3 +1,7 @@
 # Issue #46 diagnostic progress (UTC)
 2026-10-31T23:51:00Z | 条件: broccoli Zen 2、複数L3/64T観測共有を承認、nice 5/-j8、観測60-63 | 結果: issue全文とAuto/Inner/Split/faer_autoを確認、測定未開始 | 次: ベンチと事前プロトコル、診断用試作の独立レビュー
 2026-11-01T00:03:00Z | 条件: f64/faer、保持Team必須（plain tokenは内部並列しない）、観測60-63 | 結果: ベンチのrelease buildとfocused clippy、recorder self-check成功、性能測定未開始 | 次: 事前レビューを反映しbaseline/candidateを比較
+2026-11-01T00:18:50.446296+00:00 | 条件: nice5, 7-round interleaved, 観測[60, 61, 62, 63] | 結果: round=6 B/32T/candidate/Auto, 完了セルはraw.jsonlに保持 | 次: 残り全条件→集計（選別再試行なし）
+2026-11-01T00:21:00Z | 条件: 875実行、7-round interleaved、64T観測共有 | 結果: 失敗0、AでAutoの2lane×1threadを再現、Bの試作は同じouter、Cの最大job一括Inner試作は悪化、外れ値も全保持 | 次: 厳密集計・原因/限界記述・全ローカルgate・事後レビュー
+2026-11-01T00:31:30Z | 条件: source/lock不変・raw 875件/125中央値を独立照合 | 結果: 再現gateは8/32T、16T/64TのtailとCPU6のidle warning保持、fmt/clippy/debug+release全workspace/doctest/rustdoc/MSRV/1T overhead成功 | 次: 事後独立レビュー、最終commit+push、マージなしPR
+2026-11-01T00:38:00Z | 条件: gpt-6.1-sol事後レビュー完了（read-only） | 結果: blocker/importantなし、1T lane表現のminor修正、production変更なし、準備中のreport間隔が一部10分超だったことも明記 | 次: 証拠を最終commitし一度push、判断用PR作成（マージしない）

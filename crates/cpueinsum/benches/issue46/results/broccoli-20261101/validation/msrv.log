@@ -1,0 +1,8 @@
+   Compiling tcontract-kernel v0.3.0 (https://github.com/tensor4all/tcontract-rs.git?rev=625ed7a7124beb9537660b607c3c453d822d4dc8#625ed7a7)
+   Compiling tcontract v0.9.0 (https://github.com/tensor4all/tcontract-rs.git?rev=625ed7a7124beb9537660b607c3c453d822d4dc8#625ed7a7)
+   Compiling cpueinsum v0.9.0 (/home/shinaoka/projects/tensor4all/cpueinsum-rs/crates/cpueinsum)
+   Compiling tcontract-capi v0.1.0 (https://github.com/tensor4all/tcontract-rs.git?rev=625ed7a7124beb9537660b607c3c453d822d4dc8#625ed7a7)
+   Compiling cpueinsum-blas v0.9.0 (/home/shinaoka/projects/tensor4all/cpueinsum-rs/crates/cpueinsum-blas)
+   Compiling cpueinsum-capi v0.5.0 (/home/shinaoka/projects/tensor4all/cpueinsum-rs/crates/cpueinsum-capi)
+   Compiling cpueinsum-bench v0.5.0 (/home/shinaoka/projects/tensor4all/cpueinsum-rs/crates/cpueinsum-bench)
+    Finished `dev` profile [unoptimized] target(s) in 7.92s

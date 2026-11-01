@@ -19,4 +19,25 @@ Completed report:
   discussion, broader source. Results inform #46, not establish its end-to-end
   resolution.
 
-Post-review is recorded below after the measured artifacts are complete.
+## Post-review (openai/gpt-6.1-sol, completed 2026-11-01)
+
+A fresh synchronous read-only consultation covered the complete 667-line
+implementation diff, protocol, results narrative, generated tables, current
+production scheduler/callers, resolved faer/batch rule, build identities and
+finish metadata, and selected environment/evidence ranges. The reviewer did
+not exhaust the raw JSONL, evidence extract, validation logs, or issue history;
+parent checks independently verified all 875 observations / 125 medians and
+binary/source identities.
+
+Completed findings and verdicts:
+- MINOR: RESULTS.md's "all widths have 2 lanes" included 1T, whose recorded
+  route is (1,1). Fixed the text to 8–64T and named the 1T exception. No code or
+  measurement change and no rerun needed.
+- No BLOCKER/IMPORTANT findings. Execution/identity, exact statistics, failure
+  and noise handling, attribution/non-regression qualifications, and provenance
+  passed the requested review scope.
+- Acceptable diagnostic deliverable, not justification for production adoption.
+  Existing dependency-documentation drift is accurately disclosed.
+- Delete list: none; harness, recorder, reversible patch and evidence serve the
+  bounded request. No external kernel code import or new dependency found.
+- The reviewer ran no builds/writes; local gate evidence is the parent's.
