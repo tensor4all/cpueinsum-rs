@@ -1,0 +1,4759 @@
+{
+  "cells": [
+    {
+      "workload": "A",
+      "threads": 1,
+      "arm": "baseline",
+      "strategy": "Auto",
+      "median_ns": 37762516,
+      "min_ns": 37696610,
+      "max_ns": 38099086,
+      "unstable": false,
+      "cpu_percent_exact": "13000000000/132119133",
+      "samples_ns": [
+        37762516,
+        37742114,
+        37885576,
+        38099086,
+        37696610,
+        37751282,
+        37770711
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        1
+      ],
+      "item_threads": [
+        1
+      ]
+    },
+    {
+      "workload": "A",
+      "threads": 1,
+      "arm": "baseline",
+      "strategy": "Inner",
+      "median_ns": 37703661,
+      "min_ns": 37527548,
+      "max_ns": 38169328,
+      "unstable": false,
+      "cpu_percent_exact": "13500000000/133225349",
+      "samples_ns": [
+        37744246,
+        37679373,
+        37527548,
+        38169328,
+        37703661,
+        37630099,
+        38104219
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        1
+      ],
+      "item_threads": [
+        1
+      ]
+    },
+    {
+      "workload": "A",
+      "threads": 1,
+      "arm": "baseline",
+      "strategy": "Split2",
+      "median_ns": 37685302,
+      "min_ns": 37586742,
+      "max_ns": 37798662,
+      "unstable": false,
+      "cpu_percent_exact": "400000000/4054847",
+      "samples_ns": [
+        37663695,
+        37586742,
+        37685302,
+        37694617,
+        37666600,
+        37725151,
+        37798662
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        1
+      ],
+      "item_threads": [
+        1
+      ]
+    },
+    {
+      "workload": "A",
+      "threads": 1,
+      "arm": "baseline",
+      "strategy": "Split4",
+      "median_ns": 37769106,
+      "min_ns": 37621229,
+      "max_ns": 37896631,
+      "unstable": false,
+      "cpu_percent_exact": "13000000000/131646851",
+      "samples_ns": [
+        37769106,
+        37749775,
+        37778844,
+        37896631,
+        37690220,
+        37621229,
+        37857923
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        1
+      ],
+      "item_threads": [
+        1
+      ]
+    },
+    {
+      "workload": "A",
+      "threads": 1,
+      "arm": "candidate",
+      "strategy": "Auto",
+      "median_ns": 37755842,
+      "min_ns": 37588739,
+      "max_ns": 38105423,
+      "unstable": false,
+      "cpu_percent_exact": "13500000000/133270259",
+      "samples_ns": [
+        38105423,
+        38006219,
+        37954367,
+        37662476,
+        37755842,
+        37588739,
+        37738740
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        1
+      ],
+      "item_threads": [
+        1
+      ]
+    },
+    {
+      "workload": "A",
+      "threads": 8,
+      "arm": "baseline",
+      "strategy": "Auto",
+      "median_ns": 18703377,
+      "min_ns": 18630705,
+      "max_ns": 18827523,
+      "unstable": false,
+      "cpu_percent_exact": "6500000000/32657051",
+      "samples_ns": [
+        18717481,
+        18802086,
+        18641432,
+        18827523,
+        18630705,
+        18696372,
+        18703377
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        2
+      ],
+      "item_threads": [
+        1
+      ]
+    },
+    {
+      "workload": "A",
+      "threads": 8,
+      "arm": "baseline",
+      "strategy": "Inner",
+      "median_ns": 6292221,
+      "min_ns": 6103791,
+      "max_ns": 6315104,
+      "unstable": false,
+      "cpu_percent_exact": "100500000000/125402591",
+      "samples_ns": [
+        6293520,
+        6103791,
+        6315104,
+        6254463,
+        6302316,
+        6212607,
+        6292221
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        1
+      ],
+      "item_threads": [
+        8
+      ]
+    },
+    {
+      "workload": "A",
+      "threads": 8,
+      "arm": "baseline",
+      "strategy": "Split2",
+      "median_ns": 6110786,
+      "min_ns": 5997668,
+      "max_ns": 6373913,
+      "unstable": false,
+      "cpu_percent_exact": "100500000000/125663707",
+      "samples_ns": [
+        6333832,
+        6057540,
+        6373913,
+        5997668,
+        6046732,
+        6277498,
+        6110786
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        2
+      ],
+      "item_threads": [
+        4
+      ]
+    },
+    {
+      "workload": "A",
+      "threads": 8,
+      "arm": "baseline",
+      "strategy": "Split4",
+      "median_ns": 6034491,
+      "min_ns": 5015042,
+      "max_ns": 6273607,
+      "unstable": true,
+      "cpu_percent_exact": "40800000000/51121997",
+      "samples_ns": [
+        5093898,
+        6034491,
+        6003106,
+        6051690,
+        6273607,
+        6108235,
+        5015042
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        2
+      ],
+      "item_threads": [
+        4
+      ]
+    },
+    {
+      "workload": "A",
+      "threads": 8,
+      "arm": "candidate",
+      "strategy": "Auto",
+      "median_ns": 6270745,
+      "min_ns": 5946960,
+      "max_ns": 6289659,
+      "unstable": false,
+      "cpu_percent_exact": "201000000000/251763461",
+      "samples_ns": [
+        6216850,
+        6270745,
+        6175290,
+        6279965,
+        5946960,
+        6289659,
+        6281720
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        1
+      ],
+      "item_threads": [
+        8
+      ]
+    },
+    {
+      "workload": "A",
+      "threads": 16,
+      "arm": "baseline",
+      "strategy": "Auto",
+      "median_ns": 18768603,
+      "min_ns": 18660384,
+      "max_ns": 18938055,
+      "unstable": false,
+      "cpu_percent_exact": "5200000000/26135123",
+      "samples_ns": [
+        18938055,
+        18751754,
+        18660384,
+        18768603,
+        18811040,
+        18786784,
+        18761777
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        2
+      ],
+      "item_threads": [
+        1
+      ]
+    },
+    {
+      "workload": "A",
+      "threads": 16,
+      "arm": "baseline",
+      "strategy": "Inner",
+      "median_ns": 3411393,
+      "min_ns": 3233202,
+      "max_ns": 15999759,
+      "unstable": true,
+      "cpu_percent_exact": "100750000000/62964801",
+      "samples_ns": [
+        3408786,
+        3387668,
+        15999759,
+        3411393,
+        3424175,
+        15998853,
+        3233202
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        1
+      ],
+      "item_threads": [
+        16
+      ]
+    },
+    {
+      "workload": "A",
+      "threads": 16,
+      "arm": "baseline",
+      "strategy": "Split2",
+      "median_ns": 3379124,
+      "min_ns": 3301021,
+      "max_ns": 11999097,
+      "unstable": true,
+      "cpu_percent_exact": "24812500000/15633777",
+      "samples_ns": [
+        3312224,
+        3317296,
+        11999097,
+        3380972,
+        3301021,
+        3379124,
+        7983698
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        2
+      ],
+      "item_threads": [
+        8
+      ]
+    },
+    {
+      "workload": "A",
+      "threads": 16,
+      "arm": "baseline",
+      "strategy": "Split4",
+      "median_ns": 3387705,
+      "min_ns": 3161581,
+      "max_ns": 7998707,
+      "unstable": true,
+      "cpu_percent_exact": "40300000000/25276857",
+      "samples_ns": [
+        3161581,
+        3388668,
+        3331909,
+        3319341,
+        7985264,
+        7998707,
+        3387705
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        2
+      ],
+      "item_threads": [
+        8
+      ]
+    },
+    {
+      "workload": "A",
+      "threads": 16,
+      "arm": "candidate",
+      "strategy": "Auto",
+      "median_ns": 3345274,
+      "min_ns": 3210879,
+      "max_ns": 3447256,
+      "unstable": false,
+      "cpu_percent_exact": "50375000000/31451579",
+      "samples_ns": [
+        3447256,
+        3380788,
+        3229986,
+        3248340,
+        3210879,
+        3345274,
+        3424697
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        1
+      ],
+      "item_threads": [
+        16
+      ]
+    },
+    {
+      "workload": "A",
+      "threads": 32,
+      "arm": "baseline",
+      "strategy": "Auto",
+      "median_ns": 18765875,
+      "min_ns": 18691080,
+      "max_ns": 18871011,
+      "unstable": false,
+      "cpu_percent_exact": "53000000000/264202103",
+      "samples_ns": [
+        18691080,
+        18765875,
+        18857118,
+        18695804,
+        18871011,
+        18691842,
+        18823739
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        2
+      ],
+      "item_threads": [
+        1
+      ]
+    },
+    {
+      "workload": "A",
+      "threads": 32,
+      "arm": "baseline",
+      "strategy": "Inner",
+      "median_ns": 2297128,
+      "min_ns": 2095266,
+      "max_ns": 2332088,
+      "unstable": false,
+      "cpu_percent_exact": "26000000000/8123237",
+      "samples_ns": [
+        2284474,
+        2309147,
+        2332088,
+        2297128,
+        2095266,
+        2319462,
+        2296752
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        1
+      ],
+      "item_threads": [
+        32
+      ]
+    },
+    {
+      "workload": "A",
+      "threads": 32,
+      "arm": "baseline",
+      "strategy": "Split2",
+      "median_ns": 2158087,
+      "min_ns": 1841610,
+      "max_ns": 7998438,
+      "unstable": true,
+      "cpu_percent_exact": "99250000000/31273059",
+      "samples_ns": [
+        2195352,
+        2114142,
+        2193515,
+        1957052,
+        1841610,
+        2158087,
+        7998438
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        2
+      ],
+      "item_threads": [
+        16
+      ]
+    },
+    {
+      "workload": "A",
+      "threads": 32,
+      "arm": "baseline",
+      "strategy": "Split4",
+      "median_ns": 2114144,
+      "min_ns": 1887497,
+      "max_ns": 2206349,
+      "unstable": false,
+      "cpu_percent_exact": "806000000000/250417261",
+      "samples_ns": [
+        1887497,
+        2203364,
+        2189035,
+        2114144,
+        2085055,
+        2206349,
+        1922753
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        2
+      ],
+      "item_threads": [
+        16
+      ]
+    },
+    {
+      "workload": "A",
+      "threads": 32,
+      "arm": "candidate",
+      "strategy": "Auto",
+      "median_ns": 2247198,
+      "min_ns": 2078921,
+      "max_ns": 16187343,
+      "unstable": true,
+      "cpu_percent_exact": "397000000000/125184221",
+      "samples_ns": [
+        2094421,
+        2078921,
+        16187343,
+        2270638,
+        2247198,
+        2206679,
+        2268111
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        1
+      ],
+      "item_threads": [
+        32
+      ]
+    },
+    {
+      "workload": "A",
+      "threads": 64,
+      "arm": "baseline",
+      "strategy": "Auto",
+      "median_ns": 18740102,
+      "min_ns": 18671474,
+      "max_ns": 19343365,
+      "unstable": false,
+      "cpu_percent_exact": "2120000000/10522771",
+      "samples_ns": [
+        18740102,
+        19155674,
+        18706144,
+        18671474,
+        19343365,
+        19055651,
+        18732968
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        2
+      ],
+      "item_threads": [
+        1
+      ]
+    },
+    {
+      "workload": "A",
+      "threads": 64,
+      "arm": "baseline",
+      "strategy": "Inner",
+      "median_ns": 1633642,
+      "min_ns": 1614075,
+      "max_ns": 15939659,
+      "unstable": true,
+      "cpu_percent_exact": "806000000000/125640071",
+      "samples_ns": [
+        1633642,
+        15939659,
+        5298650,
+        1637045,
+        1614075,
+        1624765,
+        1617386
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        1
+      ],
+      "item_threads": [
+        64
+      ]
+    },
+    {
+      "workload": "A",
+      "threads": 64,
+      "arm": "baseline",
+      "strategy": "Split2",
+      "median_ns": 1724117,
+      "min_ns": 1548811,
+      "max_ns": 5757021,
+      "unstable": true,
+      "cpu_percent_exact": "1610000000000/251544259",
+      "samples_ns": [
+        1777724,
+        1548811,
+        1760606,
+        5757021,
+        1548814,
+        1724117,
+        1715648
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        2
+      ],
+      "item_threads": [
+        32
+      ]
+    },
+    {
+      "workload": "A",
+      "threads": 64,
+      "arm": "baseline",
+      "strategy": "Split4",
+      "median_ns": 1579182,
+      "min_ns": 1495781,
+      "max_ns": 12379605,
+      "unstable": true,
+      "cpu_percent_exact": "49562500000/7817403",
+      "samples_ns": [
+        1705153,
+        1579182,
+        12379605,
+        1495781,
+        1545813,
+        1564724,
+        1720138
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        2
+      ],
+      "item_threads": [
+        32
+      ]
+    },
+    {
+      "workload": "A",
+      "threads": 64,
+      "arm": "candidate",
+      "strategy": "Auto",
+      "median_ns": 1643055,
+      "min_ns": 1616212,
+      "max_ns": 19411902,
+      "unstable": true,
+      "cpu_percent_exact": "806000000000/125812561",
+      "samples_ns": [
+        1616212,
+        1831596,
+        1623274,
+        1620884,
+        1643055,
+        1825781,
+        19411902
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        1
+      ],
+      "item_threads": [
+        64
+      ]
+    },
+    {
+      "workload": "B",
+      "threads": 1,
+      "arm": "baseline",
+      "strategy": "Auto",
+      "median_ns": 82032137,
+      "min_ns": 79161180,
+      "max_ns": 84929824,
+      "unstable": false,
+      "cpu_percent_exact": "11000000000/108466997",
+      "samples_ns": [
+        82032137,
+        82357112,
+        79161180,
+        81271885,
+        84929824,
+        81044989,
+        84202348
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        1
+      ],
+      "item_threads": [
+        1
+      ]
+    },
+    {
+      "workload": "B",
+      "threads": 1,
+      "arm": "baseline",
+      "strategy": "Inner",
+      "median_ns": 81531980,
+      "min_ns": 79141550,
+      "max_ns": 83862774,
+      "unstable": false,
+      "cpu_percent_exact": "500000000/5001027",
+      "samples_ns": [
+        83862774,
+        80980753,
+        82414048,
+        81531980,
+        79141550,
+        81251803,
+        82625803
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        1
+      ],
+      "item_threads": [
+        1
+      ]
+    },
+    {
+      "workload": "B",
+      "threads": 1,
+      "arm": "baseline",
+      "strategy": "Split2",
+      "median_ns": 79347115,
+      "min_ns": 76200922,
+      "max_ns": 81874897,
+      "unstable": false,
+      "cpu_percent_exact": "6400000000/63516899",
+      "samples_ns": [
+        81094820,
+        77480703,
+        79347115,
+        81874897,
+        76700428,
+        76200922,
+        80286021
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        1
+      ],
+      "item_threads": [
+        1
+      ]
+    },
+    {
+      "workload": "B",
+      "threads": 1,
+      "arm": "baseline",
+      "strategy": "Split4",
+      "median_ns": 78653560,
+      "min_ns": 76074535,
+      "max_ns": 82320646,
+      "unstable": false,
+      "cpu_percent_exact": "242187500/2388627",
+      "samples_ns": [
+        81038370,
+        76074535,
+        79738565,
+        82320646,
+        78653560,
+        78287148,
+        78578913
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        1
+      ],
+      "item_threads": [
+        1
+      ]
+    },
+    {
+      "workload": "B",
+      "threads": 1,
+      "arm": "candidate",
+      "strategy": "Auto",
+      "median_ns": 81386045,
+      "min_ns": 75141525,
+      "max_ns": 83168116,
+      "unstable": false,
+      "cpu_percent_exact": "484375000/4816057",
+      "samples_ns": [
+        76215687,
+        81522482,
+        83168116,
+        81386045,
+        75141525,
+        82352155,
+        77544740
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        1
+      ],
+      "item_threads": [
+        1
+      ]
+    },
+    {
+      "workload": "B",
+      "threads": 8,
+      "arm": "baseline",
+      "strategy": "Auto",
+      "median_ns": 13721554,
+      "min_ns": 13353088,
+      "max_ns": 14988711,
+      "unstable": false,
+      "cpu_percent_exact": "51000000000/63802781",
+      "samples_ns": [
+        14988711,
+        13353088,
+        13411347,
+        13552716,
+        13721554,
+        14911895,
+        14943080
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        8
+      ],
+      "item_threads": [
+        1
+      ]
+    },
+    {
+      "workload": "B",
+      "threads": 8,
+      "arm": "baseline",
+      "strategy": "Inner",
+      "median_ns": 78714975,
+      "min_ns": 74562089,
+      "max_ns": 81813886,
+      "unstable": false,
+      "cpu_percent_exact": "15500000000/157690231",
+      "samples_ns": [
+        75258190,
+        74562089,
+        78714975,
+        79544260,
+        79004869,
+        81813886,
+        75940667
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        1
+      ],
+      "item_threads": [
+        8
+      ]
+    },
+    {
+      "workload": "B",
+      "threads": 8,
+      "arm": "baseline",
+      "strategy": "Split2",
+      "median_ns": 40435659,
+      "min_ns": 39243802,
+      "max_ns": 42355804,
+      "unstable": false,
+      "cpu_percent_exact": "1000000000/5016411",
+      "samples_ns": [
+        39243802,
+        41762299,
+        40448975,
+        39892723,
+        40435659,
+        42355804,
+        39760668
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        2
+      ],
+      "item_threads": [
+        4
+      ]
+    },
+    {
+      "workload": "B",
+      "threads": 8,
+      "arm": "baseline",
+      "strategy": "Split4",
+      "median_ns": 20484753,
+      "min_ns": 20285603,
+      "max_ns": 22205619,
+      "unstable": false,
+      "cpu_percent_exact": "21400000000/53723741",
+      "samples_ns": [
+        20379757,
+        20683395,
+        22205619,
+        21888872,
+        20465800,
+        20285603,
+        20484753
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        4
+      ],
+      "item_threads": [
+        2
+      ]
+    },
+    {
+      "workload": "B",
+      "threads": 8,
+      "arm": "candidate",
+      "strategy": "Auto",
+      "median_ns": 14260238,
+      "min_ns": 13323737,
+      "max_ns": 15407681,
+      "unstable": false,
+      "cpu_percent_exact": "102500000000/127817493",
+      "samples_ns": [
+        14260238,
+        13323737,
+        15101272,
+        14993667,
+        15407681,
+        13437413,
+        13402806
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        8
+      ],
+      "item_threads": [
+        1
+      ]
+    },
+    {
+      "workload": "B",
+      "threads": 16,
+      "arm": "baseline",
+      "strategy": "Auto",
+      "median_ns": 8094323,
+      "min_ns": 7412393,
+      "max_ns": 8282435,
+      "unstable": false,
+      "cpu_percent_exact": "403000000000/252151143",
+      "samples_ns": [
+        8159688,
+        8094323,
+        7412393,
+        8282435,
+        8220817,
+        7538514,
+        7760422
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        16
+      ],
+      "item_threads": [
+        1
+      ]
+    },
+    {
+      "workload": "B",
+      "threads": 16,
+      "arm": "baseline",
+      "strategy": "Inner",
+      "median_ns": 75889484,
+      "min_ns": 73376373,
+      "max_ns": 80243566,
+      "unstable": false,
+      "cpu_percent_exact": "7500000000/74885747",
+      "samples_ns": [
+        74281314,
+        76261155,
+        76368978,
+        75889484,
+        80243566,
+        73376373,
+        74426556
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        1
+      ],
+      "item_threads": [
+        16
+      ]
+    },
+    {
+      "workload": "B",
+      "threads": 16,
+      "arm": "baseline",
+      "strategy": "Split2",
+      "median_ns": 41717611,
+      "min_ns": 39143852,
+      "max_ns": 43564882,
+      "unstable": false,
+      "cpu_percent_exact": "5000000000/25172461",
+      "samples_ns": [
+        41717611,
+        39681168,
+        42252934,
+        43564882,
+        39143852,
+        39267517,
+        42172002
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        2
+      ],
+      "item_threads": [
+        8
+      ]
+    },
+    {
+      "workload": "B",
+      "threads": 16,
+      "arm": "baseline",
+      "strategy": "Split4",
+      "median_ns": 21896236,
+      "min_ns": 19874900,
+      "max_ns": 22536682,
+      "unstable": false,
+      "cpu_percent_exact": "10600000000/26458191",
+      "samples_ns": [
+        21896236,
+        21992042,
+        22038346,
+        19874900,
+        20292606,
+        22536682,
+        20284458
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        4
+      ],
+      "item_threads": [
+        4
+      ]
+    },
+    {
+      "workload": "B",
+      "threads": 16,
+      "arm": "candidate",
+      "strategy": "Auto",
+      "median_ns": 8129740,
+      "min_ns": 7474601,
+      "max_ns": 8752710,
+      "unstable": false,
+      "cpu_percent_exact": "204500000000/127210733",
+      "samples_ns": [
+        8752710,
+        7474601,
+        7640298,
+        7552320,
+        8244767,
+        8265551,
+        8129740
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        16
+      ],
+      "item_threads": [
+        1
+      ]
+    },
+    {
+      "workload": "B",
+      "threads": 32,
+      "arm": "baseline",
+      "strategy": "Auto",
+      "median_ns": 5122222,
+      "min_ns": 4669921,
+      "max_ns": 5184380,
+      "unstable": false,
+      "cpu_percent_exact": "806000000000/251277747",
+      "samples_ns": [
+        4669921,
+        4878538,
+        5154647,
+        5184380,
+        4880045,
+        5122222,
+        5133553
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        32
+      ],
+      "item_threads": [
+        1
+      ]
+    },
+    {
+      "workload": "B",
+      "threads": 32,
+      "arm": "baseline",
+      "strategy": "Inner",
+      "median_ns": 78413439,
+      "min_ns": 76438682,
+      "max_ns": 82638911,
+      "unstable": false,
+      "cpu_percent_exact": "968750000/9657787",
+      "samples_ns": [
+        82638911,
+        77231726,
+        76438682,
+        76709623,
+        78413439,
+        80626783,
+        80989972
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        1
+      ],
+      "item_threads": [
+        32
+      ]
+    },
+    {
+      "workload": "B",
+      "threads": 32,
+      "arm": "baseline",
+      "strategy": "Split2",
+      "median_ns": 41595409,
+      "min_ns": 39041462,
+      "max_ns": 42846214,
+      "unstable": false,
+      "cpu_percent_exact": "8500000000/42267217",
+      "samples_ns": [
+        39041462,
+        42846214,
+        42432239,
+        42250774,
+        39388039,
+        41595409,
+        40033296
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        2
+      ],
+      "item_threads": [
+        16
+      ]
+    },
+    {
+      "workload": "B",
+      "threads": 32,
+      "arm": "baseline",
+      "strategy": "Split4",
+      "median_ns": 21989733,
+      "min_ns": 20664483,
+      "max_ns": 22590226,
+      "unstable": false,
+      "cpu_percent_exact": "107000000000/267099803",
+      "samples_ns": [
+        20664483,
+        22590226,
+        22367974,
+        22057607,
+        21989733,
+        20737013,
+        21874994
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        4
+      ],
+      "item_threads": [
+        8
+      ]
+    },
+    {
+      "workload": "B",
+      "threads": 32,
+      "arm": "candidate",
+      "strategy": "Auto",
+      "median_ns": 5140943,
+      "min_ns": 4820046,
+      "max_ns": 5543660,
+      "unstable": false,
+      "cpu_percent_exact": "100875000000/31466197",
+      "samples_ns": [
+        4831815,
+        5140943,
+        5388971,
+        5135949,
+        5543660,
+        4820046,
+        5221465
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        32
+      ],
+      "item_threads": [
+        1
+      ]
+    },
+    {
+      "workload": "B",
+      "threads": 64,
+      "arm": "baseline",
+      "strategy": "Auto",
+      "median_ns": 4180132,
+      "min_ns": 4126339,
+      "max_ns": 13098256,
+      "unstable": true,
+      "cpu_percent_exact": "1610000000000/252784557",
+      "samples_ns": [
+        13098256,
+        4150564,
+        4193117,
+        4132097,
+        4126339,
+        4202862,
+        4180132
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        64
+      ],
+      "item_threads": [
+        1
+      ]
+    },
+    {
+      "workload": "B",
+      "threads": 64,
+      "arm": "baseline",
+      "strategy": "Inner",
+      "median_ns": 77910465,
+      "min_ns": 74298552,
+      "max_ns": 79808221,
+      "unstable": false,
+      "cpu_percent_exact": "1937500000/19488373",
+      "samples_ns": [
+        74298552,
+        79808221,
+        77121829,
+        78497393,
+        79638888,
+        77910465,
+        74652422
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        1
+      ],
+      "item_threads": [
+        64
+      ]
+    },
+    {
+      "workload": "B",
+      "threads": 64,
+      "arm": "baseline",
+      "strategy": "Split2",
+      "median_ns": 39665833,
+      "min_ns": 39471341,
+      "max_ns": 42722555,
+      "unstable": false,
+      "cpu_percent_exact": "17000000000/85141801",
+      "samples_ns": [
+        39471341,
+        39622991,
+        39665833,
+        42722555,
+        40846950,
+        41458897,
+        39644898
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        2
+      ],
+      "item_threads": [
+        32
+      ]
+    },
+    {
+      "workload": "B",
+      "threads": 64,
+      "arm": "baseline",
+      "strategy": "Split4",
+      "median_ns": 22124623,
+      "min_ns": 20939994,
+      "max_ns": 22915397,
+      "unstable": false,
+      "cpu_percent_exact": "41406250/103157",
+      "samples_ns": [
+        22124623,
+        22137127,
+        21094157,
+        20939994,
+        21436802,
+        22511493,
+        22915397
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        4
+      ],
+      "item_threads": [
+        16
+      ]
+    },
+    {
+      "workload": "B",
+      "threads": 64,
+      "arm": "candidate",
+      "strategy": "Auto",
+      "median_ns": 4073945,
+      "min_ns": 3977185,
+      "max_ns": 11681728,
+      "unstable": true,
+      "cpu_percent_exact": "1611000000000/252034477",
+      "samples_ns": [
+        4068990,
+        4114382,
+        4073945,
+        3996655,
+        3977185,
+        4145120,
+        11681728
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        64
+      ],
+      "item_threads": [
+        1
+      ]
+    },
+    {
+      "workload": "C",
+      "threads": 1,
+      "arm": "baseline",
+      "strategy": "Auto",
+      "median_ns": 55172508,
+      "min_ns": 54426720,
+      "max_ns": 58399072,
+      "unstable": false,
+      "cpu_percent_exact": "28000000000/278231343",
+      "samples_ns": [
+        58399072,
+        56120767,
+        54426720,
+        54646429,
+        56599411,
+        55172508,
+        54794634
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        1
+      ],
+      "item_threads": [
+        1
+      ]
+    },
+    {
+      "workload": "C",
+      "threads": 1,
+      "arm": "baseline",
+      "strategy": "Inner",
+      "median_ns": 55261836,
+      "min_ns": 54436085,
+      "max_ns": 57103468,
+      "unstable": false,
+      "cpu_percent_exact": "27000000000/274091459",
+      "samples_ns": [
+        57103468,
+        55787509,
+        55261836,
+        54855284,
+        55509878,
+        54933123,
+        54436085
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        1
+      ],
+      "item_threads": [
+        1
+      ]
+    },
+    {
+      "workload": "C",
+      "threads": 1,
+      "arm": "baseline",
+      "strategy": "Split2",
+      "median_ns": 55748477,
+      "min_ns": 54855113,
+      "max_ns": 57687715,
+      "unstable": false,
+      "cpu_percent_exact": "4000000000/40194933",
+      "samples_ns": [
+        55850943,
+        54907750,
+        55748477,
+        54855113,
+        57687715,
+        54897702,
+        56245775
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        1
+      ],
+      "item_threads": [
+        1
+      ]
+    },
+    {
+      "workload": "C",
+      "threads": 1,
+      "arm": "baseline",
+      "strategy": "Split4",
+      "median_ns": 56660002,
+      "min_ns": 54513966,
+      "max_ns": 57704463,
+      "unstable": false,
+      "cpu_percent_exact": "500000000/4996887",
+      "samples_ns": [
+        56510937,
+        55081173,
+        57354061,
+        56660002,
+        54513966,
+        57704463,
+        56889610
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        1
+      ],
+      "item_threads": [
+        1
+      ]
+    },
+    {
+      "workload": "C",
+      "threads": 1,
+      "arm": "candidate",
+      "strategy": "Auto",
+      "median_ns": 55176128,
+      "min_ns": 54273473,
+      "max_ns": 55548618,
+      "unstable": false,
+      "cpu_percent_exact": "7000000000/69862761",
+      "samples_ns": [
+        54669522,
+        55512682,
+        55007253,
+        55548618,
+        55361075,
+        55176128,
+        54273473
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        1
+      ],
+      "item_threads": [
+        1
+      ]
+    },
+    {
+      "workload": "C",
+      "threads": 8,
+      "arm": "baseline",
+      "strategy": "Auto",
+      "median_ns": 24746204,
+      "min_ns": 24540224,
+      "max_ns": 25083442,
+      "unstable": false,
+      "cpu_percent_exact": "158000000000/271255919",
+      "samples_ns": [
+        25079332,
+        24730121,
+        24746204,
+        24789986,
+        25083442,
+        24549289,
+        24540224
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        8
+      ],
+      "item_threads": [
+        1
+      ]
+    },
+    {
+      "workload": "C",
+      "threads": 8,
+      "arm": "baseline",
+      "strategy": "Inner",
+      "median_ns": 39172857,
+      "min_ns": 38608022,
+      "max_ns": 40474427,
+      "unstable": false,
+      "cpu_percent_exact": "47000000000/135483017",
+      "samples_ns": [
+        39630797,
+        39141963,
+        38608022,
+        39209943,
+        39172857,
+        40474427,
+        39053515
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        1
+      ],
+      "item_threads": [
+        8
+      ]
+    },
+    {
+      "workload": "C",
+      "threads": 8,
+      "arm": "baseline",
+      "strategy": "Split2",
+      "median_ns": 24360708,
+      "min_ns": 24035947,
+      "max_ns": 24611782,
+      "unstable": false,
+      "cpu_percent_exact": "22000000000/54498479",
+      "samples_ns": [
+        24611782,
+        24035947,
+        24325566,
+        24360708,
+        24356377,
+        24540737,
+        24446171
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        2
+      ],
+      "item_threads": [
+        4
+      ]
+    },
+    {
+      "workload": "C",
+      "threads": 8,
+      "arm": "baseline",
+      "strategy": "Split4",
+      "median_ns": 21024056,
+      "min_ns": 19161747,
+      "max_ns": 21455620,
+      "unstable": false,
+      "cpu_percent_exact": "124000000000/252873147",
+      "samples_ns": [
+        21113474,
+        21191398,
+        20920315,
+        19161747,
+        20999844,
+        21455620,
+        21024056
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        4
+      ],
+      "item_threads": [
+        2
+      ]
+    },
+    {
+      "workload": "C",
+      "threads": 8,
+      "arm": "candidate",
+      "strategy": "Auto",
+      "median_ns": 39110753,
+      "min_ns": 38632055,
+      "max_ns": 40021239,
+      "unstable": false,
+      "cpu_percent_exact": "96000000000/275007709",
+      "samples_ns": [
+        39652848,
+        39506129,
+        39110753,
+        40021239,
+        38844929,
+        38711638,
+        38632055
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        1
+      ],
+      "item_threads": [
+        8
+      ]
+    },
+    {
+      "workload": "C",
+      "threads": 16,
+      "arm": "baseline",
+      "strategy": "Auto",
+      "median_ns": 21949551,
+      "min_ns": 21652301,
+      "max_ns": 22290263,
+      "unstable": false,
+      "cpu_percent_exact": "1124000000/1046141",
+      "samples_ns": [
+        21733157,
+        22290263,
+        21830985,
+        21652301,
+        22070767,
+        21949551,
+        22225573
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        16
+      ],
+      "item_threads": [
+        1
+      ]
+    },
+    {
+      "workload": "C",
+      "threads": 16,
+      "arm": "baseline",
+      "strategy": "Inner",
+      "median_ns": 38218851,
+      "min_ns": 37318557,
+      "max_ns": 39832573,
+      "unstable": false,
+      "cpu_percent_exact": "157000000000/265189107",
+      "samples_ns": [
+        38218851,
+        38300806,
+        38166414,
+        37345265,
+        37318557,
+        39832573,
+        39483464
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        1
+      ],
+      "item_threads": [
+        16
+      ]
+    },
+    {
+      "workload": "C",
+      "threads": 16,
+      "arm": "baseline",
+      "strategy": "Split2",
+      "median_ns": 21632130,
+      "min_ns": 21354134,
+      "max_ns": 21920626,
+      "unstable": false,
+      "cpu_percent_exact": "167000000000/259222933",
+      "samples_ns": [
+        21851549,
+        21382293,
+        21920626,
+        21354134,
+        21598428,
+        21681145,
+        21632130
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        2
+      ],
+      "item_threads": [
+        8
+      ]
+    },
+    {
+      "workload": "C",
+      "threads": 16,
+      "arm": "baseline",
+      "strategy": "Split4",
+      "median_ns": 15370192,
+      "min_ns": 15021723,
+      "max_ns": 15684319,
+      "unstable": false,
+      "cpu_percent_exact": "182000000000/260270007",
+      "samples_ns": [
+        15370192,
+        15684319,
+        15021723,
+        15561941,
+        15146607,
+        15132122,
+        15495093
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        4
+      ],
+      "item_threads": [
+        4
+      ]
+    },
+    {
+      "workload": "C",
+      "threads": 16,
+      "arm": "candidate",
+      "strategy": "Auto",
+      "median_ns": 37496910,
+      "min_ns": 37055811,
+      "max_ns": 37525512,
+      "unstable": false,
+      "cpu_percent_exact": "26000000000/43599577",
+      "samples_ns": [
+        37514328,
+        37055811,
+        37496910,
+        37450826,
+        37516861,
+        37132573,
+        37525512
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        1
+      ],
+      "item_threads": [
+        16
+      ]
+    },
+    {
+      "workload": "C",
+      "threads": 32,
+      "arm": "baseline",
+      "strategy": "Auto",
+      "median_ns": 20815714,
+      "min_ns": 20702401,
+      "max_ns": 20871451,
+      "unstable": false,
+      "cpu_percent_exact": "33875000000/16888507",
+      "samples_ns": [
+        20765368,
+        20778092,
+        20815714,
+        20702401,
+        20871451,
+        20870478,
+        20817972
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        32
+      ],
+      "item_threads": [
+        1
+      ]
+    },
+    {
+      "workload": "C",
+      "threads": 32,
+      "arm": "baseline",
+      "strategy": "Inner",
+      "median_ns": 37532712,
+      "min_ns": 36703374,
+      "max_ns": 39309556,
+      "unstable": false,
+      "cpu_percent_exact": "283000000000/262836973",
+      "samples_ns": [
+        37159501,
+        38138495,
+        37575474,
+        39309556,
+        36703374,
+        36907990,
+        37532712
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        1
+      ],
+      "item_threads": [
+        32
+      ]
+    },
+    {
+      "workload": "C",
+      "threads": 32,
+      "arm": "baseline",
+      "strategy": "Split2",
+      "median_ns": 20346530,
+      "min_ns": 19987959,
+      "max_ns": 20569316,
+      "unstable": false,
+      "cpu_percent_exact": "294000000000/264495979",
+      "samples_ns": [
+        20346530,
+        20470345,
+        20486746,
+        20124598,
+        20021692,
+        19987959,
+        20569316
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        2
+      ],
+      "item_threads": [
+        16
+      ]
+    },
+    {
+      "workload": "C",
+      "threads": 32,
+      "arm": "baseline",
+      "strategy": "Split4",
+      "median_ns": 12650218,
+      "min_ns": 12208954,
+      "max_ns": 12829083,
+      "unstable": false,
+      "cpu_percent_exact": "286000000000/259702501",
+      "samples_ns": [
+        12677929,
+        12741168,
+        12208954,
+        12829083,
+        12456679,
+        12650218,
+        12497297
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        4
+      ],
+      "item_threads": [
+        8
+      ]
+    },
+    {
+      "workload": "C",
+      "threads": 32,
+      "arm": "candidate",
+      "strategy": "Auto",
+      "median_ns": 37047201,
+      "min_ns": 36594362,
+      "max_ns": 37599450,
+      "unstable": false,
+      "cpu_percent_exact": "141500000000/130624397",
+      "samples_ns": [
+        37599450,
+        36886988,
+        36594362,
+        37173260,
+        37047201,
+        36950370,
+        37441310
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        1
+      ],
+      "item_threads": [
+        32
+      ]
+    },
+    {
+      "workload": "C",
+      "threads": 64,
+      "arm": "baseline",
+      "strategy": "Auto",
+      "median_ns": 19686052,
+      "min_ns": 19574404,
+      "max_ns": 19832412,
+      "unstable": false,
+      "cpu_percent_exact": "992000000000/255577287",
+      "samples_ns": [
+        19590086,
+        19768391,
+        19625239,
+        19832412,
+        19716836,
+        19686052,
+        19574404
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        64
+      ],
+      "item_threads": [
+        1
+      ]
+    },
+    {
+      "workload": "C",
+      "threads": 64,
+      "arm": "baseline",
+      "strategy": "Inner",
+      "median_ns": 37800099,
+      "min_ns": 37095481,
+      "max_ns": 49174012,
+      "unstable": true,
+      "cpu_percent_exact": "535000000000/268031179",
+      "samples_ns": [
+        37095481,
+        37800099,
+        38202447,
+        37155401,
+        37562733,
+        40311535,
+        49174012
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        1
+      ],
+      "item_threads": [
+        64
+      ]
+    },
+    {
+      "workload": "C",
+      "threads": 64,
+      "arm": "baseline",
+      "strategy": "Split2",
+      "median_ns": 19774572,
+      "min_ns": 19326934,
+      "max_ns": 20267521,
+      "unstable": false,
+      "cpu_percent_exact": "8218750000/4014403",
+      "samples_ns": [
+        19884403,
+        19774572,
+        20080368,
+        20267521,
+        19691847,
+        19326934,
+        19539493
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        2
+      ],
+      "item_threads": [
+        32
+      ]
+    },
+    {
+      "workload": "C",
+      "threads": 64,
+      "arm": "baseline",
+      "strategy": "Split4",
+      "median_ns": 11317983,
+      "min_ns": 11038044,
+      "max_ns": 11458449,
+      "unstable": false,
+      "cpu_percent_exact": "494000000000/259875253",
+      "samples_ns": [
+        11317983,
+        11038044,
+        11458449,
+        11308991,
+        11258303,
+        11371260,
+        11328362
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        4
+      ],
+      "item_threads": [
+        16
+      ]
+    },
+    {
+      "workload": "C",
+      "threads": 64,
+      "arm": "candidate",
+      "strategy": "Auto",
+      "median_ns": 37373769,
+      "min_ns": 36395848,
+      "max_ns": 47431779,
+      "unstable": true,
+      "cpu_percent_exact": "267500000000/132043283",
+      "samples_ns": [
+        36395848,
+        39165707,
+        42971347,
+        47431779,
+        37373769,
+        36902650,
+        36540361
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        1
+      ],
+      "item_threads": [
+        64
+      ]
+    },
+    {
+      "workload": "large_job",
+      "threads": 1,
+      "arm": "baseline",
+      "strategy": "Auto",
+      "median_ns": 18742766,
+      "min_ns": 18527066,
+      "max_ns": 18908414,
+      "unstable": false,
+      "cpu_percent_exact": "2000000000/20028817",
+      "samples_ns": [
+        18785290,
+        18583209,
+        18908414,
+        18731419,
+        18877369,
+        18527066,
+        18742766
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        1
+      ],
+      "item_threads": [
+        1
+      ]
+    },
+    {
+      "workload": "large_job",
+      "threads": 1,
+      "arm": "baseline",
+      "strategy": "Inner",
+      "median_ns": 18723526,
+      "min_ns": 18654640,
+      "max_ns": 18774402,
+      "unstable": false,
+      "cpu_percent_exact": "13000000000/130715441",
+      "samples_ns": [
+        18690269,
+        18654640,
+        18774402,
+        18733989,
+        18723526,
+        18710841,
+        18763737
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        1
+      ],
+      "item_threads": [
+        1
+      ]
+    },
+    {
+      "workload": "large_job",
+      "threads": 1,
+      "arm": "baseline",
+      "strategy": "Split2",
+      "median_ns": 18674164,
+      "min_ns": 18607199,
+      "max_ns": 18854784,
+      "unstable": false,
+      "cpu_percent_exact": "2000000000/20110823",
+      "samples_ns": [
+        18641368,
+        18765461,
+        18854784,
+        18668227,
+        18716706,
+        18607199,
+        18674164
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        1
+      ],
+      "item_threads": [
+        1
+      ]
+    },
+    {
+      "workload": "large_job",
+      "threads": 1,
+      "arm": "baseline",
+      "strategy": "Split4",
+      "median_ns": 18717798,
+      "min_ns": 18674389,
+      "max_ns": 18757457,
+      "unstable": false,
+      "cpu_percent_exact": "26000000000/262323967",
+      "samples_ns": [
+        18674389,
+        18704870,
+        18723691,
+        18717798,
+        18697535,
+        18739062,
+        18757457
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        1
+      ],
+      "item_threads": [
+        1
+      ]
+    },
+    {
+      "workload": "large_job",
+      "threads": 1,
+      "arm": "candidate",
+      "strategy": "Auto",
+      "median_ns": 18706084,
+      "min_ns": 18656017,
+      "max_ns": 19020866,
+      "unstable": false,
+      "cpu_percent_exact": "5200000000/52317331",
+      "samples_ns": [
+        18680359,
+        19020866,
+        18698671,
+        18656017,
+        18706084,
+        18750661,
+        18755766
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        1
+      ],
+      "item_threads": [
+        1
+      ]
+    },
+    {
+      "workload": "large_job",
+      "threads": 8,
+      "arm": "baseline",
+      "strategy": "Auto",
+      "median_ns": 18704821,
+      "min_ns": 18655638,
+      "max_ns": 18779573,
+      "unstable": false,
+      "cpu_percent_exact": "13000000000/130708567",
+      "samples_ns": [
+        18655638,
+        18779573,
+        18704821,
+        18686759,
+        18741796,
+        18685181,
+        18775357
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        1
+      ],
+      "item_threads": [
+        1
+      ]
+    },
+    {
+      "workload": "large_job",
+      "threads": 8,
+      "arm": "baseline",
+      "strategy": "Inner",
+      "median_ns": 2943643,
+      "min_ns": 2922329,
+      "max_ns": 3041753,
+      "unstable": false,
+      "cpu_percent_exact": "67000000000/83678717",
+      "samples_ns": [
+        2929758,
+        2922329,
+        3041753,
+        2943643,
+        2975184,
+        2942775,
+        2956906
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        1
+      ],
+      "item_threads": [
+        8
+      ]
+    },
+    {
+      "workload": "large_job",
+      "threads": 8,
+      "arm": "baseline",
+      "strategy": "Split2",
+      "median_ns": 2975005,
+      "min_ns": 2945806,
+      "max_ns": 11997635,
+      "unstable": true,
+      "cpu_percent_exact": "67000000000/84148339",
+      "samples_ns": [
+        2962918,
+        2949220,
+        7993037,
+        11997635,
+        7993164,
+        2975005,
+        2945806
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        1
+      ],
+      "item_threads": [
+        8
+      ]
+    },
+    {
+      "workload": "large_job",
+      "threads": 8,
+      "arm": "baseline",
+      "strategy": "Split4",
+      "median_ns": 2972801,
+      "min_ns": 2920355,
+      "max_ns": 3059225,
+      "unstable": false,
+      "cpu_percent_exact": "2020000000/2518027",
+      "samples_ns": [
+        3037390,
+        2972801,
+        2928521,
+        3059225,
+        3051526,
+        2961495,
+        2920355
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        1
+      ],
+      "item_threads": [
+        8
+      ]
+    },
+    {
+      "workload": "large_job",
+      "threads": 8,
+      "arm": "candidate",
+      "strategy": "Auto",
+      "median_ns": 2960570,
+      "min_ns": 2919651,
+      "max_ns": 3025055,
+      "unstable": false,
+      "cpu_percent_exact": "202000000000/251750287",
+      "samples_ns": [
+        2928378,
+        2960570,
+        2919651,
+        2930203,
+        3025055,
+        2974485,
+        2987557
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        1
+      ],
+      "item_threads": [
+        8
+      ]
+    },
+    {
+      "workload": "large_job",
+      "threads": 16,
+      "arm": "baseline",
+      "strategy": "Auto",
+      "median_ns": 18683200,
+      "min_ns": 18609376,
+      "max_ns": 18883245,
+      "unstable": false,
+      "cpu_percent_exact": "1625000000/16314513",
+      "samples_ns": [
+        18656729,
+        18729112,
+        18683200,
+        18609376,
+        18696985,
+        18883245,
+        18623373
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        1
+      ],
+      "item_threads": [
+        1
+      ]
+    },
+    {
+      "workload": "large_job",
+      "threads": 16,
+      "arm": "baseline",
+      "strategy": "Inner",
+      "median_ns": 1601822,
+      "min_ns": 1583455,
+      "max_ns": 12004491,
+      "unstable": true,
+      "cpu_percent_exact": "403000000000/251546289",
+      "samples_ns": [
+        1601822,
+        1590603,
+        1733206,
+        1601604,
+        12004491,
+        1583455,
+        7999768
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        1
+      ],
+      "item_threads": [
+        16
+      ]
+    },
+    {
+      "workload": "large_job",
+      "threads": 16,
+      "arm": "baseline",
+      "strategy": "Split2",
+      "median_ns": 1606045,
+      "min_ns": 1590311,
+      "max_ns": 12005934,
+      "unstable": true,
+      "cpu_percent_exact": "198500000000/125374019",
+      "samples_ns": [
+        1590311,
+        1596723,
+        1605693,
+        7998021,
+        1606045,
+        12005934,
+        12005037
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        1
+      ],
+      "item_threads": [
+        16
+      ]
+    },
+    {
+      "workload": "large_job",
+      "threads": 16,
+      "arm": "baseline",
+      "strategy": "Split4",
+      "median_ns": 1599915,
+      "min_ns": 1585411,
+      "max_ns": 12004441,
+      "unstable": true,
+      "cpu_percent_exact": "201500000000/125765069",
+      "samples_ns": [
+        1585411,
+        1593242,
+        12004441,
+        1668626,
+        1599915,
+        7997667,
+        1587776
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        1
+      ],
+      "item_threads": [
+        16
+      ]
+    },
+    {
+      "workload": "large_job",
+      "threads": 16,
+      "arm": "candidate",
+      "strategy": "Auto",
+      "median_ns": 1600976,
+      "min_ns": 1582772,
+      "max_ns": 7998227,
+      "unstable": true,
+      "cpu_percent_exact": "198500000000/125247337",
+      "samples_ns": [
+        7996658,
+        1582772,
+        7998227,
+        1593245,
+        7997513,
+        1600976,
+        1594125
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        1
+      ],
+      "item_threads": [
+        16
+      ]
+    },
+    {
+      "workload": "large_job",
+      "threads": 32,
+      "arm": "baseline",
+      "strategy": "Auto",
+      "median_ns": 18719222,
+      "min_ns": 18652398,
+      "max_ns": 18971677,
+      "unstable": false,
+      "cpu_percent_exact": "13000000000/130983849",
+      "samples_ns": [
+        18676039,
+        18810804,
+        18719222,
+        18652398,
+        18682465,
+        18971677,
+        18823019
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        1
+      ],
+      "item_threads": [
+        1
+      ]
+    },
+    {
+      "workload": "large_job",
+      "threads": 32,
+      "arm": "baseline",
+      "strategy": "Inner",
+      "median_ns": 1040462,
+      "min_ns": 1030261,
+      "max_ns": 1050203,
+      "unstable": false,
+      "cpu_percent_exact": "794000000000/250370781",
+      "samples_ns": [
+        1046841,
+        1030261,
+        1040462,
+        1035552,
+        1050203,
+        1036433,
+        1042373
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        1
+      ],
+      "item_threads": [
+        32
+      ]
+    },
+    {
+      "workload": "large_job",
+      "threads": 32,
+      "arm": "baseline",
+      "strategy": "Split2",
+      "median_ns": 1034772,
+      "min_ns": 1022763,
+      "max_ns": 1157604,
+      "unstable": false,
+      "cpu_percent_exact": "99250000000/31301937",
+      "samples_ns": [
+        1029880,
+        1037341,
+        1157604,
+        1034772,
+        1047963,
+        1022763,
+        1032643
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        1
+      ],
+      "item_threads": [
+        32
+      ]
+    },
+    {
+      "workload": "large_job",
+      "threads": 32,
+      "arm": "baseline",
+      "strategy": "Split4",
+      "median_ns": 1040143,
+      "min_ns": 1032841,
+      "max_ns": 1067153,
+      "unstable": false,
+      "cpu_percent_exact": "158800000000/50040529",
+      "samples_ns": [
+        1043321,
+        1032841,
+        1036742,
+        1046662,
+        1067153,
+        1034743,
+        1040143
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        1
+      ],
+      "item_threads": [
+        32
+      ]
+    },
+    {
+      "workload": "large_job",
+      "threads": 32,
+      "arm": "candidate",
+      "strategy": "Auto",
+      "median_ns": 1039591,
+      "min_ns": 1030072,
+      "max_ns": 1046303,
+      "unstable": false,
+      "cpu_percent_exact": "39700000000/12500581",
+      "samples_ns": [
+        1042771,
+        1039591,
+        1030072,
+        1035012,
+        1046303,
+        1040073,
+        1036843
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        1
+      ],
+      "item_threads": [
+        32
+      ]
+    },
+    {
+      "workload": "large_job",
+      "threads": 64,
+      "arm": "baseline",
+      "strategy": "Auto",
+      "median_ns": 18866313,
+      "min_ns": 18722862,
+      "max_ns": 19033929,
+      "unstable": false,
+      "cpu_percent_exact": "26000000000/262310929",
+      "samples_ns": [
+        18866313,
+        19033929,
+        18722862,
+        18924244,
+        18900640,
+        18759713,
+        18755417
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        1
+      ],
+      "item_threads": [
+        1
+      ]
+    },
+    {
+      "workload": "large_job",
+      "threads": 64,
+      "arm": "baseline",
+      "strategy": "Inner",
+      "median_ns": 832967,
+      "min_ns": 797977,
+      "max_ns": 11597868,
+      "unstable": true,
+      "cpu_percent_exact": "198000000000/31351303",
+      "samples_ns": [
+        812626,
+        832967,
+        812567,
+        11597868,
+        797977,
+        11534064,
+        7997107
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        1
+      ],
+      "item_threads": [
+        64
+      ]
+    },
+    {
+      "workload": "large_job",
+      "threads": 64,
+      "arm": "baseline",
+      "strategy": "Split2",
+      "median_ns": 922928,
+      "min_ns": 812007,
+      "max_ns": 11609768,
+      "unstable": true,
+      "cpu_percent_exact": "18000000000/2846591",
+      "samples_ns": [
+        812156,
+        922928,
+        812007,
+        11609768,
+        5407787,
+        8000835,
+        890690
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        1
+      ],
+      "item_threads": [
+        64
+      ]
+    },
+    {
+      "workload": "large_job",
+      "threads": 64,
+      "arm": "baseline",
+      "strategy": "Split4",
+      "median_ns": 814936,
+      "min_ns": 799688,
+      "max_ns": 11632607,
+      "unstable": true,
+      "cpu_percent_exact": "1615000000000/254777153",
+      "samples_ns": [
+        814936,
+        11632607,
+        821677,
+        8035052,
+        805208,
+        799688,
+        812588
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        1
+      ],
+      "item_threads": [
+        64
+      ]
+    },
+    {
+      "workload": "large_job",
+      "threads": 64,
+      "arm": "candidate",
+      "strategy": "Auto",
+      "median_ns": 817227,
+      "min_ns": 809468,
+      "max_ns": 11649758,
+      "unstable": true,
+      "cpu_percent_exact": "105600000000/16697491",
+      "samples_ns": [
+        11615681,
+        11649758,
+        817227,
+        11598828,
+        811468,
+        809468,
+        811078
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        1
+      ],
+      "item_threads": [
+        64
+      ]
+    },
+    {
+      "workload": "small_job",
+      "threads": 1,
+      "arm": "baseline",
+      "strategy": "Auto",
+      "median_ns": 3480,
+      "min_ns": 3450,
+      "max_ns": 3590,
+      "unstable": false,
+      "cpu_percent_exact": "12500000000/125001241",
+      "samples_ns": [
+        3470,
+        3500,
+        3590,
+        3480,
+        3470,
+        3490,
+        3450
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        1
+      ],
+      "item_threads": [
+        1
+      ]
+    },
+    {
+      "workload": "small_job",
+      "threads": 1,
+      "arm": "baseline",
+      "strategy": "Inner",
+      "median_ns": 3490,
+      "min_ns": 3440,
+      "max_ns": 3550,
+      "unstable": false,
+      "cpu_percent_exact": "2500000000/25000141",
+      "samples_ns": [
+        3550,
+        3460,
+        3440,
+        3470,
+        3510,
+        3510,
+        3490
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        1
+      ],
+      "item_threads": [
+        1
+      ]
+    },
+    {
+      "workload": "small_job",
+      "threads": 1,
+      "arm": "baseline",
+      "strategy": "Split2",
+      "median_ns": 3490,
+      "min_ns": 3441,
+      "max_ns": 3550,
+      "unstable": false,
+      "cpu_percent_exact": "9765625/97657",
+      "samples_ns": [
+        3441,
+        3550,
+        3490,
+        3490,
+        3511,
+        3530,
+        3460
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        1
+      ],
+      "item_threads": [
+        1
+      ]
+    },
+    {
+      "workload": "small_job",
+      "threads": 1,
+      "arm": "baseline",
+      "strategy": "Split4",
+      "median_ns": 3460,
+      "min_ns": 3420,
+      "max_ns": 3530,
+      "unstable": false,
+      "cpu_percent_exact": "12500000000/125001059",
+      "samples_ns": [
+        3480,
+        3460,
+        3420,
+        3530,
+        3450,
+        3500,
+        3450
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        1
+      ],
+      "item_threads": [
+        1
+      ]
+    },
+    {
+      "workload": "small_job",
+      "threads": 1,
+      "arm": "candidate",
+      "strategy": "Auto",
+      "median_ns": 3550,
+      "min_ns": 3510,
+      "max_ns": 4390,
+      "unstable": true,
+      "cpu_percent_exact": "25000000000/250002419",
+      "samples_ns": [
+        3540,
+        3550,
+        3510,
+        3560,
+        4390,
+        3540,
+        3550
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        1
+      ],
+      "item_threads": [
+        1
+      ]
+    },
+    {
+      "workload": "small_job",
+      "threads": 8,
+      "arm": "baseline",
+      "strategy": "Auto",
+      "median_ns": 3600,
+      "min_ns": 3570,
+      "max_ns": 4600,
+      "unstable": true,
+      "cpu_percent_exact": "2500000000/25000239",
+      "samples_ns": [
+        3600,
+        3600,
+        3590,
+        3590,
+        4600,
+        3610,
+        3570
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        1
+      ],
+      "item_threads": [
+        1
+      ]
+    },
+    {
+      "workload": "small_job",
+      "threads": 8,
+      "arm": "baseline",
+      "strategy": "Inner",
+      "median_ns": 3630,
+      "min_ns": 3560,
+      "max_ns": 3790,
+      "unstable": false,
+      "cpu_percent_exact": "5000000000/50000423",
+      "samples_ns": [
+        3630,
+        3580,
+        3790,
+        3560,
+        3620,
+        3640,
+        3650
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        1
+      ],
+      "item_threads": [
+        8
+      ]
+    },
+    {
+      "workload": "small_job",
+      "threads": 8,
+      "arm": "baseline",
+      "strategy": "Split2",
+      "median_ns": 3630,
+      "min_ns": 3560,
+      "max_ns": 3660,
+      "unstable": false,
+      "cpu_percent_exact": "25000000000/250001953",
+      "samples_ns": [
+        3600,
+        3610,
+        3660,
+        3630,
+        3640,
+        3560,
+        3630
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        1
+      ],
+      "item_threads": [
+        8
+      ]
+    },
+    {
+      "workload": "small_job",
+      "threads": 8,
+      "arm": "baseline",
+      "strategy": "Split4",
+      "median_ns": 3601,
+      "min_ns": 3560,
+      "max_ns": 3680,
+      "unstable": false,
+      "cpu_percent_exact": "6250000000/62500559",
+      "samples_ns": [
+        3580,
+        3680,
+        3560,
+        3640,
+        3600,
+        3610,
+        3601
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        1
+      ],
+      "item_threads": [
+        8
+      ]
+    },
+    {
+      "workload": "small_job",
+      "threads": 8,
+      "arm": "candidate",
+      "strategy": "Auto",
+      "median_ns": 3790,
+      "min_ns": 3750,
+      "max_ns": 4010,
+      "unstable": false,
+      "cpu_percent_exact": "390625000/3906273",
+      "samples_ns": [
+        4010,
+        3760,
+        3790,
+        3790,
+        3800,
+        3790,
+        3750
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        1
+      ],
+      "item_threads": [
+        1
+      ]
+    },
+    {
+      "workload": "small_job",
+      "threads": 16,
+      "arm": "baseline",
+      "strategy": "Auto",
+      "median_ns": 3680,
+      "min_ns": 3640,
+      "max_ns": 3750,
+      "unstable": false,
+      "cpu_percent_exact": "25000000000/250001651",
+      "samples_ns": [
+        3640,
+        3750,
+        3690,
+        3680,
+        3670,
+        3740,
+        3660
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        1
+      ],
+      "item_threads": [
+        1
+      ]
+    },
+    {
+      "workload": "small_job",
+      "threads": 16,
+      "arm": "baseline",
+      "strategy": "Inner",
+      "median_ns": 3650,
+      "min_ns": 3570,
+      "max_ns": 4580,
+      "unstable": true,
+      "cpu_percent_exact": "25000000000/250002563",
+      "samples_ns": [
+        3650,
+        3680,
+        3660,
+        4580,
+        3620,
+        3570,
+        3630
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        1
+      ],
+      "item_threads": [
+        16
+      ]
+    },
+    {
+      "workload": "small_job",
+      "threads": 16,
+      "arm": "baseline",
+      "strategy": "Split2",
+      "median_ns": 3640,
+      "min_ns": 3560,
+      "max_ns": 3740,
+      "unstable": false,
+      "cpu_percent_exact": "781250000/7812577",
+      "samples_ns": [
+        3560,
+        3660,
+        3690,
+        3580,
+        3620,
+        3640,
+        3740
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        1
+      ],
+      "item_threads": [
+        16
+      ]
+    },
+    {
+      "workload": "small_job",
+      "threads": 16,
+      "arm": "baseline",
+      "strategy": "Split4",
+      "median_ns": 3630,
+      "min_ns": 3570,
+      "max_ns": 3670,
+      "unstable": false,
+      "cpu_percent_exact": "25000000000/250001239",
+      "samples_ns": [
+        3660,
+        3670,
+        3590,
+        3660,
+        3620,
+        3630,
+        3570
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        1
+      ],
+      "item_threads": [
+        16
+      ]
+    },
+    {
+      "workload": "small_job",
+      "threads": 16,
+      "arm": "candidate",
+      "strategy": "Auto",
+      "median_ns": 4060,
+      "min_ns": 4010,
+      "max_ns": 4210,
+      "unstable": false,
+      "cpu_percent_exact": "25000000000/250001843",
+      "samples_ns": [
+        4050,
+        4150,
+        4060,
+        4090,
+        4210,
+        4020,
+        4010
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        1
+      ],
+      "item_threads": [
+        1
+      ]
+    },
+    {
+      "workload": "small_job",
+      "threads": 32,
+      "arm": "baseline",
+      "strategy": "Auto",
+      "median_ns": 3840,
+      "min_ns": 3830,
+      "max_ns": 3880,
+      "unstable": false,
+      "cpu_percent_exact": "25000000000/250001627",
+      "samples_ns": [
+        3830,
+        3880,
+        3880,
+        3840,
+        3840,
+        3860,
+        3840
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        1
+      ],
+      "item_threads": [
+        1
+      ]
+    },
+    {
+      "workload": "small_job",
+      "threads": 32,
+      "arm": "baseline",
+      "strategy": "Inner",
+      "median_ns": 3590,
+      "min_ns": 3560,
+      "max_ns": 3650,
+      "unstable": false,
+      "cpu_percent_exact": "5000000000/50000503",
+      "samples_ns": [
+        3650,
+        3580,
+        3590,
+        3580,
+        3560,
+        3600,
+        3630
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        1
+      ],
+      "item_threads": [
+        32
+      ]
+    },
+    {
+      "workload": "small_job",
+      "threads": 32,
+      "arm": "baseline",
+      "strategy": "Split2",
+      "median_ns": 3640,
+      "min_ns": 3551,
+      "max_ns": 3700,
+      "unstable": false,
+      "cpu_percent_exact": "6250000000/62500341",
+      "samples_ns": [
+        3700,
+        3680,
+        3561,
+        3630,
+        3640,
+        3551,
+        3660
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        1
+      ],
+      "item_threads": [
+        32
+      ]
+    },
+    {
+      "workload": "small_job",
+      "threads": 32,
+      "arm": "baseline",
+      "strategy": "Split4",
+      "median_ns": 3650,
+      "min_ns": 3570,
+      "max_ns": 3690,
+      "unstable": false,
+      "cpu_percent_exact": "25000000000/250002337",
+      "samples_ns": [
+        3690,
+        3620,
+        3650,
+        3650,
+        3650,
+        3570,
+        3580
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        1
+      ],
+      "item_threads": [
+        32
+      ]
+    },
+    {
+      "workload": "small_job",
+      "threads": 32,
+      "arm": "candidate",
+      "strategy": "Auto",
+      "median_ns": 4590,
+      "min_ns": 4500,
+      "max_ns": 4700,
+      "unstable": false,
+      "cpu_percent_exact": "12500000000/125001233",
+      "samples_ns": [
+        4620,
+        4510,
+        4520,
+        4700,
+        4700,
+        4500,
+        4590
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        1
+      ],
+      "item_threads": [
+        1
+      ]
+    },
+    {
+      "workload": "small_job",
+      "threads": 64,
+      "arm": "baseline",
+      "strategy": "Auto",
+      "median_ns": 4290,
+      "min_ns": 4250,
+      "max_ns": 4421,
+      "unstable": false,
+      "cpu_percent_exact": "12500000000/125001253",
+      "samples_ns": [
+        4421,
+        4410,
+        4250,
+        4280,
+        4270,
+        4350,
+        4290
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        1
+      ],
+      "item_threads": [
+        1
+      ]
+    },
+    {
+      "workload": "small_job",
+      "threads": 64,
+      "arm": "baseline",
+      "strategy": "Inner",
+      "median_ns": 3670,
+      "min_ns": 3550,
+      "max_ns": 3850,
+      "unstable": false,
+      "cpu_percent_exact": "12500000000/125001013",
+      "samples_ns": [
+        3550,
+        3760,
+        3850,
+        3730,
+        3670,
+        3620,
+        3560
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        1
+      ],
+      "item_threads": [
+        64
+      ]
+    },
+    {
+      "workload": "small_job",
+      "threads": 64,
+      "arm": "baseline",
+      "strategy": "Split2",
+      "median_ns": 3680,
+      "min_ns": 3580,
+      "max_ns": 3760,
+      "unstable": false,
+      "cpu_percent_exact": "25000000000/250001377",
+      "samples_ns": [
+        3760,
+        3580,
+        3751,
+        3680,
+        3650,
+        3681,
+        3660
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        1
+      ],
+      "item_threads": [
+        64
+      ]
+    },
+    {
+      "workload": "small_job",
+      "threads": 64,
+      "arm": "baseline",
+      "strategy": "Split4",
+      "median_ns": 3640,
+      "min_ns": 3510,
+      "max_ns": 3710,
+      "unstable": false,
+      "cpu_percent_exact": "25000000000/250001767",
+      "samples_ns": [
+        3560,
+        3660,
+        3600,
+        3510,
+        3670,
+        3710,
+        3640
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        1
+      ],
+      "item_threads": [
+        64
+      ]
+    },
+    {
+      "workload": "small_job",
+      "threads": 64,
+      "arm": "candidate",
+      "strategy": "Auto",
+      "median_ns": 5760,
+      "min_ns": 5680,
+      "max_ns": 5860,
+      "unstable": false,
+      "cpu_percent_exact": "250000000/2500027",
+      "samples_ns": [
+        5840,
+        5691,
+        5860,
+        5680,
+        5720,
+        5830,
+        5760
+      ],
+      "rounds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "lanes": [
+        1
+      ],
+      "item_threads": [
+        1
+      ]
+    }
+  ],
+  "comparisons": [
+    {
+      "workload": "A",
+      "threads": 1,
+      "auto_over_inner": "37762516/37703661",
+      "auto_over_best_split": "18881258/18842651",
+      "auto_slower_inner_pairs": 0,
+      "auto_slower_best_split_pairs": 0,
+      "candidate_over_auto": "18877921/18881258",
+      "candidate_slower_10pct_pairs": 0,
+      "candidate_or_auto_unstable": false,
+      "reproduction_gate": false
+    },
+    {
+      "workload": "A",
+      "threads": 8,
+      "auto_over_inner": "6234459/2097407",
+      "auto_over_best_split": "2078153/670499",
+      "auto_slower_inner_pairs": 7,
+      "auto_slower_best_split_pairs": 7,
+      "candidate_over_auto": "6270745/18703377",
+      "candidate_slower_10pct_pairs": 0,
+      "candidate_or_auto_unstable": false,
+      "reproduction_gate": true
+    },
+    {
+      "workload": "A",
+      "threads": 16,
+      "auto_over_inner": "6256201/1137131",
+      "auto_over_best_split": "2681229/482732",
+      "auto_slower_inner_pairs": 5,
+      "auto_slower_best_split_pairs": 7,
+      "candidate_over_auto": "3345274/18768603",
+      "candidate_slower_10pct_pairs": 0,
+      "candidate_or_auto_unstable": false,
+      "reproduction_gate": false
+    },
+    {
+      "workload": "A",
+      "threads": 32,
+      "auto_over_inner": "18765875/2297128",
+      "auto_over_best_split": "18765875/2114144",
+      "auto_slower_inner_pairs": 7,
+      "auto_slower_best_split_pairs": 7,
+      "candidate_over_auto": "2247198/18765875",
+      "candidate_slower_10pct_pairs": 0,
+      "candidate_or_auto_unstable": true,
+      "reproduction_gate": true
+    },
+    {
+      "workload": "A",
+      "threads": 64,
+      "auto_over_inner": "9370051/816821",
+      "auto_over_best_split": "9370051/789591",
+      "auto_slower_inner_pairs": 6,
+      "auto_slower_best_split_pairs": 7,
+      "candidate_over_auto": "1643055/18740102",
+      "candidate_slower_10pct_pairs": 0,
+      "candidate_or_auto_unstable": true,
+      "reproduction_gate": false
+    },
+    {
+      "workload": "B",
+      "threads": 1,
+      "auto_over_inner": "82032137/81531980",
+      "auto_over_best_split": "82032137/78653560",
+      "auto_slower_inner_pairs": 0,
+      "auto_slower_best_split_pairs": 0,
+      "candidate_over_auto": "81386045/82032137",
+      "candidate_slower_10pct_pairs": 0,
+      "candidate_or_auto_unstable": false,
+      "reproduction_gate": false
+    },
+    {
+      "workload": "B",
+      "threads": 8,
+      "auto_over_inner": "13721554/78714975",
+      "auto_over_best_split": "13721554/20484753",
+      "auto_slower_inner_pairs": 0,
+      "auto_slower_best_split_pairs": 0,
+      "candidate_over_auto": "7130119/6860777",
+      "candidate_slower_10pct_pairs": 3,
+      "candidate_or_auto_unstable": false,
+      "reproduction_gate": false
+    },
+    {
+      "workload": "B",
+      "threads": 16,
+      "auto_over_inner": "8094323/75889484",
+      "auto_over_best_split": "8094323/21896236",
+      "auto_slower_inner_pairs": 0,
+      "auto_slower_best_split_pairs": 0,
+      "candidate_over_auto": "8129740/8094323",
+      "candidate_slower_10pct_pairs": 0,
+      "candidate_or_auto_unstable": false,
+      "reproduction_gate": false
+    },
+    {
+      "workload": "B",
+      "threads": 32,
+      "auto_over_inner": "5122222/78413439",
+      "auto_over_best_split": "5122222/21989733",
+      "auto_slower_inner_pairs": 0,
+      "auto_slower_best_split_pairs": 0,
+      "candidate_over_auto": "5140943/5122222",
+      "candidate_slower_10pct_pairs": 1,
+      "candidate_or_auto_unstable": false,
+      "reproduction_gate": false
+    },
+    {
+      "workload": "B",
+      "threads": 64,
+      "auto_over_inner": "4180132/77910465",
+      "auto_over_best_split": "4180132/22124623",
+      "auto_slower_inner_pairs": 0,
+      "auto_slower_best_split_pairs": 0,
+      "candidate_over_auto": "4073945/4180132",
+      "candidate_slower_10pct_pairs": 1,
+      "candidate_or_auto_unstable": true,
+      "reproduction_gate": false
+    },
+    {
+      "workload": "C",
+      "threads": 1,
+      "auto_over_inner": "4597709/4605153",
+      "auto_over_best_split": "55172508/55748477",
+      "auto_slower_inner_pairs": 0,
+      "auto_slower_best_split_pairs": 0,
+      "candidate_over_auto": "13794032/13793127",
+      "candidate_slower_10pct_pairs": 0,
+      "candidate_or_auto_unstable": false,
+      "reproduction_gate": false
+    },
+    {
+      "workload": "C",
+      "threads": 8,
+      "auto_over_inner": "24746204/39172857",
+      "auto_over_best_split": "6186551/5256014",
+      "auto_slower_inner_pairs": 0,
+      "auto_slower_best_split_pairs": 1,
+      "candidate_over_auto": "39110753/24746204",
+      "candidate_slower_10pct_pairs": 7,
+      "candidate_or_auto_unstable": false,
+      "reproduction_gate": false
+    },
+    {
+      "workload": "C",
+      "threads": 16,
+      "auto_over_inner": "2438839/4246539",
+      "auto_over_best_split": "21949551/15370192",
+      "auto_slower_inner_pairs": 0,
+      "auto_slower_best_split_pairs": 7,
+      "candidate_over_auto": "12498970/7316517",
+      "candidate_slower_10pct_pairs": 7,
+      "candidate_or_auto_unstable": false,
+      "reproduction_gate": false
+    },
+    {
+      "workload": "C",
+      "threads": 32,
+      "auto_over_inner": "10407857/18766356",
+      "auto_over_best_split": "10407857/6325109",
+      "auto_slower_inner_pairs": 0,
+      "auto_slower_best_split_pairs": 7,
+      "candidate_over_auto": "37047201/20815714",
+      "candidate_slower_10pct_pairs": 7,
+      "candidate_or_auto_unstable": false,
+      "reproduction_gate": false
+    },
+    {
+      "workload": "C",
+      "threads": 64,
+      "auto_over_inner": "19686052/37800099",
+      "auto_over_best_split": "19686052/11317983",
+      "auto_slower_inner_pairs": 0,
+      "auto_slower_best_split_pairs": 7,
+      "candidate_over_auto": "37373769/19686052",
+      "candidate_slower_10pct_pairs": 7,
+      "candidate_or_auto_unstable": true,
+      "reproduction_gate": false
+    },
+    {
+      "workload": "large_job",
+      "threads": 1,
+      "auto_over_inner": "9371383/9361763",
+      "auto_over_best_split": "9371383/9337082",
+      "auto_slower_inner_pairs": 0,
+      "auto_slower_best_split_pairs": 0,
+      "candidate_over_auto": "9353042/9371383",
+      "candidate_slower_10pct_pairs": 0,
+      "candidate_or_auto_unstable": false,
+      "reproduction_gate": false
+    },
+    {
+      "workload": "large_job",
+      "threads": 8,
+      "auto_over_inner": "18704821/2943643",
+      "auto_over_best_split": "18704821/2972801",
+      "auto_slower_inner_pairs": 7,
+      "auto_slower_best_split_pairs": 7,
+      "candidate_over_auto": "2960570/18704821",
+      "candidate_slower_10pct_pairs": 0,
+      "candidate_or_auto_unstable": false,
+      "reproduction_gate": true
+    },
+    {
+      "workload": "large_job",
+      "threads": 16,
+      "auto_over_inner": "9341600/800911",
+      "auto_over_best_split": "3736640/319983",
+      "auto_slower_inner_pairs": 7,
+      "auto_slower_best_split_pairs": 7,
+      "candidate_over_auto": "100061/1167700",
+      "candidate_slower_10pct_pairs": 0,
+      "candidate_or_auto_unstable": true,
+      "reproduction_gate": true
+    },
+    {
+      "workload": "large_job",
+      "threads": 32,
+      "auto_over_inner": "9359611/520231",
+      "auto_over_best_split": "9359611/517386",
+      "auto_slower_inner_pairs": 7,
+      "auto_slower_best_split_pairs": 7,
+      "candidate_over_auto": "1039591/18719222",
+      "candidate_slower_10pct_pairs": 0,
+      "candidate_or_auto_unstable": false,
+      "reproduction_gate": true
+    },
+    {
+      "workload": "large_job",
+      "threads": 64,
+      "auto_over_inner": "18866313/832967",
+      "auto_over_best_split": "18866313/814936",
+      "auto_slower_inner_pairs": 7,
+      "auto_slower_best_split_pairs": 7,
+      "candidate_over_auto": "90803/2096257",
+      "candidate_slower_10pct_pairs": 0,
+      "candidate_or_auto_unstable": true,
+      "reproduction_gate": false
+    },
+    {
+      "workload": "small_job",
+      "threads": 1,
+      "auto_over_inner": "348/349",
+      "auto_over_best_split": "174/173",
+      "auto_slower_inner_pairs": 0,
+      "auto_slower_best_split_pairs": 0,
+      "candidate_over_auto": "355/348",
+      "candidate_slower_10pct_pairs": 1,
+      "candidate_or_auto_unstable": true,
+      "reproduction_gate": false
+    },
+    {
+      "workload": "small_job",
+      "threads": 8,
+      "auto_over_inner": "120/121",
+      "auto_over_best_split": "3600/3601",
+      "auto_slower_inner_pairs": 1,
+      "auto_slower_best_split_pairs": 1,
+      "candidate_over_auto": "379/360",
+      "candidate_slower_10pct_pairs": 1,
+      "candidate_or_auto_unstable": true,
+      "reproduction_gate": false
+    },
+    {
+      "workload": "small_job",
+      "threads": 16,
+      "auto_over_inner": "368/365",
+      "auto_over_best_split": "368/363",
+      "auto_slower_inner_pairs": 0,
+      "auto_slower_best_split_pairs": 0,
+      "candidate_over_auto": "203/184",
+      "candidate_slower_10pct_pairs": 5,
+      "candidate_or_auto_unstable": false,
+      "reproduction_gate": false
+    },
+    {
+      "workload": "small_job",
+      "threads": 32,
+      "auto_over_inner": "384/359",
+      "auto_over_best_split": "96/91",
+      "auto_slower_inner_pairs": 0,
+      "auto_slower_best_split_pairs": 0,
+      "candidate_over_auto": "153/128",
+      "candidate_slower_10pct_pairs": 7,
+      "candidate_or_auto_unstable": false,
+      "reproduction_gate": false
+    },
+    {
+      "workload": "small_job",
+      "threads": 64,
+      "auto_over_inner": "429/367",
+      "auto_over_best_split": "33/28",
+      "auto_slower_inner_pairs": 0,
+      "auto_slower_best_split_pairs": 0,
+      "candidate_over_auto": "192/143",
+      "candidate_slower_10pct_pairs": 7,
+      "candidate_or_auto_unstable": false,
+      "reproduction_gate": false
+    }
+  ],
+  "reproduction_widths": [
+    8,
+    32
+  ],
+  "large_job_reproduced": true,
+  "failures": [],
+  "idle": [
+    {
+      "event": "round_start",
+      "round": 0,
+      "busy_fraction": 0.0034337443421257998
+    },
+    {
+      "event": "round_end",
+      "round": 0,
+      "busy_fraction": 0.00031220730565095225
+    },
+    {
+      "event": "round_start",
+      "round": 1,
+      "busy_fraction": 0.0006246096189881324
+    },
+    {
+      "event": "round_end",
+      "round": 1,
+      "busy_fraction": 0.0006244146113019045
+    },
+    {
+      "event": "round_start",
+      "round": 2,
+      "busy_fraction": 0.00031220730565095225
+    },
+    {
+      "event": "round_end",
+      "round": 2,
+      "busy_fraction": 0.0006244146113019045
+    },
+    {
+      "event": "round_start",
+      "round": 3,
+      "busy_fraction": 0.0009366219169528567
+    },
+    {
+      "event": "round_end",
+      "round": 3,
+      "busy_fraction": 0.002185792349726776
+    },
+    {
+      "event": "round_start",
+      "round": 4,
+      "busy_fraction": 0.006871778853662346
+    },
+    {
+      "event": "round_end",
+      "round": 4,
+      "busy_fraction": 0.00046860356138706655
+    },
+    {
+      "event": "round_start",
+      "round": 5,
+      "busy_fraction": 0.0
+    },
+    {
+      "event": "round_end",
+      "round": 5,
+      "busy_fraction": 0.002655420181193377
+    },
+    {
+      "event": "round_start",
+      "round": 6,
+      "busy_fraction": 0.0010918733426922478
+    },
+    {
+      "event": "round_end",
+      "round": 6,
+      "busy_fraction": 0.0034337443421257998
+    }
+  ]
+}

@@ -1,0 +1,2 @@
+workload,threads,strategy,jobs,macs,bytes,wall_ns,cpu_wall_ns,cpu_calls,cpu_ticks,lanes,item_threads,item_auto_width,lane_min_macs,lane_max_macs,affinity,nice,build
+C,8,Auto,8193,536870912,213909504,24466607,48875264,2,28,8,1,8,33554432,301989888,0-7,5,baseline

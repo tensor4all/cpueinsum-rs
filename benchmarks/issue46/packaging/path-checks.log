@@ -1,0 +1,7 @@
+recorder self-check passed (aggregation, exact units, failures)
+build.py: repository root and source paths passed
+record.py: repository root and source paths passed
+36 historical evidence files byte-identical
+all local Markdown links resolve
+cargo package entries: 71 -> 29; removed 42
+issue46 matches: 1 (bench source only); result-data entries: 0

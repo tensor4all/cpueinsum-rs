@@ -1,0 +1,4 @@
+    Finished `bench` profile [optimized] target(s) in 0.09s
+     Running benches/overhead_smoke.rs (target/release/deps/overhead_smoke-277f03cd6ecc35b0)
+C2  provider threads                  1  OPENBLAS_NUM_THREADS=Some("1")
+C2  packed/contiguous           483.3  ratio 1.988 <= 3.4 ok

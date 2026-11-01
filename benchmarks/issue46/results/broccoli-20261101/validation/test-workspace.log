@@ -1,0 +1,313 @@
+   Compiling tcontract-kernel v0.3.0 (https://github.com/tensor4all/tcontract-rs.git?rev=625ed7a7124beb9537660b607c3c453d822d4dc8#625ed7a7)
+   Compiling tcontract v0.9.0 (https://github.com/tensor4all/tcontract-rs.git?rev=625ed7a7124beb9537660b607c3c453d822d4dc8#625ed7a7)
+   Compiling cpueinsum v0.9.0 (/home/shinaoka/projects/tensor4all/cpueinsum-rs/crates/cpueinsum)
+   Compiling tcontract-capi v0.1.0 (https://github.com/tensor4all/tcontract-rs.git?rev=625ed7a7124beb9537660b607c3c453d822d4dc8#625ed7a7)
+   Compiling cpueinsum-blas v0.9.0 (/home/shinaoka/projects/tensor4all/cpueinsum-rs/crates/cpueinsum-blas)
+   Compiling cpueinsum-capi v0.5.0 (/home/shinaoka/projects/tensor4all/cpueinsum-rs/crates/cpueinsum-capi)
+   Compiling cpueinsum-bench v0.5.0 (/home/shinaoka/projects/tensor4all/cpueinsum-rs/crates/cpueinsum-bench)
+    Finished `test` profile [unoptimized] target(s) in 1.47s
+     Running unittests src/lib.rs (target/debug/deps/cpueinsum-27a66e1a4e28e0d8)
+
+running 5 tests
+test grouped::tests::child_index_conversion_is_checked ... ok
+test grouped::tests::lowest_job_id_wins_in_any_arrival_order ... ok
+test grouped::tests::two_hundred_jobs_construct_exactly_three_children ... ok
+test grouped::tests::aggregate_bounds_skip_scan_but_short_buffers_keep_lowest_id ... ok
+test grouped::tests::empty_and_unit_reduction_have_distinct_children_in_both_orders ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+
+     Running tests/alloc_free.rs (target/debug/deps/alloc_free-82ceb168dead626b)
+
+running 1 test
+test raw_steady_state_paths_allocate_no_rust_memory ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.13s
+
+     Running tests/alloc_free_parallel.rs (target/debug/deps/alloc_free_parallel-41bf2c10e331693f)
+
+running 1 test
+test parallel_grouped_allocation_bound_scales_with_lanes ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.23s
+
+     Running tests/backend_routes.rs (target/debug/deps/backend_routes-e523cb42834dbbb1)
+
+running 4 tests
+test a_backend_that_resolves_the_policy_itself_serves_every_strategy ... ok
+test an_empty_batch_resolves_the_route_the_same_way ... ok
+test a_native_alternative_that_refuses_the_split_is_admitted_before_the_first_step ... ok
+test forced_lane_strategies_run_the_native_step_and_sequential_keeps_the_backend ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
+     Running tests/grouped.rs (target/debug/deps/grouped-f13f97e3ab65f082)
+
+running 20 tests
+test all_bounds_are_checked_before_any_write ... ok
+test empty_jobs_are_validated_and_zero_jobs_are_empty ... ok
+test alpha_beta_accumulation_uses_previous_output ... ok
+test empty_jobs_do_not_move_parallel_chunk_boundaries_backwards ... ok
+test forced_inner_runs_the_child_with_the_granted_width ... ok
+test fresh_bounds_and_original_ids_are_checked_before_writes ... ok
+test bounded_pool_uses_outer_lanes_without_nested_entries ... ok
+test forced_strategies_are_honored_or_refused ... ok
+test fresh_complex_conjugation_matches_initialized ... ok
+test fresh_full_coverage_overwrites_the_sentinel_and_matches_the_reference ... ok
+test fresh_nonzero_beta_errors_before_writes ... ok
+test fresh_uncovered_element_errors_and_leaves_every_sentinel ... ok
+test fresh_runs_real_uninit_storage_and_empty_groups ... ok
+test heterogeneous_shared_inputs_unsorted_outputs_and_holes ... ok
+test lowest_job_id_names_the_failure_for_serial_and_lane_routes ... ok
+test overlap_and_checked_overflow_are_plan_errors ... ok
+test fresh_matches_initialized_on_forced_routes ... ok
+test tiny_scalar_jobs_stay_serial_under_auto ... ok
+test split_runs_spmd_routed_children_barrier_free_on_workers ... ok
+test grouped_all_dtypes_conjugation_empty_k_and_warm_workspace ... ok
+
+test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.31s
+
+     Running tests/grouped_dedupe.rs (target/debug/deps/grouped_dedupe-e5cf8e75983d2957)
+
+running 1 test
+test shared_geometry_is_bitwise_equal_for_all_dtypes_and_conjugations ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.54s
+
+     Running tests/prepared_binary.rs (target/debug/deps/prepared_binary-1b3756854f4c992a)
+
+running 10 tests
+test accumulation_view_source_paths ... ok
+test complex_conjugated_view ... ok
+test complex_alpha_beta ... ok
+test errors_leave_d_unchanged ... ok
+test alpha_zero_and_negative_beta ... ok
+test negative_strides_and_origin ... ok
+test f64_modes_match_the_reference ... ok
+test uninit_output_and_rejections ... ok
+test empty_operand_with_unreachable_strides_plans ... ok
+test two_reusable_arenas ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.33s
+
+     Running tests/prepared_semantics.rs (target/debug/deps/prepared_semantics-360a965081406931)
+
+running 6 tests
+test f32_semantics ... ok
+test c32_semantics ... ok
+test c64_semantics ... ok
+test zero_scale_nan_and_empty_k_do_not_read_unused_values ... ok
+test f64_semantics ... ok
+test parallel_elementwise_fresh_output_with_broadcast_and_reversal ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.74s
+
+     Running tests/raw.rs (target/debug/deps/raw-0d03b04beb3082c3)
+
+running 3 tests
+test native_workspace_req_folds_component_wise ... ok
+test compile_matches_new_and_workspace_is_split ... ok
+test bounded_replay_refuses_a_short_workspace_before_writing ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.18s
+
+     Running tests/reference.rs (target/debug/deps/reference-dcdf2bd1ca7daea5)
+
+running 16 tests
+test aliasing_output_is_rejected_by_tcontract ... ok
+test binary_contract_into ... ok
+test binary_matmul_and_permuted_output ... ok
+test chains_with_every_order ... ok
+test complex_chain ... ok
+test diagonals_reductions_and_outer_products ... ok
+test offset_output_and_inputs_through_a_chain ... ok
+test mps_chain ... ok
+test random_einsums ... ok
+test shape_errors ... ok
+test single_input ... ok
+test spec_errors ... ok
+test strided_and_negative_stride_inputs ... ok
+test zero_extent ... ok
+test plan_reuse_with_dirty_scratch_and_rayon ... ok
+test arena_reuses_dead_intermediates ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 8.52s
+
+     Running unittests src/main.rs (target/debug/deps/cpueinsum_bench-e89e5e7261442a4e)
+
+running 12 tests
+test corpus::tests::json_reads_unicode_labels_and_escapes ... ok
+test corpus::tests::positional_path_becomes_ssa ... ok
+test corpus::tests::translation_rejects_an_extent_conflict ... ok
+test diagnostics::tests::a_shuffle_keeps_the_moments_and_breaks_the_weighted_sum ... ok
+test diagnostics::tests::identical_outputs_agree ... ok
+test diagnostics::tests::the_weights_are_index_dependent_and_in_range ... ok
+test harness::tests::rel_error_detects_a_flipped_element ... ok
+test harness::tests::thread_readback_accepts_a_granted_request_and_refuses_a_clamp ... ok
+test json::tests::rejects_non_json_numbers ... ok
+test json::tests::rejects_unescaped_control_characters_in_strings ... ok
+test diagnostics::tests::a_complex_output_reports_both_parts ... ok
+test corpus::tests::translated_path_matches_a_naive_contraction ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
+
+     Running unittests src/lib.rs (target/debug/deps/cpueinsum_blas-ba35ad3c19c0ea5d)
+
+running 4 tests
+test layout::tests::no_trans_layouts ... ok
+test layout::tests::orientation ... ok
+test layout::order_tests::shared_order_buffer_preserves_candidate_priority_and_stable_ties ... ok
+test ffi::tests::actual_cblas_calls_stay_on_coordinator_without_selected_pool_dispatch ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.16s
+
+     Running tests/alloc_free.rs (target/debug/deps/alloc_free-2e4e353c005043bc)
+
+running 1 test
+test blas_vendor_steady_state_allocates_no_rust_memory ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s
+
+     Running tests/forced_strategy.rs (target/debug/deps/forced_strategy-6728abaede66e8c4)
+
+running 1 test
+test forced_lane_strategies_run_the_native_step_and_sequential_keeps_the_blas_step ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s
+
+     Running tests/prepared_binary.rs (target/debug/deps/prepared_binary-7715532fefa60e0e)
+
+running 6 tests
+test empty_batch_is_served_by_the_native_route_under_every_strategy ... ok
+test bounds_workspace_and_accumulation_fail_before_output_writes ... ok
+test fresh_rejects_padding_and_gaps_and_output_reads ... ok
+test zero_alpha_uses_prepared_native_no_read_route ... ok
+test forced_lane_strategies_use_the_native_route ... ok
+test all_four_dtypes_scales_and_conjugation_masks ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.27s
+
+     Running tests/prepared_grouped.rs (target/debug/deps/prepared_grouped-21bd7d0feeb81c3d)
+
+running 10 tests
+test fresh_nonzero_beta_errors_before_writes ... ok
+test fresh_uncovered_element_errors_and_leaves_every_sentinel ... ok
+test fresh_full_coverage_overwrites_the_sentinel_and_matches_vendor_reference ... ok
+test fresh_zero_alpha_uses_the_native_route_and_late_bounds_precede_writes ... ok
+test auto_keeps_the_vendor_loop_and_forced_lanes_use_the_native_route ... ok
+test late_vendor_bounds_and_workspace_errors_precede_every_output_write ... ok
+test one_degenerate_job_prepares_whole_group_native_and_zero_alpha_reads_no_inputs ... ok
+test overlap_and_checked_byte_overflow_are_rejected_at_preparation ... ok
+test heterogeneous_jobs_shared_inputs_gaps_and_all_four_dtype_conjugations ... ok
+test no_materialize_selects_whole_group_native_for_conjugate_input_packing ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.30s
+
+     Running tests/prepared_grouped_reuse.rs (target/debug/deps/prepared_grouped_reuse-d5eb7cc087028d35)
+
+running 2 tests
+test shared_c64_group_matches_single_einsums ... ok
+test shared_f64_group_matches_single_einsums ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.18s
+
+     Running tests/prepared_layouts.rs (target/debug/deps/prepared_layouts-43a370527868d78d)
+
+running 4 tests
+test fresh_coverage_counts_reduced_output_roles_not_original_axes ... ok
+test reversed_gapped_broadcast_inputs_and_beta_zero_ignore_old_nan_output ... ok
+test unsupported_direct_output_is_native_without_writing_padding ... ok
+test no_materialize_preserves_direct_vendor_but_refuses_whole_input_packing ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+
+     Running tests/reference.rs (target/debug/deps/reference-1ac72464eae6b921)
+
+running 9 tests
+test execution_checks_bounds ... ok
+test in_place_transposed_and_packed_operands ... ok
+test default_threshold_declines_small_steps ... ok
+test chains_mix_backends ... ok
+test products_complex32 ... ok
+test products_complex64 ... ok
+test products_f32 ... ok
+test products_f64 ... ok
+test random_einsums ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.11s
+
+     Running unittests src/lib.rs (target/debug/deps/cpueinsum_capi-33557aee731f9abe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/abi.rs (target/debug/deps/abi-733d8bf2d3b13aa0)
+
+running 7 tests
+test a_three_input_chain_matches_the_naive_reference ... ok
+test a_two_input_contraction_matches_the_naive_reference ... ok
+test a_host_owned_pool_can_be_lent_to_the_plan ... ok
+test an_owned_executor_runs_the_plan_on_its_pool ... ok
+test the_reported_abi_version_matches_the_header ... ok
+test malformed_arguments_are_rejected_without_touching_buffers ... ok
+test the_complex_element_types_have_their_own_plans ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.24s
+
+   Doc-tests cpueinsum
+
+running 31 tests
+test crates/cpueinsum/src/backend.rs - backend::StepBackend (line 43) ... ok
+test crates/cpueinsum/src/batch.rs - batch::VendorLoopRoute (line 26) ... ok
+test crates/cpueinsum/src/backend.rs - backend::Tcontract (line 125) ... ok
+test crates/cpueinsum/src/grouped.rs - grouped::GroupedGemmJob (line 30) ... ok
+test crates/cpueinsum/src/grouped.rs - grouped::GroupedOperand (line 128) ... ok
+test crates/cpueinsum/src/grouped.rs - grouped::GroupedError (line 80) ... ok
+test crates/cpueinsum/src/binary.rs - binary::contract_into (line 28) ... ok
+test crates/cpueinsum/src/grouped.rs - grouped::GroupedPlan (line 214) ... ok
+test crates/cpueinsum/src/grouped.rs - grouped::GroupedPlan<T>::execute_into (line 481) ... ok
+test crates/cpueinsum/src/grouped.rs - grouped::GroupedPlan<T>::execute_into_accum (line 519) ... ok
+test crates/cpueinsum/src/grouped.rs - grouped::GroupedPlan<T>::new (line 251) ... ok
+test crates/cpueinsum/src/grouped.rs - grouped::GroupedPlan<T>::validate_uninit (line 569) ... ok
+test crates/cpueinsum/src/grouped.rs - grouped::GroupedPlan<T>::execute_uninit (line 619) ... ok
+test crates/cpueinsum/src/layout.rs - layout::Layout (line 14) ... ok
+test crates/cpueinsum/src/plan.rs - plan::EinsumPlan<T,B>::compile (line 198) ... ok
+test crates/cpueinsum/src/plan.rs - plan::Scratch (line 886) ... ok
+test crates/cpueinsum/src/grouped.rs - grouped::GroupedPlan<T>::new_with_ops (line 271) ... ok
+test crates/cpueinsum/src/lib.rs - (line 18) ... ok
+test crates/cpueinsum/src/plan.rs - plan::EinsumPlan (line 124) ... ok
+test crates/cpueinsum/src/plan.rs - plan::einsum_into (line 937) ... ok
+test crates/cpueinsum/src/prepared.rs - prepared::BinaryPlan (line 35) ... ok
+test crates/cpueinsum/src/prepared.rs - prepared::BinaryPlan<T>::execute_into (line 184) ... ok
+test crates/cpueinsum/src/prepared.rs - prepared::BinaryPlan<T>::execute_into_accum (line 243) ... ok
+test crates/cpueinsum/src/prepared.rs - prepared::BinaryPlan<T>::new (line 85) ... ok
+test crates/cpueinsum/src/prepared.rs - prepared::BinaryPlan<T>::execute_slices (line 307) ... ok
+test crates/cpueinsum/src/scalar.rs - scalar::Scalar (line 19) ... ok
+test crates/cpueinsum/src/prepared.rs - prepared::BinaryPlan<T>::report (line 121) ... ok
+test crates/cpueinsum/src/prepared.rs - prepared::BinaryPlan<T>::execute_slices_accum (line 362) ... ok
+test crates/cpueinsum/src/spec.rs - spec::EinsumSpec (line 51) ... ok
+test crates/cpueinsum/src/prepared.rs - prepared::BinaryPlan<T>::execute_uninit_slices (line 425) ... ok
+test crates/cpueinsum/src/spec.rs - spec::EinsumSpecRef (line 14) ... ok
+
+test result: ok. 31 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 12.89s
+
+   Doc-tests cpueinsum_blas
+
+running 8 tests
+test crates/cpueinsum-blas/src/ffi.rs - ffi::BlasScalar (line 62) ... ok
+test crates/cpueinsum-blas/src/ffi.rs - ffi::BlasScalar::conjugate (line 75) ... ok
+test crates/cpueinsum-blas/src/layout.rs - layout::BlasStep::packed (line 72) ... ok
+test crates/cpueinsum-blas/src/lib.rs - Blas (line 86) ... ok
+test crates/cpueinsum-blas/src/grouped.rs - grouped::GroupedPlan (line 46) ... ok
+test crates/cpueinsum-blas/src/grouped.rs - grouped::GroupedPlan<T>::execute_uninit (line 210) ... ok
+test crates/cpueinsum-blas/src/lib.rs - (line 33) ... ok
+test crates/cpueinsum-blas/src/prepared.rs - prepared::BinaryPlan (line 29) ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.24s
+
+   Doc-tests cpueinsum_capi
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s

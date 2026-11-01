@@ -1,0 +1,22 @@
+{
+  "finished": "2026-11-01T00:20:10.386350+00:00",
+  "elapsed_seconds": 680.1755503420136,
+  "commands": [
+    {
+      "args": [
+        "git",
+        "diff",
+        "--",
+        "Cargo.lock",
+        "crates/cpueinsum/src/grouped.rs"
+      ],
+      "returncode": 0,
+      "stdout": "",
+      "stderr": ""
+    }
+  ],
+  "binary_sha256": {
+    "baseline": "b902289983b61dabdc36784f88d053f9a3d886d41d263504e7316f436263494a",
+    "candidate": "cfc5578aa260b001146940601a08966e7b86b459d4f427b94a9b849c0a57a944"
+  }
+}
