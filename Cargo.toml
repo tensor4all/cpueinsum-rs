@@ -16,10 +16,12 @@ repository = "https://github.com/tensor4all/cpueinsum-rs"
 
 [workspace.dependencies]
 # The tcontract 0.9.1 stack (tcontract-exec 0.9.1, t4a-faer 0.28, strided-basic 0.10,
-# threadteam 0.3), from crates.io. The additive fresh-output publication API
-# that used to be pinned here is released, so no patch is needed. The
-tcontract = { version = "0.9.1" }
-tcontract-exec = { version = "0.9.1" }
+# threadteam 0.3). tcontract and tcontract-exec stay on the same git rev as
+# tcontract-capi: that crate is `publish = false`, so a registry tcontract would pull
+# tcontract-exec from the registry while the capi pulls it from git, and the two
+# copies make `Exec` two distinct types at the capi boundary.
+tcontract = { git = "https://github.com/tensor4all/tcontract-rs.git", rev = "5f2b54dc6d0e00c0f57aa8b325cfbe5e41011d65", version = "0.9.1" }
+tcontract-exec = { git = "https://github.com/tensor4all/tcontract-rs.git", rev = "5f2b54dc6d0e00c0f57aa8b325cfbe5e41011d65", version = "0.9.1" }
 tcontract-capi = { git = "https://github.com/tensor4all/tcontract-rs.git", rev = "5f2b54dc6d0e00c0f57aa8b325cfbe5e41011d65", version = "0.1.0" }
 # One strided release train: the registry resolves one version of each crate, so
 # `StridedView` and `threadteam::Exec` stay single types across the graph.
