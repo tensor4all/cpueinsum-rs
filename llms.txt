@@ -1,0 +1,22 @@
+# cpueinsum
+
+> CPU einsum in Rust over tcontract, with integer labels and a caller supplied contraction order.
+
+`cpueinsum` evaluates einsum expressions on the CPU. Labels are integers rather than a parsed
+string, the contraction order is chosen by the caller (or by an explicit plan), and BLAS arrives
+through a separate backend crate so the core stays free of a BLAS dependency.
+
+## Key documentation
+
+- [README](README.md): scope, the label convention, and how the backends attach.
+- [API reference](https://docs.rs/cpueinsum): public types, `EinsumPlan`, and the grouped entry points.
+- [Prepared binary and grouped execution](docs/design/2026-10-06-prepared-binary-and-grouped.md):
+  what a prepared plan caches and how grouped jobs share work.
+- [Prepared BLAS integration](docs/design/prepared-blas-integration.md): how a prepared contraction
+  reaches BLAS without re-parsing.
+- [Repository rules](AGENTS.md): conventions for changes, tests, and benchmarking.
+
+## Repository
+
+- GitHub: https://github.com/tensor4all/cpueinsum-rs
+- Language: Rust (edition 2021), workspace at the repository root.
