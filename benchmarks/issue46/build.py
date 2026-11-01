@@ -9,7 +9,7 @@ import subprocess
 import sys
 
 HERE = Path(__file__).resolve().parent
-ROOT = HERE.parents[3]
+ROOT = HERE.parents[1]
 SOURCE = ROOT / "crates/cpueinsum/src/grouped.rs"
 
 

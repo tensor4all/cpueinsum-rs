@@ -15,7 +15,7 @@ all-small を維持しても mixed を壊した。この試作を本体に採用
 - [終了時の source 不変チェック・binary hash](results/broccoli-20261101/finished.json)
 - [baseline / candidate の build identity](results/broccoli-20261101/build-evidence/builds.json)
 - [事前プロトコル](PROTOCOL.md)、[診断パッチ](team.patch)、[独立レビュー](REVIEW.md)
-- 進捗はリポジトリルートの `report`。計測中は timer で 10 分時点に追記した。
+- 進捗はリポジトリルートの [`report`](../../report)。計測中は timer で 10 分時点に追記した。
   準備中の一部の追記間隔は 10 分を超えており、この運用条件は完全には守れていない。
 
 表の時間は 7 個の warm single-call 観測の中央値。ns を正確に ms に変換した。
@@ -184,19 +184,28 @@ tenferro 0.7.1 を測っていないので、**「旧版比 2.1–3 倍」の倍
 独立事後レビューの minor 指摘（1T のレーン数の表現）を修正した。
 測定ソース・プロトコル・生データの変更や計測の再試行はしていない。
 
+## crate 配布物からの分離
+
+PR レビューに従い、診断資料一式を repository-root の `benchmarks/issue46/` に
+移動した。crate 内には bench ターゲットのソースだけを残し、性能の結論は変更していない。
+[package 一覧の前後比較とビルドログ](packaging/)を保存する。
+相対リンクは同じ bundle 内を参照し、再実行コマンドとスクリプトの root 解決を修正した。
+過去の `results/` 内の記録パス・hash・検証ログは当時の証拠として byte-identical に保持した。
+bench ソースの変更も資料の場所を示すコメントのみで、計算や測定ロジックは不変。
+
 ## 再実行
 
 ```bash
 # sysfs から観測用の最後の L3 domain を選ぶ（この記録では 60-63）。
 # 親 pi もその集合に taskset -apc で固定してから、逐次実行する。
-taskset -c 60-63 python3 crates/cpueinsum/benches/issue46/build.py /tmp/issue46-build
-python3 crates/cpueinsum/benches/issue46/record.py self-test
-taskset -c 60-63 python3 crates/cpueinsum/benches/issue46/record.py run \
+taskset -c 60-63 python3 benchmarks/issue46/build.py /tmp/issue46-build
+python3 benchmarks/issue46/record.py self-test
+taskset -c 60-63 python3 benchmarks/issue46/record.py run \
   --baseline /tmp/issue46-build/baseline --candidate /tmp/issue46-build/candidate \
   --output /tmp/issue46-run
 # 集計のみなら計測を再実行しない。
-python3 crates/cpueinsum/benches/issue46/record.py summarize \
-  crates/cpueinsum/benches/issue46/results/broccoli-20261101
+python3 benchmarks/issue46/record.py summarize \
+  benchmarks/issue46/results/broccoli-20261101
 ```
 
 ビルド・測定は nice=5、build -j8 をスクリプト内で指定する。別のホストでは

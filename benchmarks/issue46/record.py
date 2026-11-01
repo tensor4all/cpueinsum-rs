@@ -15,7 +15,7 @@ import tempfile
 import time
 
 HERE = Path(__file__).resolve().parent
-ROOT = HERE.parents[3]
+ROOT = HERE.parents[1]
 ARMS = [("baseline", s) for s in ("Auto", "Inner", "Split2", "Split4")] + [("candidate", "Auto")]
 THREADS = (1, 8, 16, 32, 64)
 WORKLOADS = ("A", "B", "C", "large_job", "small_job")
@@ -84,7 +84,7 @@ def run(args):
         "observer": sorted(observer), "cpu_sets": sets, "clock_ticks": os.sysconf("SC_CLK_TCK"),
         "binary_sha256": {arm: sha(p) for arm, p in bins.items()},
         "patch_sha256": sha(HERE / "team.patch"),
-        "bench_sha256": sha(HERE.parent / "issue46_grouped.rs"),
+        "bench_sha256": sha(ROOT / "crates/cpueinsum/benches/issue46_grouped.rs"),
         "protocol_sha256": sha(HERE / "PROTOCOL.md"),
         "commands": [command(a) for a in (
             ["git", "rev-parse", "HEAD"], ["git", "status", "--short"],

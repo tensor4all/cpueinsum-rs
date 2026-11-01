@@ -5,3 +5,4 @@
 2026-11-01T00:21:00Z | 条件: 875実行、7-round interleaved、64T観測共有 | 結果: 失敗0、AでAutoの2lane×1threadを再現、Bの試作は同じouter、Cの最大job一括Inner試作は悪化、外れ値も全保持 | 次: 厳密集計・原因/限界記述・全ローカルgate・事後レビュー
 2026-11-01T00:31:30Z | 条件: source/lock不変・raw 875件/125中央値を独立照合 | 結果: 再現gateは8/32T、16T/64TのtailとCPU6のidle warning保持、fmt/clippy/debug+release全workspace/doctest/rustdoc/MSRV/1T overhead成功 | 次: 事後独立レビュー、最終commit+push、マージなしPR
 2026-11-01T00:38:00Z | 条件: gpt-6.1-sol事後レビュー完了（read-only） | 結果: blocker/importantなし、1T lane表現のminor修正、production変更なし、準備中のreport間隔が一部10分超だったことも明記 | 次: 証拠を最終commitし一度push、判断用PR作成（マージしない）
+2026-11-01T00:56:46.778Z | 条件: PR #59 配布物修正、nice5/-j8、計測再実行なし | 結果: 資料をbenchmarks/issue46へ移動、package 71→29件・結果data 0件、証拠36件byte-identical、bench buildと全local gate成功 | 次: 追加commit+push、PR本文のリンク更新、CI全緑を確認してmerge（#46への投稿なし）

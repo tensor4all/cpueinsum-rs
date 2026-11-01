@@ -1,4 +1,4 @@
-//! Issue #46 diagnostic; protocol and recorder are in benches/issue46/.
+//! Issue #46 diagnostic; protocol and recorder are in repository-root benchmarks/issue46/.
 //! Uses this crate's grouped tests' execution pattern and tcontract-exec's
 //! batch.rs:faer_auto rule as the scheduling reference; no kernel is copied.
 use std::hint::black_box;

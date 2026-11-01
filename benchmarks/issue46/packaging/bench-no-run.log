@@ -1,0 +1,5 @@
+   Compiling cpueinsum v0.9.0 (/home/shinaoka/projects/tensor4all/cpueinsum-rs/crates/cpueinsum)
+    Finished `bench` profile [optimized] target(s) in 26.52s
+  Executable benches src/lib.rs (target/release/deps/cpueinsum-8c36f97238ff9fe2)
+  Executable benches/issue46_grouped.rs (target/release/deps/issue46_grouped-1329ad70b619701b)
+  Executable benches/overhead_smoke.rs (target/release/deps/overhead_smoke-9cbfd763031fa645)
