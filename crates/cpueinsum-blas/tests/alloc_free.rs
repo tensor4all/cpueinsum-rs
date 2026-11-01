@@ -2,12 +2,14 @@
 //!
 //! The counter sees Rust's global allocator only; the linked CBLAS provider's
 //! own allocations are outside it and are deliberately not promised here. The
-//! measured calls are serial.
+//! measured calls are serial, and the window is counted per thread: work that
+//! another thread happens to do inside the window is not charged to the
+//! measured call.
 
 extern crate blas_src as _;
 
 use std::alloc::{GlobalAlloc, Layout as AllocLayout, System};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::cell::Cell;
 
 use cpueinsum::tcontract::api::{CSpec, DType, Labels, LayoutSpec, OperandSpec, Problem};
 use cpueinsum::tcontract::{PlanConfig, SliceAccumulationSource};
@@ -16,14 +18,24 @@ use cpueinsum_blas::{BinaryPlan, GroupedPlan, GroupedRoute};
 
 struct Counting;
 
-static ARMED: AtomicUsize = AtomicUsize::new(0);
-static ALLOCS: AtomicUsize = AtomicUsize::new(0);
+thread_local! {
+    // `const` init keeps the counter itself out of the allocator path that reads it.
+    static ARMED: Cell<u32> = const { Cell::new(0) };
+    static ALLOCS: Cell<usize> = const { Cell::new(0) };
+}
+
+fn count() {
+    // `try_with`: a thread already past TLS teardown can still free memory.
+    let _ = ARMED.try_with(|armed| {
+        if armed.get() == 1 {
+            let _ = ALLOCS.try_with(|counted| counted.set(counted.get() + 1));
+        }
+    });
+}
 
 unsafe impl GlobalAlloc for Counting {
     unsafe fn alloc(&self, layout: AllocLayout) -> *mut u8 {
-        if ARMED.load(Ordering::Relaxed) == 1 {
-            ALLOCS.fetch_add(1, Ordering::Relaxed);
-        }
+        count();
         // SAFETY: forwarding to the system allocator with the same layout.
         unsafe { System.alloc(layout) }
     }
@@ -34,9 +46,7 @@ unsafe impl GlobalAlloc for Counting {
     }
 
     unsafe fn realloc(&self, ptr: *mut u8, layout: AllocLayout, new_size: usize) -> *mut u8 {
-        if ARMED.load(Ordering::Relaxed) == 1 {
-            ALLOCS.fetch_add(1, Ordering::Relaxed);
-        }
+        count();
         // SAFETY: forwarding to the system allocator with the same layout.
         unsafe { System.realloc(ptr, layout, new_size) }
     }
@@ -46,12 +56,11 @@ unsafe impl GlobalAlloc for Counting {
 static GLOBAL: Counting = Counting;
 
 fn measure(body: impl FnOnce()) -> usize {
-    ARMED.store(1, Ordering::Relaxed);
-    let before = ALLOCS.load(Ordering::Relaxed);
+    let before = ALLOCS.with(Cell::get);
+    ARMED.with(|armed| armed.set(1));
     body();
-    let after = ALLOCS.load(Ordering::Relaxed);
-    ARMED.store(0, Ordering::Relaxed);
-    after - before
+    ARMED.with(|armed| armed.set(0));
+    ALLOCS.with(Cell::get) - before
 }
 
 fn operand(dims: &[usize], strides: &[isize]) -> OperandSpec {
