@@ -15,17 +15,19 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/tensor4all/cpueinsum-rs"
 
 [workspace.dependencies]
-# The tcontract 0.9.0 stack (tcontract-exec 0.9, t4a-faer 0.27, strided-basic 0.9, threadteam 0.2),
-# from crates.io, with tcontract's additive fresh-output publication API pinned
-# below until its next release. The unpublished capi uses that same commit.
-tcontract = { version = "0.9.0" }
-tcontract-exec = { version = "0.9.0" }
-tcontract-capi = { git = "https://github.com/tensor4all/tcontract-rs.git", rev = "625ed7a7124beb9537660b607c3c453d822d4dc8", version = "0.1.0" }
+# The tcontract 0.9.1 stack (tcontract-exec 0.9.1, t4a-faer 0.28, strided-basic 0.10,
+# threadteam 0.3). tcontract and tcontract-exec stay on the same git rev as
+# tcontract-capi: that crate is `publish = false`, so a registry tcontract would pull
+# tcontract-exec from the registry while the capi pulls it from git, and the two
+# copies make `Exec` two distinct types at the capi boundary.
+tcontract = { git = "https://github.com/tensor4all/tcontract-rs.git", rev = "5f2b54dc6d0e00c0f57aa8b325cfbe5e41011d65", version = "0.9.1" }
+tcontract-exec = { git = "https://github.com/tensor4all/tcontract-rs.git", rev = "5f2b54dc6d0e00c0f57aa8b325cfbe5e41011d65", version = "0.9.1" }
+tcontract-capi = { git = "https://github.com/tensor4all/tcontract-rs.git", rev = "5f2b54dc6d0e00c0f57aa8b325cfbe5e41011d65", version = "0.1.0" }
 # One strided release train: the registry resolves one version of each crate, so
 # `StridedView` and `threadteam::Exec` stay single types across the graph.
-strided-basic = { version = "0.9.0", default-features = false }
+strided-basic = { version = "0.10.0", default-features = false }
 strided-view = "0.7.0"
-threadteam = "0.2.0"
+threadteam = "0.3.0"
 cpueinsum = { version = "0.9.0", path = "crates/cpueinsum" }
 # CBLAS declarations only; a provider is linked by the final binary
 # (blas-src, or any crate that links a CBLAS library).
@@ -62,12 +64,3 @@ debug = 0
 [profile.bench]
 inherits = "release"
 
-# Temporary exact-commit integration of tensor4all/tcontract-rs#161. Keep capi
-# on the same commit so both use one tcontract; switch back after its release.
-[patch.crates-io]
-tcontract = { git = "https://github.com/tensor4all/tcontract-rs.git", rev = "625ed7a7124beb9537660b607c3c453d822d4dc8" }
-
-# Share the published executor with the git stack. Its kernel must stay at the
-# same commit as tcontract because main includes unreleased kernel interfaces.
-[patch."https://github.com/tensor4all/tcontract-rs.git"]
-tcontract-exec = { version = "0.9.0" }
