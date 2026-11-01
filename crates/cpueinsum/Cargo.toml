@@ -24,5 +24,9 @@ threadteam = { workspace = true, features = ["ledger"] }
 name = "overhead_smoke"
 harness = false
 
+[[bench]]
+name = "issue46_grouped"
+harness = false
+
 [lints]
 workspace = true

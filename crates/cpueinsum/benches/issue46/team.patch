@@ -1,0 +1,22 @@
+diff --git a/crates/cpueinsum/src/grouped.rs b/crates/cpueinsum/src/grouped.rs
+--- a/crates/cpueinsum/src/grouped.rs
++++ b/crates/cpueinsum/src/grouped.rs
+@@ -980,6 +980,18 @@
+     /// original host budget, which clamps but never falls back.
+     fn lane_decision(&self, exec: &Exec<'_>) -> Result<(usize, usize)> {
+         if let BatchStrategy::Auto = exec.batch_policy().strategy {
++            // Diagnostic only: batch.rs:faer_auto, queried for the largest job.
++            let query = BatchQuery::new(
++                1,
++                self.max_job_work as f64 * if T::IS_COMPLEX { 4.0 } else { 1.0 },
++            )
++            .with_item_parallel(exec.token_ref().carries_team())
++            .with_outer_only_when_item_serial(true)
++            .with_item_sections(GROUPED_SECTIONS);
++            let item = exec.batch_decision(&query);
++            if item.item_threads > 1 {
++                return Ok((1, item.item_threads));
++            }
+             let serial_ns =
+                 2.0 * self.work as f64 * ns_per_flop() * if T::IS_COMPLEX { 4.0 } else { 1.0 };
+             let lanes = exec

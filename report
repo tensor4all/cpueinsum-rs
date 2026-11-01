@@ -1,0 +1,3 @@
+# Issue #46 diagnostic progress (UTC)
+2026-10-31T23:51:00Z | 条件: broccoli Zen 2、複数L3/64T観測共有を承認、nice 5/-j8、観測60-63 | 結果: issue全文とAuto/Inner/Split/faer_autoを確認、測定未開始 | 次: ベンチと事前プロトコル、診断用試作の独立レビュー
+2026-11-01T00:03:00Z | 条件: f64/faer、保持Team必須（plain tokenは内部並列しない）、観測60-63 | 結果: ベンチのrelease buildとfocused clippy、recorder self-check成功、性能測定未開始 | 次: 事前レビューを反映しbaseline/candidateを比較
