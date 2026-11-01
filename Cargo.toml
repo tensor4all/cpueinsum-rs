@@ -28,7 +28,7 @@ tcontract-capi = { git = "https://github.com/tensor4all/tcontract-rs.git", rev =
 strided-basic = { version = "0.10.0", default-features = false }
 strided-view = "0.7.0"
 threadteam = "0.3.0"
-cpueinsum = { version = "0.9.0", path = "crates/cpueinsum" }
+cpueinsum = { version = "0.9.1", path = "crates/cpueinsum" }
 # CBLAS declarations only; a provider is linked by the final binary
 # (blas-src, or any crate that links a CBLAS library).
 cblas-sys = "0.1"
