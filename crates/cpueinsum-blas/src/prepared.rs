@@ -63,7 +63,10 @@ pub struct BinaryPlan<T: BlasScalar> {
 #[derive(Debug)]
 pub(crate) struct VendorPlan {
     step: BlasStep,
-    c: CSpec,
+    /// Whether the prepared problem carries an output `C` term. Admission only
+    /// asks for the kind, so the whole `CSpec` is not retained per job
+    /// (cpueinsum-rs#52).
+    c_output: bool,
     conjugate_output: bool,
     output_count: Option<usize>,
 }
@@ -225,7 +228,7 @@ impl VendorPlan {
             .try_fold(1usize, |count, axis| count.checked_mul(axis.extent()));
         Some(Self {
             step,
-            c: problem.c_spec().clone(),
+            c_output: matches!(problem.c_spec(), CSpec::Output(_)),
             conjugate_output: T::COMPLEX && problem.d().op().is_conj(),
             output_count,
         })
@@ -246,9 +249,9 @@ impl VendorPlan {
         work: &mut [T],
     ) -> Result<(), BlasError> {
         let step = &self.step;
-        let compatible = match (&self.c, source) {
+        let compatible = match (self.c_output, source) {
             (_, SliceAccumulationSource::Absent) => beta == T::default(),
-            (CSpec::Output(_), SliceAccumulationSource::Output) => true,
+            (true, SliceAccumulationSource::Output) => true,
             _ => false,
         };
         if !compatible {

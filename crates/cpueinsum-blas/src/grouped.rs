@@ -1,12 +1,13 @@
 //! Whole-group preparation and preflight; vendor jobs run on the coordinator.
 
 use core::mem::MaybeUninit;
+use std::sync::OnceLock;
 
 use cpueinsum::tcontract::api::{CSpec, Labels, LayoutSpec, Op, OperandSpec, Problem};
 use cpueinsum::tcontract::{
     execute_uninit_with, PlanConfig, SliceAccumulationSource, UninitOutputError,
 };
-use cpueinsum::{Exec, GroupedGemmJob};
+use cpueinsum::{Exec, GroupedGemmJob, PreparedGroupedJobs};
 
 use crate::prepared::VendorPlan;
 use crate::{BlasError, BlasScalar};
@@ -37,8 +38,11 @@ struct VendorJob {
 
 /// Prepared grouped GEMMs over shared caller buffers.
 ///
-/// Every descriptor is validated during preparation. If any child cannot use
-/// direct vendor output, the whole group selects a prepared native alternative.
+/// Every descriptor is validated during preparation, which costs one prepared
+/// GEMM per job and no tcontract child plan. The native alternative is prepared
+/// on the first call that executes natively — a job the vendor layout rejects,
+/// `alpha = 0`, or a forced lane strategy — and then reused, so the vendor route
+/// never pays for children it does not execute.
 /// [`Self::execute_uninit`] accepts fresh storage with zero beta and exact coverage.
 ///
 /// # Examples
@@ -60,7 +64,13 @@ struct VendorJob {
 /// ```
 #[derive(Debug)]
 pub struct GroupedPlan<T: BlasScalar> {
-    native: cpueinsum::GroupedPlan<T>,
+    /// Checked job metadata. The native children are built from it only when a
+    /// call actually executes natively (cpueinsum-rs#52).
+    meta: PreparedGroupedJobs,
+    ops: [Op; 3],
+    config: PlanConfig,
+    /// The prepared native alternative, built on first use.
+    native: OnceLock<cpueinsum::GroupedPlan<T>>,
     vendor: Option<Vec<VendorJob>>,
     work_len: usize,
 }
@@ -70,8 +80,9 @@ impl<T: BlasScalar> GroupedPlan<T> {
     ///
     /// # Errors
     ///
-    /// Returns [`BlasError::Prepare`] for overflowing geometry, overlapping
-    /// outputs, invalid configuration or a rejected child problem.
+    /// Returns [`BlasError::Prepare`] for overflowing geometry or overlapping
+    /// outputs. A problem tcontract itself rejects is reported by the first call
+    /// that needs the native alternative.
     pub fn new(jobs: &[GroupedGemmJob], config: &PlanConfig) -> Result<Self, BlasError> {
         Self::new_with_ops(jobs, [Op::Identity; 3], config)
     }
@@ -80,18 +91,19 @@ impl<T: BlasScalar> GroupedPlan<T> {
     ///
     /// # Errors
     ///
-    /// Returns [`BlasError::Prepare`] for checked geometry/byte overflow,
-    /// overlapping outputs, invalid configuration or a rejected child problem.
+    /// Returns [`BlasError::Prepare`] for checked geometry/byte overflow or
+    /// overlapping outputs. A problem tcontract itself rejects is reported by the
+    /// first call that needs the native alternative.
     pub fn new_with_ops(
         jobs: &[GroupedGemmJob],
         ops: [Op; 3],
         config: &PlanConfig,
     ) -> Result<Self, BlasError> {
-        let native = cpueinsum::GroupedPlan::<T>::new_with_ops(jobs, ops, config)
+        let meta = cpueinsum::GroupedPlan::<T>::prepare_jobs(jobs)
             .map_err(|source| BlasError::Prepare { source })?;
         let mut vendor = Vec::with_capacity(jobs.len());
         for (id, job) in jobs.iter().enumerate() {
-            // INVARIANT: native preparation above checked every product, byte
+            // INVARIANT: grouping preparation above checked every product, byte
             // end, dimension conversion and output overlap before this loop.
             let rows = (job.rows as isize).max(1);
             let contracted = (job.contracted as isize).max(1);
@@ -112,8 +124,13 @@ impl<T: BlasScalar> GroupedPlan<T> {
                 source: cpueinsum::Error::Contract { step: id, source },
             })?;
             let Some(plan) = VendorPlan::new::<T>(&problem, config) else {
+                // A job the vendor layout rejects leaves the whole group on the
+                // native route, prepared on first execution.
                 return Ok(Self {
-                    native,
+                    meta,
+                    ops,
+                    config: config.clone(),
+                    native: OnceLock::new(),
                     vendor: None,
                     work_len: 0,
                 });
@@ -133,10 +150,24 @@ impl<T: BlasScalar> GroupedPlan<T> {
             .max()
             .unwrap_or(0);
         Ok(Self {
-            native,
+            meta,
+            ops,
+            config: config.clone(),
+            native: OnceLock::new(),
             vendor: Some(vendor),
             work_len,
         })
+    }
+
+    /// The prepared native alternative, built the first time a call needs it.
+    fn native(&self) -> Result<&cpueinsum::GroupedPlan<T>, BlasError> {
+        if let Some(plan) = self.native.get() {
+            return Ok(plan);
+        }
+        let plan =
+            cpueinsum::GroupedPlan::<T>::from_prepared(self.meta.clone(), self.ops, &self.config)
+                .map_err(|source| BlasError::Prepare { source })?;
+        Ok(self.native.get_or_init(|| plan))
     }
 
     /// Required caller packing storage in elements; it is reused across jobs.
@@ -234,9 +265,10 @@ impl<T: BlasScalar> GroupedPlan<T> {
         out: &'d mut [MaybeUninit<T>],
         work: &mut [T],
     ) -> Result<(&'d mut [T], GroupedRoute), BlasError> {
-        // The vendor jobs share the native descriptors, so the native checker
-        // proves the same beta and exact-coverage conditions before any write.
-        self.native
+        // Preparation proved the output ranges disjoint, so this metadata-only
+        // scan proves the same beta and exact-coverage conditions the native
+        // checker would, before any write and without a native plan.
+        self.meta
             .validate_uninit(beta, out.len())
             .map_err(validation)?;
         let vendor_route = crate::vendor_loop_route(exec);
@@ -246,7 +278,7 @@ impl<T: BlasScalar> GroupedPlan<T> {
             .filter(|_| alpha != T::default() && vendor_route)
         else {
             return self
-                .native
+                .native()?
                 .execute_uninit(exec, alpha, lhs, rhs, beta, out)
                 .map(|(out, route)| (out, GroupedRoute::Native(route)))
                 .map_err(|source| BlasError::Native { source });
@@ -342,11 +374,11 @@ impl<T: BlasScalar> GroupedPlan<T> {
             .as_ref()
             .filter(|_| alpha != T::default() && vendor_route)
         else {
+            let native = self.native()?;
             let result = if accumulate {
-                self.native
-                    .execute_into_accum(exec, alpha, lhs, rhs, beta, out)
+                native.execute_into_accum(exec, alpha, lhs, rhs, beta, out)
             } else {
-                self.native.execute_into(exec, alpha, lhs, rhs, out)
+                native.execute_into(exec, alpha, lhs, rhs, out)
             };
             return result
                 .map(GroupedRoute::Native)
