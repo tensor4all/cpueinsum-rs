@@ -53,9 +53,9 @@ fn two_hundred_jobs_construct_exactly_three_children() {
         assert_eq!(constructed, geometries);
         assert_eq!(plan.plans.len(), geometries);
         assert_eq!(plan.plans.capacity(), geometries);
-        assert_eq!(plan.jobs.len(), count);
-        for a in &plan.jobs {
-            for b in &plan.jobs {
+        assert_eq!(plan.meta.jobs.len(), count);
+        for a in &plan.meta.jobs {
+            for b in &plan.meta.jobs {
                 assert_eq!(
                     a.plan == b.plan,
                     jobs[a.meta.id].rows == jobs[b.meta.id].rows
@@ -78,7 +78,7 @@ fn empty_and_unit_reduction_have_distinct_children_in_both_orders() {
         }
         let plan = GroupedPlan::<f64>::new(&jobs, &PlanConfig::default()).unwrap();
         assert_eq!(plan.plans.len(), 2);
-        assert_ne!(plan.jobs[0].plan, plan.jobs[1].plan);
+        assert_ne!(plan.meta.jobs[0].plan, plan.meta.jobs[1].plan);
         let mut out = [f64::NAN; 8];
         plan.execute_into(&mut Exec::serial(), 1.0, &[1.0, 2.0], &[3.0, 4.0], &mut out)
             .unwrap();

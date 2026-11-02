@@ -43,8 +43,10 @@ pub(crate) struct Pack {
 pub(crate) struct Side {
     /// The step operand it comes from (A, B or D).
     pub(crate) from: OperandId,
-    /// `None`: in place in the caller's memory.
-    pub(crate) pack: Option<Pack>,
+    /// `None`: in place in the caller's memory. Boxed, because a direct operand
+    /// is the common case and an inline [`Pack`] would cost every side that
+    /// never packs (cpueinsum-rs#52).
+    pub(crate) pack: Option<Box<Pack>>,
     /// Stride of each batch axis where the GEMM reads it.
     pub(crate) h: Vec<isize>,
 }
@@ -310,7 +312,7 @@ fn input(
     let (pack, hs) = work.pack(axes, &hax, false)?;
     let side = Side {
         from: o,
-        pack: Some(pack),
+        pack: Some(Box::new(pack)),
         h: hs,
     };
     Some((side, t, i32::try_from(ld).ok()?))
@@ -365,10 +367,21 @@ fn plan_impl<T: BlasScalar>(p: &Problem, allow_output_c: bool) -> Option<BlasSte
     let ca = c(p.a().op().is_conj()) != conj_d;
     let cb = c(p.b().op().is_conj()) != conj_d;
 
-    // One temporary order buffer, partitioned across groups; scalar axes need none.
+    // One temporary order buffer, partitioned across groups; scalar axes need
+    // none. A group has at most one order entry per operand axis, so ordinary
+    // problems fit the inline array and planning requests no memory for orders.
+    const INLINE_ORDER: usize = 16;
     let order_len = |axes: &[RoleAxis]| if axes.len() > 1 { axes.len() } else { 0 };
     let (ml, nl, kl) = (order_len(r.m()), order_len(r.n()), order_len(r.k()));
-    let mut order = vec![0; ml + nl + kl];
+    let total = ml + nl + kl;
+    let mut inline = [0usize; INLINE_ORDER];
+    let mut heap = Vec::new();
+    let order: &mut [usize] = if total <= INLINE_ORDER {
+        &mut inline[..total]
+    } else {
+        heap.resize(total, 0);
+        &mut heap[..]
+    };
     let (mo, rest) = order.split_at_mut(ml);
     let (no, ko) = rest.split_at_mut(nl);
     let m = Group::new(r.m(), &[D, A], mo)?;
@@ -406,7 +419,7 @@ fn plan_impl<T: BlasScalar>(p: &Problem, allow_output_c: bool) -> Option<BlasSte
         let (pack, hs) = work.pack(m.axes(D).chain(n.axes(D)).collect(), &hax, true)?;
         let out = Side {
             from: D,
-            pack: Some(pack),
+            pack: Some(Box::new(pack)),
             h: hs,
         };
         (false, out, dim(m.extent.max(1))?)

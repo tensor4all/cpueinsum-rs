@@ -79,7 +79,8 @@ fn problem(b_strides: &[isize]) -> Problem {
     .unwrap()
 }
 
-// Planning must not add per-job order allocations on top of the native fallback (#52).
+// Planning must not add per-job order allocations, and the vendor route must not
+// prepare the native children it would only execute on a fallback (#52).
 fn vendor_plan_construction_reuses_group_order_storage() {
     let config = PlanConfig::default();
     let p = problem(&[1, 4]);
@@ -139,23 +140,23 @@ fn vendor_plan_construction_reuses_group_order_storage() {
     );
     assert_eq!(
         packed.1,
-        packed.0 + 4,
-        "only the input packing metadata allocates"
+        packed.0 + 5,
+        "one boxed pack and its four metadata vectors per packed operand"
     );
     assert_eq!(
-        multi_axis.1,
-        multi_axis.0 + 1,
-        "multi-axis groups share one order buffer"
+        multi_axis.1, multi_axis.0,
+        "order storage is inline, so a multi-axis group adds nothing"
     );
     for (count, native, vendor) in groups {
         assert!(
-            native <= 4,
-            "one geometry: native metadata, geometry map, compact jobs and one child buffer"
+            native <= 3,
+            "one geometry: compact jobs, geometry table and one child buffer"
         );
+        // #52: the vendor route prepares its own jobs instead of the native
+        // children, so it requests no more than the native route does.
         assert_eq!(
-            vendor,
-            native + usize::from(count != 0),
-            "only the single vendor job buffer may allocate: {count} jobs"
+            vendor, native,
+            "the vendor route prepares no native child: {count} jobs"
         );
     }
 }

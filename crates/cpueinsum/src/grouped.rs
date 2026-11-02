@@ -198,10 +198,82 @@ struct JobMeta {
     out_offset: usize,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug)]
 struct PreparedJob {
     meta: JobMeta,
     plan: u32,
+}
+
+/// Checked grouped job metadata, before any numerical child plan exists.
+///
+/// Produced by [`GroupedPlan::prepare_jobs`] and consumed by
+/// [`GroupedPlan::from_prepared`]. It is crate-internal plumbing, not API:
+/// `cpueinsum-blas` uses it so a vendor plan pays the checked arithmetic, the
+/// output overlap admission and the geometry count, and builds the tcontract
+/// children only when it actually runs natively (cpueinsum-rs#52).
+#[doc(hidden)]
+#[derive(Clone, Debug)]
+pub struct PreparedGroupedJobs {
+    jobs: Vec<PreparedJob>,
+    /// One entry per distinct local geometry, in child-index order.
+    children: Vec<ChildGeometry>,
+    required_lhs: usize,
+    required_rhs: usize,
+    required_out: usize,
+    work: u128,
+    max_job_work: u128,
+}
+
+/// One distinct local geometry and the lowest original id that uses it.
+#[derive(Clone, Copy, Debug)]
+struct ChildGeometry {
+    rows: usize,
+    contracted: usize,
+    cols: usize,
+    id: usize,
+}
+
+impl PreparedGroupedJobs {
+    /// Reject a `beta`/coverage combination a fresh-output call cannot support.
+    ///
+    /// The same rule [`GroupedPlan::validate_uninit`] applies, on metadata only,
+    /// so a vendor plan can enforce it without a native plan.
+    ///
+    /// # Errors
+    ///
+    /// [`GroupedError::NonzeroBeta`] when `beta` is not the additive identity,
+    /// and [`GroupedError::FreshCoverage`] when the jobs leave a gap or do not
+    /// stop exactly at `out_len`.
+    pub fn validate_uninit<T: Scalar>(&self, beta: T, out_len: usize) -> Result<()> {
+        if beta != T::default() {
+            return Err(grouped(GroupedError::NonzeroBeta));
+        }
+        let mut cursor = 0usize;
+        for job in &self.jobs {
+            if job.meta.out_len == 0 {
+                continue;
+            }
+            // Stored order is by output offset, so exact coverage means each
+            // nonempty job starts where the previous one stopped.
+            if job.meta.out_offset != cursor {
+                return Err(grouped(GroupedError::FreshCoverage));
+            }
+            cursor = job
+                .meta
+                .out_offset
+                .checked_add(job.meta.out_len)
+                .ok_or_else(|| {
+                    grouped(GroupedError::Overflow {
+                        job: job.meta.id,
+                        what: "fresh output coverage",
+                    })
+                })?;
+        }
+        if cursor != out_len {
+            return Err(grouped(GroupedError::FreshCoverage));
+        }
+        Ok(())
+    }
 }
 
 /// Immutable plans and aggregate metadata for heterogeneous GEMM jobs.
@@ -228,13 +300,8 @@ struct PreparedJob {
 /// ```
 #[derive(Debug)]
 pub struct GroupedPlan<T: Scalar> {
-    jobs: Vec<PreparedJob>,
+    meta: PreparedGroupedJobs,
     plans: Vec<Plan<T>>,
-    required_lhs: usize,
-    required_rhs: usize,
-    required_out: usize,
-    work: u128,
-    max_job_work: u128,
 }
 
 impl<T: Scalar> GroupedPlan<T> {
@@ -296,6 +363,23 @@ impl<T: Scalar> GroupedPlan<T> {
         ops: [Op; 3],
         config: &PlanConfig,
     ) -> Result<Self> {
+        Self::from_prepared(Self::prepare_jobs(jobs)?, ops, config)
+    }
+
+    /// Check every descriptor, the output overlap rule and the distinct
+    /// geometries, without preparing any numerical child plan.
+    ///
+    /// This is the whole preparation a vendor route needs, and it is what lets
+    /// `cpueinsum-blas` build its own jobs first and construct the tcontract
+    /// children only if it ever executes natively (cpueinsum-rs#52).
+    ///
+    /// The checks are `T`'s: a byte span is `elements * size_of::<T>()`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Grouped`] for checked arithmetic or overlapping output
+    /// ranges, with the original descriptor index in the error.
+    pub fn prepare_jobs(jobs: &[GroupedGemmJob]) -> Result<PreparedGroupedJobs> {
         let mut prepared = Vec::with_capacity(jobs.len());
         let mut required_lhs = 0;
         let mut required_rhs = 0;
@@ -357,8 +441,9 @@ impl<T: Scalar> GroupedPlan<T> {
 
         // Keep output order deterministic and retain original IDs. Empty jobs
         // stay after nonempty jobs and receive independent empty slices below.
-        prepared
-            .sort_unstable_by_key(|job| (job.meta.out_len == 0, job.meta.out_offset, job.meta.id));
+        let by_output =
+            |job: &PreparedJob| (job.meta.out_len == 0, job.meta.out_offset, job.meta.id);
+        prepared.sort_unstable_by_key(by_output);
         for pair in prepared.windows(2) {
             if pair[1].meta.out_len != 0
                 && pair[0].meta.out_offset + pair[0].meta.out_len > pair[1].meta.out_offset
@@ -369,67 +454,44 @@ impl<T: Scalar> GroupedPlan<T> {
                 }));
             }
         }
-        // Validate every descriptor and overlap before preparing numerical plans.
+        // Every descriptor and the overlap rule are checked before any child is
+        // prepared.
         //
         // One numerical child per distinct local geometry (#51). Visiting the
         // jobs in geometry order makes each geometry one contiguous run, so
         // finding the shared child costs no lookup table and the child vector is
-        // allocated once at its exact size. Geometry is the raw
-        // `(rows, contracted, cols)`: zero and one differ, and `max(1)` applies
-        // only to strides. The id tie-break keeps the child order deterministic
-        // and makes a rejected child name the lowest original id in its run.
+        // sized once, to the number of distinct geometries rather than job count.
+        // Geometry is the raw `(rows, contracted, cols)`: zero and one differ,
+        // and `max(1)` applies only to strides. The id tie-break keeps the child
+        // order deterministic and makes a rejected child name the lowest
+        // original id in its run.
         let geometry = |job: &PreparedJob| {
             let source = jobs[job.meta.id];
             (source.rows, source.contracted, source.cols)
         };
         prepared.sort_unstable_by_key(|job| (geometry(job), job.meta.id));
-        // Child capacity is the number of distinct geometries G, not the job
-        // count J, and it is known before the child vector is allocated.
-        let mut children = 0;
+        let mut children: Vec<ChildGeometry> = Vec::new();
         let mut previous = None;
-        for job in &prepared {
-            let key = geometry(job);
-            if previous != Some(key) {
-                children += 1;
-                previous = Some(key);
-            }
-        }
-        let mut plans = Vec::with_capacity(children);
-        let mut child_config = config.clone();
-        child_config.fresh_output = false;
-        previous = None;
         for job in prepared.iter_mut() {
             let id = job.meta.id;
-            let source = jobs[id];
             let key = geometry(job);
             if previous != Some(key) {
                 previous = Some(key);
-                // Dimension-to-stride conversions were checked above for every job.
-                let rows = (source.rows as isize).max(1);
-                let contracted = (source.contracted as isize).max(1);
-                let problem = Problem::from_labels(
-                    T::STORAGE,
-                    spec(&[source.rows, source.contracted], &[1, rows], ops[0]),
-                    spec(&[source.contracted, source.cols], &[1, contracted], ops[1]),
-                    CSpec::Output(ops[2]),
-                    spec(&[source.rows, source.cols], &[1, rows], ops[2]),
-                    &Labels::new(&[0, 1], &[1, 2], &[0, 2]),
-                )
-                .map_err(|source| Error::Contract { step: id, source })?;
-                let child = Plan::new(&problem, &child_config)
-                    .map_err(|source| Error::Contract { step: id, source })?;
-                #[cfg(test)]
-                tests::PLAN_CONSTRUCTIONS.with(|count| count.set(count.get() + 1));
-                plans.push(child);
+                let (rows, contracted, cols) = key;
+                children.push(ChildGeometry {
+                    rows,
+                    contracted,
+                    cols,
+                    id,
+                });
             }
-            job.plan = child_index(id, plans.len() - 1)?;
+            job.plan = child_index(id, children.len() - 1)?;
         }
         // Restore the output-sorted storage order the execution paths index by.
-        prepared
-            .sort_unstable_by_key(|job| (job.meta.out_len == 0, job.meta.out_offset, job.meta.id));
-        Ok(Self {
+        prepared.sort_unstable_by_key(by_output);
+        Ok(PreparedGroupedJobs {
             jobs: prepared,
-            plans,
+            children,
             required_lhs,
             required_rhs,
             required_out,
@@ -438,22 +500,67 @@ impl<T: Scalar> GroupedPlan<T> {
         })
     }
 
+    /// Prepare one numerical child per distinct geometry of `prepared`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Contract`] when tcontract rejects a child problem; the
+    /// error names the lowest original id with that geometry.
+    pub fn from_prepared(
+        prepared: PreparedGroupedJobs,
+        ops: [Op; 3],
+        config: &PlanConfig,
+    ) -> Result<Self> {
+        let mut child_config = config.clone();
+        child_config.fresh_output = false;
+        let mut plans = Vec::with_capacity(prepared.children.len());
+        for child in &prepared.children {
+            let ChildGeometry {
+                rows: m,
+                contracted: k,
+                cols: n,
+                id,
+            } = *child;
+            // Dimension-to-stride conversions were checked above for every job.
+            let rows = (m as isize).max(1);
+            let contracted = (k as isize).max(1);
+            let problem = Problem::from_labels(
+                T::STORAGE,
+                spec(&[m, k], &[1, rows], ops[0]),
+                spec(&[k, n], &[1, contracted], ops[1]),
+                CSpec::Output(ops[2]),
+                spec(&[m, n], &[1, rows], ops[2]),
+                &Labels::new(&[0, 1], &[1, 2], &[0, 2]),
+            )
+            .map_err(|source| Error::Contract { step: id, source })?;
+            let plan = Plan::new(&problem, &child_config)
+                .map_err(|source| Error::Contract { step: id, source })?;
+            #[cfg(test)]
+            tests::PLAN_CONSTRUCTIONS.with(|count| count.set(count.get() + 1));
+            plans.push(plan);
+        }
+        Ok(Self {
+            meta: prepared,
+            plans,
+        })
+    }
+
     /// Minimum length of the shared left-input buffer.
     /// See [`Self::new`] for a runnable example.
     pub fn required_lhs_len(&self) -> usize {
-        self.required_lhs
+        self.meta.required_lhs
     }
 
     /// Minimum length of the shared right-input buffer.
     /// See [`Self::new`] for a runnable example.
     pub fn required_rhs_len(&self) -> usize {
-        self.required_rhs
+        self.meta.required_rhs
     }
 
     /// Minimum length of the shared output buffer.
     /// See [`Self::new`] for a runnable example.
     pub fn required_out_len(&self) -> usize {
-        self.required_out
+        self.meta.required_out
     }
 
     /// Elements of the caller-owned intermediate arena this grouped plan needs.
@@ -592,34 +699,7 @@ impl<T: Scalar> GroupedPlan<T> {
     /// # Ok::<(), cpueinsum::Error>(())
     /// ```
     pub fn validate_uninit(&self, beta: T, out_len: usize) -> Result<()> {
-        if beta != T::default() {
-            return Err(grouped(GroupedError::NonzeroBeta));
-        }
-        let mut cursor = 0usize;
-        for job in &self.jobs {
-            if job.meta.out_len == 0 {
-                continue;
-            }
-            // Stored order is by output offset, so exact coverage means each
-            // nonempty job starts where the previous one stopped.
-            if job.meta.out_offset != cursor {
-                return Err(grouped(GroupedError::FreshCoverage));
-            }
-            cursor = job
-                .meta
-                .out_offset
-                .checked_add(job.meta.out_len)
-                .ok_or_else(|| {
-                    grouped(GroupedError::Overflow {
-                        job: job.meta.id,
-                        what: "fresh output coverage",
-                    })
-                })?;
-        }
-        if cursor != out_len {
-            return Err(grouped(GroupedError::FreshCoverage));
-        }
-        Ok(())
+        self.meta.validate_uninit(beta, out_len)
     }
 
     /// Overwrite all jobs into fresh storage and return it only on success.
@@ -742,7 +822,7 @@ impl<T: Scalar> GroupedPlan<T> {
         {
             // Stored order is by output offset; retain lowest original error ID.
             let mut bounds_failure: Option<(usize, Error)> = None;
-            for job in &self.jobs {
+            for job in &self.meta.jobs {
                 #[cfg(test)]
                 tests::BOUNDS_VISITS.with(|count| count.set(count.get() + 1));
                 let id = job.meta.id;
@@ -778,7 +858,7 @@ impl<T: Scalar> GroupedPlan<T> {
         {
             let child_exec = child_context(exec, item_threads);
             let mut route_failure: Option<(usize, Error)> = None;
-            for job in &self.jobs {
+            for job in &self.meta.jobs {
                 let id = job.meta.id;
                 // Admission only: a child that would take a packed SPMD team on the
                 // coordinator is not refused here. tcontract's packed driver checks
@@ -819,7 +899,7 @@ impl<T: Scalar> GroupedPlan<T> {
         R: Send,
         F: Fn(JobItem<'_, 'd, T, D>, &mut Exec<'_>) -> Result<R> + Sync,
     {
-        if self.jobs.is_empty() {
+        if self.meta.jobs.is_empty() {
             return Ok((GroupedRoute::Empty, Vec::new()));
         }
         let route = grouped_route(lanes, item_threads);
@@ -832,7 +912,7 @@ impl<T: Scalar> GroupedPlan<T> {
             let mut remaining: &'d mut [D] = out;
             let mut failure: Option<(usize, Error)> = None;
             let mut receipts: Vec<R> = Vec::new();
-            for job in &self.jobs {
+            for job in &self.meta.jobs {
                 let id = job.meta.id;
                 let current = core::mem::take(&mut remaining);
                 let d = if job.meta.out_len == 0 {
@@ -879,7 +959,7 @@ impl<T: Scalar> GroupedPlan<T> {
         // Boundaries are monotone even though empty jobs sort last and may carry
         // a smaller offset: an empty job contributes no output, so it must never
         // pull a boundary back and leave an earlier non-empty job without room.
-        let item_count = self.jobs.len();
+        let item_count = self.meta.jobs.len();
         let lane_range = |lane: usize| {
             let base = item_count / lanes;
             let rem = item_count % lanes;
@@ -897,7 +977,7 @@ impl<T: Scalar> GroupedPlan<T> {
             // nothing, so a lane at or after the transition to empty jobs gets an
             // empty chunk.
             let mut end = cursor;
-            for job in &self.jobs[lo..hi] {
+            for job in &self.meta.jobs[lo..hi] {
                 if job.meta.out_len != 0 {
                     end = end.max(job.meta.out_offset + job.meta.out_len);
                 }
@@ -931,7 +1011,7 @@ impl<T: Scalar> GroupedPlan<T> {
             let (base_offset, chunk) = &mut *guard;
             let base_offset = *base_offset;
             let mut lane_cursor = 0usize;
-            for job in &self.jobs[lo..hi] {
+            for job in &self.meta.jobs[lo..hi] {
                 let current = core::mem::take(chunk);
                 let d = if job.meta.out_len == 0 {
                     let (slice, tail) = current.split_at_mut(0);
@@ -997,16 +1077,16 @@ impl<T: Scalar> GroupedPlan<T> {
     fn lane_decision(&self, exec: &Exec<'_>) -> Result<(usize, usize)> {
         if let BatchStrategy::Auto = exec.batch_policy().strategy {
             let serial_ns =
-                2.0 * self.work as f64 * ns_per_flop() * if T::IS_COMPLEX { 4.0 } else { 1.0 };
+                2.0 * self.meta.work as f64 * ns_per_flop() * if T::IS_COMPLEX { 4.0 } else { 1.0 };
             let lanes = exec
                 .width_for(serial_ns, GROUPED_SECTIONS)
                 .min(exec.budget())
-                .min(self.jobs.len())
+                .min(self.meta.jobs.len())
                 .max(1);
             return Ok((lanes, 1));
         }
-        let query =
-            BatchQuery::new(self.jobs.len(), self.max_job_work as f64).with_item_parallel(true);
+        let query = BatchQuery::new(self.meta.jobs.len(), self.meta.max_job_work as f64)
+            .with_item_parallel(true);
         let decision = exec.batch_decision(&query);
         Ok((decision.lanes, decision.item_threads))
     }
