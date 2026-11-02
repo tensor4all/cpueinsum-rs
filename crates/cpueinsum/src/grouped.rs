@@ -5,7 +5,6 @@
 //! or executors are retained by the plan.
 
 use core::mem::MaybeUninit;
-use std::collections::{hash_map::Entry, HashMap};
 use std::num::NonZeroUsize;
 use std::sync::Mutex;
 
@@ -342,77 +341,94 @@ impl<T: Scalar> GroupedPlan<T> {
             isize_dim(id, job.rows, "rows")?;
             isize_dim(id, job.contracted, "contracted")?;
             isize_dim(id, job.cols, "cols")?;
-            prepared.push(JobMeta {
-                id,
-                lhs_len,
-                rhs_len,
-                out_len,
-                lhs_offset: job.lhs_offset,
-                rhs_offset: job.rhs_offset,
-                out_offset: job.out_offset,
+            prepared.push(PreparedJob {
+                meta: JobMeta {
+                    id,
+                    lhs_len,
+                    rhs_len,
+                    out_len,
+                    lhs_offset: job.lhs_offset,
+                    rhs_offset: job.rhs_offset,
+                    out_offset: job.out_offset,
+                },
+                plan: 0,
             });
         }
 
         // Keep output order deterministic and retain original IDs. Empty jobs
         // stay after nonempty jobs and receive independent empty slices below.
-        prepared.sort_unstable_by_key(|meta| (meta.out_len == 0, meta.out_offset, meta.id));
+        prepared
+            .sort_unstable_by_key(|job| (job.meta.out_len == 0, job.meta.out_offset, job.meta.id));
         for pair in prepared.windows(2) {
-            if pair[1].out_len != 0 && pair[0].out_offset + pair[0].out_len > pair[1].out_offset {
+            if pair[1].meta.out_len != 0
+                && pair[0].meta.out_offset + pair[0].meta.out_len > pair[1].meta.out_offset
+            {
                 return Err(grouped(GroupedError::Overlap {
-                    first: pair[0].id,
-                    second: pair[1].id,
+                    first: pair[0].meta.id,
+                    second: pair[1].meta.id,
                 }));
             }
         }
         // Validate every descriptor and overlap before preparing numerical plans.
-        // Count raw geometries first so child capacity is G, not J.
-        // Zero and one differ; max(1) applies only to strides.
-        let mut geometries = HashMap::new();
-        for meta in &prepared {
-            let job = jobs[meta.id];
-            let next = geometries.len();
-            if let Entry::Vacant(entry) = geometries.entry((job.rows, job.contracted, job.cols)) {
-                entry.insert(child_index(meta.id, next)?);
+        //
+        // One numerical child per distinct local geometry (#51). Visiting the
+        // jobs in geometry order makes each geometry one contiguous run, so
+        // finding the shared child costs no lookup table and the child vector is
+        // allocated once at its exact size. Geometry is the raw
+        // `(rows, contracted, cols)`: zero and one differ, and `max(1)` applies
+        // only to strides. The id tie-break keeps the child order deterministic
+        // and makes a rejected child name the lowest original id in its run.
+        let geometry = |job: &PreparedJob| {
+            let source = jobs[job.meta.id];
+            (source.rows, source.contracted, source.cols)
+        };
+        prepared.sort_unstable_by_key(|job| (geometry(job), job.meta.id));
+        // Child capacity is the number of distinct geometries G, not the job
+        // count J, and it is known before the child vector is allocated.
+        let mut children = 0;
+        let mut previous = None;
+        for job in &prepared {
+            let key = geometry(job);
+            if previous != Some(key) {
+                children += 1;
+                previous = Some(key);
             }
         }
-        let mut plans = Vec::with_capacity(geometries.len());
+        let mut plans = Vec::with_capacity(children);
         let mut child_config = config.clone();
         child_config.fresh_output = false;
-        let mut planned = Vec::with_capacity(prepared.len());
-        for meta in prepared {
-            let job = jobs[meta.id];
-            let plan = geometries[&(job.rows, job.contracted, job.cols)];
-            // INVARIANT: both passes visit the same sorted jobs, so a new
-            // index names the next child; all smaller indices are already built.
-            if plan as usize == plans.len() {
+        previous = None;
+        for job in prepared.iter_mut() {
+            let id = job.meta.id;
+            let source = jobs[id];
+            let key = geometry(job);
+            if previous != Some(key) {
+                previous = Some(key);
                 // Dimension-to-stride conversions were checked above for every job.
-                let rows = (job.rows as isize).max(1);
-                let contracted = (job.contracted as isize).max(1);
+                let rows = (source.rows as isize).max(1);
+                let contracted = (source.contracted as isize).max(1);
                 let problem = Problem::from_labels(
                     T::STORAGE,
-                    spec(&[job.rows, job.contracted], &[1, rows], ops[0]),
-                    spec(&[job.contracted, job.cols], &[1, contracted], ops[1]),
+                    spec(&[source.rows, source.contracted], &[1, rows], ops[0]),
+                    spec(&[source.contracted, source.cols], &[1, contracted], ops[1]),
                     CSpec::Output(ops[2]),
-                    spec(&[job.rows, job.cols], &[1, rows], ops[2]),
+                    spec(&[source.rows, source.cols], &[1, rows], ops[2]),
                     &Labels::new(&[0, 1], &[1, 2], &[0, 2]),
                 )
-                .map_err(|source| Error::Contract {
-                    step: meta.id,
-                    source,
-                })?;
-                let child =
-                    Plan::new(&problem, &child_config).map_err(|source| Error::Contract {
-                        step: meta.id,
-                        source,
-                    })?;
+                .map_err(|source| Error::Contract { step: id, source })?;
+                let child = Plan::new(&problem, &child_config)
+                    .map_err(|source| Error::Contract { step: id, source })?;
                 #[cfg(test)]
                 tests::PLAN_CONSTRUCTIONS.with(|count| count.set(count.get() + 1));
                 plans.push(child);
             }
-            planned.push(PreparedJob { meta, plan });
+            job.plan = child_index(id, plans.len() - 1)?;
         }
+        // Restore the output-sorted storage order the execution paths index by.
+        prepared
+            .sort_unstable_by_key(|job| (job.meta.out_len == 0, job.meta.out_offset, job.meta.id));
         Ok(Self {
-            jobs: planned,
+            jobs: prepared,
             plans,
             required_lhs,
             required_rhs,
