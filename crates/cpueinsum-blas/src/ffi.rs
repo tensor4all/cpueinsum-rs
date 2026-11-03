@@ -182,10 +182,100 @@ macro_rules! impl_complex {
     };
 }
 
+/// Presented GEMM rows up to which a `Complex64` GEMM runs as one `cblas_zgemv`
+/// per row instead.
+///
+/// Accelerate's `cblas_zgemm` is several times slower than `cblas_zgemv` on
+/// thin shapes; from three rows the two are level, so only the thin rows are
+/// rerouted (`docs/worklogs/2026-11-03-thin-complex64-gemv.md`).
+const C64_THIN_ROWS: i32 = 2;
+
 impl_real!(f32, cblas_sys::cblas_sgemm);
 impl_real!(f64, cblas_sys::cblas_dgemm);
 impl_complex!(Complex32, f32, cblas_sys::cblas_cgemm);
-impl_complex!(Complex64, f64, cblas_sys::cblas_zgemm);
+
+impl BlasScalar for Complex64 {
+    const COMPLEX: bool = true;
+
+    fn conjugate(self) -> Self {
+        self.conj()
+    }
+
+    unsafe fn gemm(
+        g: &Gemm,
+        a: *const Self,
+        b: *const Self,
+        c: *mut Self,
+        alpha: Self,
+        beta: Self,
+    ) {
+        let alpha = [alpha.re, alpha.im];
+        let beta = [beta.re, beta.im];
+        #[cfg(test)]
+        tests::record_call();
+        // Conjugation has no GEMV reading of the stored operand, and it only
+        // reaches the operands when a `Complex64` problem conjugates one of
+        // them: those keep the GEMM.
+        let thin = g.m <= C64_THIN_ROWS && g.ta != Trans::C && g.tb != Trans::C;
+        // SAFETY: the caller's contract; `g` was checked at planning
+        // (dimensions and leading dimensions in range, unit stride on the read
+        // axis of each matrix). `Complex<_>` is `repr(C)` `[re, im]`, the
+        // layout CBLAS reads through `void *`.
+        unsafe {
+            if thin {
+                // Row i of `C` is the row i of `op(A)` against `op(B)` with
+                // `op(B)` read transposed, so the matrix `op(B)` already is, or
+                // its transposed reading, is the GEMV matrix. Row i of `op(A)`
+                // is contiguous when that operand is read transposed and one
+                // element per leading dimension otherwise; row i of `C` is one
+                // element per leading dimension.
+                let (trans, gemv_m, gemv_n) = match g.tb {
+                    Trans::No => (CBLAS_TRANSPOSE::CblasTrans, g.k, g.n),
+                    _ => (CBLAS_TRANSPOSE::CblasNoTrans, g.n, g.k),
+                };
+                for i in 0..g.m {
+                    #[cfg(test)]
+                    tests::record_gemv();
+                    let (x, incx) = match g.ta {
+                        Trans::No => (a.wrapping_offset(i as isize), g.lda),
+                        _ => (a.wrapping_offset(g.lda as isize * i as isize), 1),
+                    };
+                    cblas_sys::cblas_zgemv(
+                        CBLAS_LAYOUT::CblasColMajor,
+                        trans,
+                        gemv_m,
+                        gemv_n,
+                        alpha.as_ptr().cast(),
+                        b.cast(),
+                        g.ldb,
+                        x.cast(),
+                        incx,
+                        beta.as_ptr().cast(),
+                        c.wrapping_offset(i as isize).cast(),
+                        g.ldc,
+                    )
+                }
+            } else {
+                cblas_sys::cblas_zgemm(
+                    CBLAS_LAYOUT::CblasColMajor,
+                    g.ta.cblas(),
+                    g.tb.cblas(),
+                    g.m,
+                    g.n,
+                    g.k,
+                    alpha.as_ptr().cast(),
+                    a.cast(),
+                    g.lda,
+                    b.cast(),
+                    g.ldb,
+                    beta.as_ptr().cast(),
+                    c.cast(),
+                    g.ldc,
+                )
+            }
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests;
