@@ -90,8 +90,10 @@ the decided lane count, never by the batch size.
 `cpueinsum` links no BLAS. A `StepBackend` can take binary steps over from
 tcontract at planning time, and the separate `cpueinsum-blas` crate is
 one that runs them on CBLAS. It is for large matrices: steps whose GEMMs have
-at least 2^15 multiply-accumulates each become one GEMM per batch item, in place when the operands fuse to matrices BLAS can
-read and after packing the others; smaller steps stay on tcontract.
+at least 2^15 multiply-accumulates each become one GEMM per batch item (one
+`cblas_zgemv` per row when the GEMM is `Complex64` with one or two rows), in
+place when the operands fuse to matrices BLAS can read and after packing the
+others; smaller steps stay on tcontract.
 `cpueinsum-blas` depends on `cblas-sys` only, so the final binary chooses the
 provider (for example through `blas-src`).
 

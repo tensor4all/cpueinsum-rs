@@ -6,7 +6,8 @@
 //! tcontract. A step it takes runs as one column-major GEMM per batch
 //! item: in place when the operands' index groups fuse to matrices BLAS can
 //! read, else after packing the operands that do not into work space (and
-//! copying the output back) with strided-rs.
+//! copying the output back) with strided-rs. A thin `Complex64` GEMM (one or
+//! two rows) runs as one `cblas_zgemv` per row instead.
 //!
 //! # Batch policy
 //!
@@ -199,7 +200,8 @@ impl<T: BlasScalar> StepBackend<T> for Blas {
 
     /// Runs on the BLAS library's own threads; `exec` is not used.
     ///
-    /// Every step is a serial loop of one CBLAS GEMM per batch item, which is
+    /// Every step is a serial loop of one CBLAS GEMM per batch item (one
+    /// `cblas_zgemv` per row for a thin `Complex64` GEMM), which is
     /// what [`vendor_loop`](Self::vendor_loop) reports: the plan routes a forced
     /// lane strategy to the tcontract alternative and refuses a forced
     /// whole-batch vendor route before reaching this entry.

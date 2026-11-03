@@ -500,3 +500,36 @@ fn execution_checks_bounds() {
     assert!(run((&a, 0), &mut d).is_ok());
     assert!(d.iter().all(|&x| x == 8.0));
 }
+
+/// Thin `Complex64` products, in the `zgemv` rows and one row count above the
+/// reroute, over the shapes of #67; each still matches the naive sum.
+#[test]
+fn thin_complex64_products() {
+    let mut rng = ChaCha8Rng::seed_from_u64(67);
+    for (m, k, n) in [
+        (1usize, 141usize, 141usize),
+        (1, 141, 282),
+        (2, 141, 141),
+        (2, 141, 282),
+        (1, 282, 282),
+        (2, 282, 141),
+        (8, 141, 282),
+    ] {
+        let ext = move |l: i64| [m, k, n][l as usize];
+        // D[i,l] = A[i,j] B[j,l], stored as is and transposed.
+        for output in [&[0, 2][..], &[2, 0][..]] {
+            for _ in 0..3 {
+                let taken = check::<Complex64>(
+                    &mut rng,
+                    all(),
+                    &[&[0, 1], &[1, 2]],
+                    output,
+                    &[[0, 1]],
+                    &ext,
+                    1e-13,
+                );
+                assert_eq!(taken, 1, "m={m} k={k} n={n} {output:?}");
+            }
+        }
+    }
+}
