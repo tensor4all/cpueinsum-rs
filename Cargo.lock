@@ -126,7 +126,7 @@ checksum = "4e7648175b45a9a48536d676f68d918270699102aa8dab5496df06904c914600"
 
 [[package]]
 name = "cpueinsum"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "num-complex",
  "rand",
@@ -149,7 +149,7 @@ dependencies = [
 
 [[package]]
 name = "cpueinsum-blas"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "blas-src",
  "cblas-sys",
@@ -1125,9 +1125,9 @@ dependencies = [
 
 [[package]]
 name = "t4a-faer"
-version = "0.32.0"
+version = "0.33.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "56cb66d2a11287259ed62ab6cbef98e907ef0b67d78b45c32d8d33709693fde7"
+checksum = "fbb418322be3bde5413613ec9dfcaa8c7e764ac8e17fd513ceba6942e9bfcbc7"
 dependencies = [
  "bytemuck",
  "dyn-stack",
@@ -1311,8 +1311,8 @@ dependencies = [
 
 [[package]]
 name = "tcontract"
-version = "0.11.0"
-source = "git+https://github.com/tensor4all/tcontract-rs.git?rev=c1ad85f69dc633ba1aaf6a3e4c7720ad80eb9d64#c1ad85f69dc633ba1aaf6a3e4c7720ad80eb9d64"
+version = "0.12.0"
+source = "git+https://github.com/tensor4all/tcontract-rs.git?rev=abf8c723b3768bd2471fe18d60086f4ac3f90648#abf8c723b3768bd2471fe18d60086f4ac3f90648"
 dependencies = [
  "num-complex",
  "num-traits",
@@ -1329,7 +1329,7 @@ dependencies = [
 [[package]]
 name = "tcontract-capi"
 version = "0.1.0"
-source = "git+https://github.com/tensor4all/tcontract-rs.git?rev=c1ad85f69dc633ba1aaf6a3e4c7720ad80eb9d64#c1ad85f69dc633ba1aaf6a3e4c7720ad80eb9d64"
+source = "git+https://github.com/tensor4all/tcontract-rs.git?rev=abf8c723b3768bd2471fe18d60086f4ac3f90648#abf8c723b3768bd2471fe18d60086f4ac3f90648"
 dependencies = [
  "num-complex",
  "strided-view",
@@ -1340,8 +1340,8 @@ dependencies = [
 
 [[package]]
 name = "tcontract-exec"
-version = "0.11.0"
-source = "git+https://github.com/tensor4all/tcontract-rs.git?rev=c1ad85f69dc633ba1aaf6a3e4c7720ad80eb9d64#c1ad85f69dc633ba1aaf6a3e4c7720ad80eb9d64"
+version = "0.12.0"
+source = "git+https://github.com/tensor4all/tcontract-rs.git?rev=abf8c723b3768bd2471fe18d60086f4ac3f90648#abf8c723b3768bd2471fe18d60086f4ac3f90648"
 dependencies = [
  "t4a-faer",
  "thiserror 1.0.69",
@@ -1351,7 +1351,7 @@ dependencies = [
 [[package]]
 name = "tcontract-kernel"
 version = "0.3.1"
-source = "git+https://github.com/tensor4all/tcontract-rs.git?rev=c1ad85f69dc633ba1aaf6a3e4c7720ad80eb9d64#c1ad85f69dc633ba1aaf6a3e4c7720ad80eb9d64"
+source = "git+https://github.com/tensor4all/tcontract-rs.git?rev=abf8c723b3768bd2471fe18d60086f4ac3f90648#abf8c723b3768bd2471fe18d60086f4ac3f90648"
 dependencies = [
  "num-complex",
 ]
