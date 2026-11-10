@@ -278,4 +278,4 @@ impl BlasScalar for Complex64 {
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

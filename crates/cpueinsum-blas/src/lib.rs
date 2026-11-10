@@ -19,6 +19,16 @@
 //! keep the loop, and a forced `Outer`/`Inner`/`Split` runs the route's
 //! tcontract alternative.
 //!
+//! # Placement
+//!
+//! The packs and the output unpack run on the caller's [`Exec`] token. The
+//! GEMMs run on the vendor's own threads, from the calling thread's CPU set:
+//! threadteam pins a team leader to one CPU, so every vendor call is made
+//! inside [`TeamExec::external`](threadteam::TeamExec::external), which gives it
+//! the whole set back for the call
+//! (`docs/worklogs/2026-11-10-vendor-gemm-team.md`). The vendor thread count
+//! stays the vendor's own setting.
+//!
 //! The crate declares the CBLAS symbols (through `cblas-sys`) and links no
 //! provider: the final binary links one, for example with
 //! `blas-src = { version = "0.14", features = ["openblas"] }` and
@@ -198,23 +208,26 @@ impl<T: BlasScalar> StepBackend<T> for Blas {
         true
     }
 
-    /// Runs on the BLAS library's own threads; `exec` is not used.
+    /// Runs on the BLAS library's own threads; the caller's `exec` runs the
+    /// packs and the output unpack.
     ///
     /// Every step is a serial loop of one CBLAS GEMM per batch item (one
     /// `cblas_zgemv` per row for a thin `Complex64` GEMM), which is
     /// what [`vendor_loop`](Self::vendor_loop) reports: the plan routes a forced
     /// lane strategy to the tcontract alternative and refuses a forced
-    /// whole-batch vendor route before reaching this entry.
+    /// whole-batch vendor route before reaching this entry. The GEMMs run
+    /// inside a [`TeamExec::external`](threadteam::TeamExec::external) region,
+    /// so a placed team leader hands the vendor the whole CPU set.
     fn execute(
         &self,
         step: &BlasStep,
-        _exec: &mut Exec<'_>,
+        exec: &mut Exec<'_>,
         a: (&[T], isize),
         b: (&[T], isize),
         d: (&mut [T], isize),
         work: &mut [T],
     ) -> Result<(), BackendError> {
-        run(step, a, b, d, work).map_err(Into::into)
+        run(step, exec, a, b, d, work).map_err(Into::into)
     }
 }
 
@@ -244,6 +257,28 @@ fn check(
     }
 }
 
+/// Run one vendor call region on the calling thread with its full CPU set.
+///
+/// threadteam pins the thread that leads a placed team to `{S[0]}` for the
+/// team's life, and a vendor library creates its own thread team from the
+/// calling thread: a GEMM issued from that leader would confine the whole
+/// vendor team to one CPU, and MKL would read one CPU and run single-threaded.
+/// [`TeamExec::external`](threadteam::TeamExec::external) widens the leader to
+/// `S` for the call and pins it again afterwards, on return and on unwind. That
+/// is decided by the calling thread's own placement, so the team of one of a
+/// serial token is enough: on a thread nobody placed (a serial token, a pool
+/// with pinning off, a CPU set smaller than the team, a non-Linux target) this
+/// is a plain call. Two `sched_setaffinity` calls per region, nowhere else.
+///
+/// The vendor thread count stays the vendor's own setting
+/// (`MKL_NUM_THREADS`, `OPENBLAS_NUM_THREADS`, ...): this decides which CPUs it
+/// may run those threads on, not how many it makes.
+pub(crate) fn vendor<R>(call: impl FnOnce() -> R) -> R {
+    threadteam::Exec::serial()
+        .team(|mut team| team.external(call))
+        .expect("a serial token never refuses its team of one")
+}
+
 /// Copy `src` (strides `outer`, from `origin`) into its packed form, replaying
 /// the [`CopyPlan`](strided_basic::CopyPlan) compiled at plan time.
 fn pack_in<T: BlasScalar>(
@@ -252,6 +287,7 @@ fn pack_in<T: BlasScalar>(
     origin: isize,
     work: &mut [T],
     operand: OperandId,
+    exec: &mut Exec<'_>,
 ) -> Result<(), BlasError> {
     let err = |source| BlasError::Pack { operand, source };
     let s = RawStridedRef::<T>::new(src, &p.dims, &p.outer, origin).map_err(err)?;
@@ -261,12 +297,13 @@ fn pack_in<T: BlasScalar>(
     p.to_packed
         .as_ref()
         .expect("an input pack compiles the operand-to-packed plan")
-        .execute(&mut w, &s, threadteam::Exec::serial())
+        .execute(&mut w, &s, exec.token())
         .map_err(err)
 }
 
 fn run<T: BlasScalar>(
     step: &BlasStep,
+    exec: &mut Exec<'_>,
     a: (&[T], isize),
     b: (&[T], isize),
     d: (&mut [T], isize),
@@ -288,7 +325,7 @@ fn run<T: BlasScalar>(
     for s in [&step.left, &step.right] {
         if let Some(p) = &s.pack {
             let (data, origin) = input(s.from);
-            pack_in(p, data, origin, work, s.from)?;
+            pack_in(p, data, origin, work, s.from, exec)?;
         }
     }
     let wp = work.as_mut_ptr();
@@ -308,7 +345,7 @@ fn run<T: BlasScalar>(
         None => dslice.as_mut_ptr().wrapping_offset(dorigin),
     };
 
-    gemms(step, pa, pb, pd, T::ONE, T::default());
+    vendor(|| gemms(step, pa, pb, pd, T::ONE, T::default()));
 
     if let Some(p) = &step.out.pack {
         let err = |source| BlasError::Pack { operand: D, source };
@@ -321,7 +358,7 @@ fn run<T: BlasScalar>(
         p.from_packed
             .as_ref()
             .expect("the output pack compiles the write-back plan")
-            .execute(&mut o, &s, threadteam::Exec::serial())
+            .execute(&mut o, &s, exec.token())
             .map_err(err)?;
     }
     Ok(())
@@ -379,3 +416,6 @@ fn gemms<T: BlasScalar>(
         }
     }
 }
+
+#[cfg(test)]
+pub(crate) mod tests;
