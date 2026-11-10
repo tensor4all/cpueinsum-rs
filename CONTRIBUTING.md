@@ -20,7 +20,16 @@ This file only records what is specific to `cpueinsum-rs`:
   macOS. `cpueinsum` itself needs no C toolchain.
 - **Platforms claimed**: `ubuntu-latest` and `macos-latest` for `clippy` and `test`; `fmt`, `deny`, `test-release`,
   `overhead` and `msrv` on `ubuntu-latest` only.
-- **Local gate**: `cargo test --workspace`.
+- **Local gate**:
+
+  ```sh
+  sudo apt-get install -y libopenblas-dev   # Linux only; macOS links Accelerate
+  cargo test --workspace
+  ```
+
+  The install is the step people forget: `cpueinsum-blas`'s dev-dependencies link the system OpenBLAS through
+  `openblas-src`'s `system` feature, and without it the workspace test fails with
+  `unable to find library -lopenblas`. `cargo test -p cpueinsum` alone needs no C toolchain.
 
 ## Anything here that departs from the shared rules
 
