@@ -23,7 +23,7 @@ This file only records what is specific to `cpueinsum-rs`:
 - **Local gate**:
 
   ```sh
-  sudo apt-get install -y libopenblas-dev   # Linux only; macOS links Accelerate
+  sudo apt-get update && sudo apt-get install -y libopenblas-dev   # Linux only; macOS links Accelerate
   cargo test --workspace
   ```
 
