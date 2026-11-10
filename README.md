@@ -110,10 +110,12 @@ assert_eq!(plan.backend_steps(), 1);
 For direct prepared output contracts, `cpueinsum_blas::BinaryPlan` and
 `cpueinsum_blas::GroupedPlan` are concrete adapters, separate from the
 unchanged overwrite-only `StepBackend`. They borrow explicit packing storage
-(`work_len()` elements) and an `Exec` for native alternatives. Compatible
-layouts write output directly through coordinator-inline CBLAS calls with
-alpha/beta. Unsupported vendor geometry/C modes select native plans before
-execution; scalar-degenerate calls use a prepared native branch, never retry.
+(`work_len()` elements) and an `Exec`, which runs the packs, the output unpack
+and any native alternative; the GEMMs themselves run on the vendor's own
+threads, from the calling thread's whole CPU set. Compatible layouts write
+output directly through coordinator-inline CBLAS calls with alpha/beta.
+Unsupported vendor geometry/C modes select native plans before execution;
+scalar-degenerate calls use a prepared native branch, never retry.
 Fresh binary output requires exact physical coverage and no old-output reads;
 grouped `execute_uninit` requires exact job coverage, `beta = 0` and no
 old-output reads, and every job is preflighted before writes on both routes.

@@ -325,6 +325,7 @@ impl<T: BlasScalar> GroupedPlan<T> {
                 let initialized = job
                     .plan
                     .execute_uninit_slices(
+                        exec,
                         alpha,
                         (lhs, job.lhs_offset),
                         (rhs, job.rhs_offset),
@@ -414,6 +415,7 @@ impl<T: BlasScalar> GroupedPlan<T> {
         for job in jobs {
             job.plan
                 .run_vendor(
+                    exec,
                     alpha,
                     (lhs, job.lhs_offset),
                     (rhs, job.rhs_offset),

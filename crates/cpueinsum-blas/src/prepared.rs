@@ -132,7 +132,7 @@ impl<T: BlasScalar> BinaryPlan<T> {
                 .map_err(|source| BlasError::Native { source });
         };
         plan.preflight(a, b, beta, source, d.0.len(), d.1, work)?;
-        plan.run_vendor(alpha, a, b, beta, d.0.as_mut_ptr(), d.1, work)?;
+        plan.run_vendor(exec, alpha, a, b, beta, d.0.as_mut_ptr(), d.1, work)?;
         Ok(ExecutionRoute::Vendor)
     }
 
@@ -167,7 +167,7 @@ impl<T: BlasScalar> BinaryPlan<T> {
                 .map(|(out, route)| (out, ExecutionRoute::Native(route)))
                 .map_err(|source| BlasError::Native { source });
         };
-        let initialized = plan.execute_uninit_slices(alpha, a, b, beta, source, d, work)?;
+        let initialized = plan.execute_uninit_slices(exec, alpha, a, b, beta, source, d, work)?;
         Ok((initialized, ExecutionRoute::Vendor))
     }
 }
@@ -187,6 +187,7 @@ impl VendorPlan {
     /// domain has holes or padding. All of them precede the write.
     pub(crate) fn execute_uninit_slices<'d, T: BlasScalar>(
         &self,
+        exec: &mut Exec<'_>,
         alpha: T,
         a: (&[T], isize),
         b: (&[T], isize),
@@ -206,7 +207,16 @@ impl VendorPlan {
         {
             return Err(BlasError::FreshCoverage);
         }
-        self.run_vendor(alpha, a, b, beta, d.0.as_mut_ptr().cast::<T>(), d.1, work)?;
+        self.run_vendor(
+            exec,
+            alpha,
+            a,
+            b,
+            beta,
+            d.0.as_mut_ptr().cast::<T>(),
+            d.1,
+            work,
+        )?;
         // SAFETY: planning proves injectivity over the reduced output domain;
         // count and endpoints above prove that domain covers every physical slot.
         // Direct-D beta-zero GEMMs form no initialized D references and read no
@@ -290,6 +300,7 @@ impl VendorPlan {
 
     pub(crate) fn run_vendor<T: BlasScalar>(
         &self,
+        exec: &mut Exec<'_>,
         alpha: T,
         a: (&[T], isize),
         b: (&[T], isize),
@@ -302,7 +313,7 @@ impl VendorPlan {
         for side in [&step.left, &step.right] {
             if let Some(pack) = &side.pack {
                 let (data, origin) = if side.from == OperandId::A { a } else { b };
-                crate::pack_in(pack, data, origin, work, side.from)?;
+                crate::pack_in(pack, data, origin, work, side.from, exec)?;
             }
         }
         let wp = work.as_mut_ptr();
@@ -318,14 +329,16 @@ impl VendorPlan {
         } else {
             (alpha, beta)
         };
-        crate::gemms(
-            step,
-            base(&step.left),
-            base(&step.right),
-            d.wrapping_offset(d_origin),
-            alpha,
-            beta,
-        );
+        crate::vendor(|| {
+            crate::gemms(
+                step,
+                base(&step.left),
+                base(&step.right),
+                d.wrapping_offset(d_origin),
+                alpha,
+                beta,
+            )
+        });
         Ok(())
     }
 }

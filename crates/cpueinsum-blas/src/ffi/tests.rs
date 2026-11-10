@@ -11,6 +11,8 @@ use crate::{BinaryPlan, BlasScalar, ExecutionRoute};
 
 thread_local! {
     static CALLS: RefCell<Option<Vec<ThreadId>>> = const { RefCell::new(None) };
+    /// CPUs the calling thread may run on at each recorded call.
+    static CPUS: RefCell<Option<Vec<usize>>> = const { RefCell::new(None) };
     static GEMVS: Cell<usize> = const { Cell::new(0) };
 }
 
@@ -20,6 +22,22 @@ pub(super) fn record_call() {
             calls.push(thread::current().id());
         }
     });
+    CPUS.with(|cpus| {
+        if let Some(cpus) = cpus.borrow_mut().as_mut() {
+            cpus.push(crate::tests::cpus_allowed());
+        }
+    });
+}
+
+/// Start recording the calling thread's CPU count at every GEMM, for the test
+/// that reads it back with [`take_cpus`].
+pub(crate) fn watch_cpus() {
+    CPUS.with(|cpus| *cpus.borrow_mut() = Some(Vec::new()));
+}
+
+/// The CPU counts recorded since [`watch_cpus`].
+pub(crate) fn take_cpus() -> Vec<usize> {
+    CPUS.with(|cpus| cpus.borrow_mut().take().unwrap_or_default())
 }
 
 pub(super) fn record_gemv() {
@@ -140,7 +158,7 @@ fn thin_complex64_matches_zgemm() {
     }
 }
 
-fn check_inline<T: BlasScalar>(exec: &mut Exec<'_>) {
+pub(crate) fn check_inline<T: BlasScalar>(exec: &mut Exec<'_>) {
     let operand = |dims: &[usize], strides: &[isize]| {
         OperandSpec::new(LayoutSpec::new(dims, strides, 0).unwrap())
     };
