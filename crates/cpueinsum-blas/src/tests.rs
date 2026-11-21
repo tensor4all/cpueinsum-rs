@@ -43,14 +43,16 @@ fn assert_gemms_wide(route: &str, call: impl FnOnce()) {
 }
 
 /// All three vendor loops — the N-ary backend step, the prepared `BinaryPlan`
-/// and the grouped `GroupedPlan` — run on the whole CPU set of a placed team
-/// leader (`TeamExec::external`), and each leaves the leader on `{S[0]}` again.
+/// and the grouped `GroupedPlan` — run on more than one CPU when called through
+/// a placed team's token (`TeamExec::external`). Where the leader itself sits
+/// between sections is threadteam's placement, not asserted here.
+/// This is a cheap guard only: the two-engine probe in the PR is the acceptance.
 ///
 /// Skipped where the platform has no CPU set or the process has fewer than four
 /// CPUs, which is where threadteam places nothing and every call is plain; the
 /// skip prints a line, because a skipped run is not evidence.
 #[test]
-fn gemm_from_a_team_leader_sees_the_whole_set() {
+fn gemm_from_a_team_leader_sees_more_than_one_cpu() {
     let set = cpus_allowed();
     if set < 4 {
         eprintln!("skipped: {set} CPUs available, a team of four is not placed");
@@ -63,11 +65,6 @@ fn gemm_from_a_team_leader_sees_the_whole_set() {
         .expect("a pool of four");
     let team = pool.into_team(4).expect("four idle members");
     let mut exec = Exec::from_token(team.exec(4), None, BatchPolicy::default());
-    assert_eq!(
-        cpus_allowed(),
-        1,
-        "the team leader is placed before the calls"
-    );
 
     // The N-ary plan's backend step (`run`).
     let spec = EinsumSpec::new(&[&[0, 1], &[1, 2]], &[0, 2], &[[0, 1]]).unwrap();
@@ -92,18 +89,12 @@ fn gemm_from_a_team_leader_sees_the_whole_set() {
         plan.execute_into(&mut exec, &views, &mut out_view, &mut scratch)
             .unwrap()
     });
-    assert_eq!(cpus_allowed(), 1, "the leader is placed again after `run`");
     assert_eq!(out[0], 4.0 * 2.0 * 3.0);
 
     // The prepared binary adapter, which reaches `VendorPlan::run_vendor`.
     assert_gemms_wide("prepared binary", || {
         crate::ffi::tests::check_inline::<f64>(&mut exec)
     });
-    assert_eq!(
-        cpus_allowed(),
-        1,
-        "the leader is placed again after the prepared call"
-    );
 
     // The grouped adapter, whose jobs reach the same `VendorPlan::run_vendor`.
     let jobs = [
@@ -122,10 +113,5 @@ fn gemm_from_a_team_leader_sees_the_whole_set() {
             crate::GroupedRoute::Vendor { jobs: 2 }
         )
     });
-    assert_eq!(
-        cpus_allowed(),
-        1,
-        "the leader is placed again after the grouped call"
-    );
     assert_eq!(out, [3.0; 8]);
 }

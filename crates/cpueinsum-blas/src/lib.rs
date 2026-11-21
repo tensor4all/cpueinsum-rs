@@ -259,10 +259,11 @@ fn check(
 
 /// Run one vendor call region on the calling thread with its full CPU set.
 ///
-/// threadteam pins the thread that leads a placed team to `{S[0]}` for the
-/// team's life, and a vendor library creates its own thread team from the
-/// calling thread: a GEMM issued from that leader would confine the whole
-/// vendor team to one CPU, and MKL would read one CPU and run single-threaded.
+/// threadteam pins the thread that leads a placed team to `{S[0]}` while it
+/// runs the team's sections, and a vendor library creates its own thread team
+/// from the calling thread: a GEMM issued from that leader would confine the
+/// whole vendor team to one CPU, and MKL would read one CPU and run
+/// single-threaded.
 /// [`TeamExec::external`](threadteam::TeamExec::external) widens the leader to
 /// `S` for the call and pins it again afterwards, on return and on unwind. That
 /// is decided by the calling thread's own placement, so the team of one of a
