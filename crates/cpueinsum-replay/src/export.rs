@@ -5,12 +5,19 @@
 //!     --out FILE.json CSV...
 //! ```
 //!
-//! Every `ok` row of a timed CSV (the `run` output) becomes one row
-//! `call_id, route, width, host_class, dtype, m, n, k, measured_ns` (plus the
-//! samples, the observed route and the source file). `m, n, k` are the call's
-//! largest job; the full job list is the call's corpus record, named by
-//! `call_id`. The metadata carries the per-call summary of every replayed
-//! capture, the captures' SHA-256, the campaign commit, which capture each
+//! Every `ok` row of a timed CSV (the `run` output) becomes one measured row,
+//! `kind: "call"`, with `call_id, route, width, host_class, dtype, m, n, k,
+//! measured_ns` (plus the samples, the observed route and the source file).
+//! `m, n, k` are the call's largest job. Each call row is followed by one
+//! estimated row per job of the call, `kind: "job"`, with the job's
+//! `m, n, k, lda, ldb, ldc`, the call's `multiplicity` and
+//! `attributed_ns = measured_ns * job work / call work`, where the work of a
+//! job is `m*n*k`. `attributed_ns` is an estimate, never a measurement: the
+//! jobs of a call are timed together. The jobs of a corpus call are not
+//! deduplicated (only whole calls are, by `multiplicity`, which scales a
+//! call's jobs alike and so leaves the shares unchanged). The metadata carries
+//! the per-call summary of every replayed capture, with the run coverage as a
+//! share of work (the gating figure) and of jobs, the captures' SHA-256, the campaign commit, which capture each
 //! width replayed, and the exactness argument of the checked twin with the
 //! bound on |value| and, when census CSVs (`verify` output) are passed too,
 //! the largest |value| verify observed.
@@ -35,6 +42,19 @@ struct Row {
     route_observed: String,
     inner_calls: u64,
     source: String,
+    multiplicity: u64,
+    jobs: Vec<[usize; 9]>,
+}
+
+/// `measured_ns` split over `jobs` in proportion to `m*n*k`; NaN for a call
+/// without work.
+fn attribute(measured_ns: f64, jobs: &[[usize; 9]]) -> Vec<f64> {
+    let work: Vec<f64> = jobs
+        .iter()
+        .map(|j| j[3] as f64 * j[4] as f64 * j[5] as f64)
+        .collect();
+    let total: f64 = work.iter().sum();
+    work.iter().map(|w| measured_ns * w / total).collect()
 }
 
 /// Parse the arguments, read every CSV and write the JSON file.
@@ -85,7 +105,8 @@ pub fn main(argv: &[String]) -> Result<(), String> {
     }
     let json = render(&captures, &rows, &host, &commit, observed_max)?;
     std::fs::write(&out, json).map_err(|e| format!("{out}: {e}"))?;
-    println!("wrote {out}: {} row(s)", rows.len());
+    let jobs: usize = rows.iter().map(|r| r.jobs.len()).sum();
+    println!("wrote {out}: {} call row(s), {jobs} job row(s)", rows.len());
     Ok(())
 }
 
@@ -135,6 +156,12 @@ fn read_csv(
             .iter()
             .find(|c| c.stem == stem)
             .ok_or(format!("capture {stem} is not in the corpus"))?;
+        let call_id = get(&f, "family")?;
+        let call = capture
+            .calls
+            .iter()
+            .find(|c| capture.family(c.index) == call_id)
+            .ok_or(format!("call {call_id} is not in the corpus"))?;
         if capture.sha256 != get(&f, "capture_sha256")? {
             return Err(format!("capture {stem} changed since it was timed"));
         }
@@ -146,7 +173,7 @@ fn read_csv(
             .collect::<Result<Vec<_>, _>>()
             .map_err(|_| format!("bad samples_ms {samples:?}"))?;
         rows.push(Row {
-            call_id: get(&f, "family")?,
+            call_id,
             route: get(&f, "row")?,
             width: number(&get(&f, "threads")?)?,
             dtype: get(&f, "dtype")?,
@@ -159,6 +186,8 @@ fn read_csv(
             route_observed: get(&f, "route_observed")?,
             inner_calls: number(&get(&f, "inner_calls")?)? as u64,
             source: source.clone(),
+            multiplicity: call.multiplicity,
+            jobs: call.jobs.clone(),
         });
     }
     Ok(())
@@ -296,13 +325,16 @@ fn render(
     let _ = writeln!(
         s,
         "    \"definitions\": {{\"m_n_k\": {}, \"work\": {}, \"work_weighted_median\": {}, \
-         \"largest_job_share\": {}, \"run_coverage\": {}, \"measured_ns\": {}}},",
+         \"largest_job_share\": {}, \"run_coverage\": {}, \"run_job_coverage\": {}, \
+         \"measured_ns\": {}, \"attributed_ns\": {}}},",
         esc("m, n, k of the call's largest job by m*n*k, the first on a tie"),
         esc("sum over jobs of m*n*k, not scaled for complex"),
         esc("the job m*n*k at which the cumulative work, jobs sorted by m*n*k, first reaches half"),
         esc("max job m*n*k / work"),
-        esc("fraction of the jobs inside a recorded strided run of length >= 2; null for a call without a recorded partition (fresh calls)"),
+        esc("fraction of the work inside a recorded strided run of length >= 2, the runs partitioning the jobs in order; null for a call without a recorded partition (fresh calls) or without work"),
+        esc("the same fraction counted in jobs; null for a call without a recorded partition"),
         esc("median of the samples; a sample is the wall time per call of back-to-back calls lasting at least 1 ms"),
+        esc("ESTIMATE, job rows only: the call row's measured_ns * job m*n*k / call work; the jobs of a call are timed together, never one by one; null for a call without work"),
     );
     let _ = writeln!(s, "    \"calls\": [");
     let total: usize = used.iter().map(|c| c.calls.len()).sum();
@@ -317,7 +349,7 @@ fn render(
                 "      {{\"call_id\": {}, \"capture\": {}, \"label\": {}, \"dtype\": {}, \
                  \"multiplicity\": {}, \"fresh\": {}, \"jobs\": {}, \"distinct_geometries\": {}, \
                  \"work\": {}, \"work_weighted_median\": {}, \"largest_job_share\": {}, \
-                 \"run_coverage\": {}, \"runs\": [{}]}}{}",
+                 \"run_coverage\": {}, \"run_job_coverage\": {}, \"runs\": [{}]}}{}",
                 esc(&c.family(call.index)),
                 esc(&c.stem),
                 esc(&call.label),
@@ -330,19 +362,21 @@ fn render(
                 m.work_weighted_median,
                 num(m.largest_job_share),
                 m.run_coverage.map_or("null".into(), num),
+                m.run_job_coverage.map_or("null".into(), num),
                 runs.join(", "),
                 if n < total { "," } else { "" }
             );
         }
     }
     let _ = writeln!(s, "    ]\n  }},\n  \"rows\": [");
-    for (i, r) in rows.iter().enumerate() {
+    let mut lines = Vec::new();
+    for r in rows {
         let samples: Vec<String> = r.samples_ns.iter().map(|&v| num(v)).collect();
-        let _ = writeln!(
-            s,
-            "    {{\"call_id\": {}, \"route\": {}, \"width\": {}, \"host_class\": {}, \"dtype\": {}, \
-             \"m\": {}, \"n\": {}, \"k\": {}, \"measured_ns\": {}, \"samples_ns\": [{}], \
-             \"route_observed\": {}, \"inner_calls\": {}, \"source\": {}}}{}",
+        let measured = replay::median(&r.samples_ns);
+        lines.push(format!(
+            "    {{\"kind\": \"call\", \"call_id\": {}, \"route\": {}, \"width\": {}, \"host_class\": {}, \
+             \"dtype\": {}, \"m\": {}, \"n\": {}, \"k\": {}, \"measured_ns\": {}, \"samples_ns\": [{}], \
+             \"route_observed\": {}, \"inner_calls\": {}, \"source\": {}}}",
             esc(&r.call_id),
             esc(&r.route),
             r.width,
@@ -351,20 +385,56 @@ fn render(
             r.mnk[0],
             r.mnk[1],
             r.mnk[2],
-            num(replay::median(&r.samples_ns)),
+            num(measured),
             samples.join(", "),
             esc(&r.route_observed),
             r.inner_calls,
             esc(&r.source),
-            if i + 1 < rows.len() { "," } else { "" }
-        );
+        ));
+        for (j, (job, ns)) in r.jobs.iter().zip(attribute(measured, &r.jobs)).enumerate() {
+            lines.push(format!(
+                "    {{\"kind\": \"job\", \"call_id\": {}, \"job\": {j}, \"route\": {}, \"width\": {}, \
+                 \"host_class\": {}, \"dtype\": {}, \"m\": {}, \"n\": {}, \"k\": {}, \"lda\": {}, \
+                 \"ldb\": {}, \"ldc\": {}, \"multiplicity\": {}, \"attributed_ns\": {}, \"source\": {}}}",
+                esc(&r.call_id),
+                esc(&r.route),
+                r.width,
+                esc(host),
+                esc(&r.dtype),
+                job[3],
+                job[4],
+                job[5],
+                job[6],
+                job[7],
+                job[8],
+                r.multiplicity,
+                num(ns),
+                esc(&r.source),
+            ));
+        }
     }
-    s.push_str("  ]\n}\n");
+    s.push_str(&lines.join(",\n"));
+    s.push_str("\n  ]\n}\n");
     Ok(s)
 }
 
 #[cfg(test)]
 mod tests {
+    // Jobs of work 2*3*1 = 6, 4*5*6 = 120 and 4*5*6 = 120: total 246.
+    const JOBS: [[usize; 9]; 3] = [
+        [0, 0, 0, 2, 3, 1, 2, 1, 2],
+        [2, 3, 6, 4, 5, 6, 4, 6, 4],
+        [26, 33, 26, 4, 5, 6, 4, 6, 4],
+    ];
+
+    #[test]
+    fn attributes_the_call_time_by_work() {
+        // 1230 * 6 / 246 = 30 and 1230 * 120 / 246 = 600, summing to 1230.
+        assert_eq!(super::attribute(1230.0, &JOBS), [30.0, 600.0, 600.0]);
+        let sum: f64 = super::attribute(1000.0, &JOBS).iter().sum();
+        assert!((sum - 1000.0).abs() <= 1e-9, "{sum}");
+    }
+
     #[test]
     fn splits_the_quoting_the_harness_writes() {
         assert_eq!(

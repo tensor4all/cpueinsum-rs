@@ -12,13 +12,17 @@
 //!   `all comparisons within tolerance` last, only when every comparison passed.
 //! * `info` -- the build and the linked vendor as `key=value` lines.
 //! * `export` -- fold the timed CSVs of one host into one JSON file for the
-//!   route fit: one row per timed cell, with the per-call summary, the capture
-//!   digests and the campaign commit as metadata.
+//!   route fit: one measured row per timed cell, followed by one estimated row
+//!   per job of its call, with the per-call summary, the capture digests and
+//!   the campaign commit as metadata.
 //!
 //! A family is `<capture stem>:rNNN`, call `NNN` of that capture. Each width
 //! replays the capture `--width-capture` names for it (a 4-thread capture at
 //! width 4, a full-core capture at full width); a family of another capture is
-//! a skipped cell. The rows are `sequential`, `outer`, `auto`, `inner`
+//! a skipped cell. Without `--family` each `--dtype` replays the calls of that
+//! dtype, so the grid has no dtype-mismatch cell; suites group their families
+//! by dtype the same way, and a declared family of another dtype stays a
+//! skipped cell, the exception that names a misgrouped suite. The rows are `sequential`, `outer`, `auto`, `inner`
 //! (`cpueinsum::GroupedPlan` under that `BatchStrategy`) and `blas`
 //! (`cpueinsum_blas::GroupedPlan` on the linked vendor). This crate is separate
 //! from `cpueinsum-bench` because the `blas` row links a provider, which the
@@ -364,19 +368,14 @@ fn measure(args: &Args) -> ExitCode {
             "--width-capture names {stem:?}, which is not in the corpus"
         ));
     }
-    let families: Vec<String> = if args.families.is_empty() {
-        index.keys().cloned().collect()
-    } else {
-        args.families.clone()
-    };
-    if let Some(unknown) = families.iter().find(|f| !index.contains_key(*f)) {
-        return die(&format!("unknown family {unknown:?}"));
-    }
     let dtypes = if args.dtypes.is_empty() {
         vec![Dtype::F64, Dtype::C64]
     } else {
         args.dtypes.clone()
     };
+    if let Some(unknown) = args.families.iter().find(|f| !index.contains_key(*f)) {
+        return die(&format!("unknown family {unknown:?}"));
+    }
 
     // The pool, its team and the budget the runtime actually granted, held
     // across verification and timing; a clamped request fails.
@@ -417,6 +416,11 @@ fn measure(args: &Args) -> ExitCode {
         compared: false,
     };
     for &dtype in &dtypes {
+        let families = if args.families.is_empty() {
+            corpus::families(&captures, dtype)
+        } else {
+            args.families.clone()
+        };
         for n in &args.n_specs {
             for family in &families {
                 let (c, i) = index[family];

@@ -100,6 +100,22 @@ impl Capture {
     }
 }
 
+/// Every family whose call has `dtype`, in name order: the default family list
+/// of that dtype, which declares no dtype-mismatch cell.
+pub fn families(captures: &[Capture], dtype: Dtype) -> Vec<String> {
+    let mut out: Vec<String> = captures
+        .iter()
+        .flat_map(|c| {
+            c.calls
+                .iter()
+                .filter(|call| call.dtype == dtype)
+                .map(|call| c.family(call.index))
+        })
+        .collect();
+    out.sort();
+    out
+}
+
 /// Every `*.jsonl.gz` file of `dir`, sorted by name.
 pub fn load_dir(dir: &Path) -> Result<Vec<Capture>, String> {
     let entries = fs::read_dir(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
@@ -279,9 +295,13 @@ pub struct Summary {
     pub work_weighted_median: u128,
     /// `max m*n*k / sum m*n*k` (0 for an all-empty call).
     pub largest_job_share: f64,
-    /// Fraction of the jobs inside a recorded strided run of length at least 2;
-    /// `None` when the call records no partition (fresh calls).
+    /// Fraction of the work inside a recorded strided run of length at least 2
+    /// (the runs partition the jobs in order); `None` when the call records no
+    /// partition (fresh calls) or has no work.
     pub run_coverage: Option<f64>,
+    /// The same fraction counted in jobs instead of work; `None` without a
+    /// partition.
+    pub run_job_coverage: Option<f64>,
     /// `(m, n, k)` of the largest job (the first one on a tie).
     pub dominant: (usize, usize, usize),
 }
@@ -316,6 +336,13 @@ impl Call {
         let dominant = self.jobs.get(d).map_or((0, 0, 0), |j| (j[3], j[4], j[5]));
         let geometries: BTreeSet<_> = self.jobs.iter().map(|j| (j[3], j[4], j[5])).collect();
         let in_runs: usize = self.runs.iter().filter(|&&r| r >= 2).sum();
+        let (mut start, mut work_in_runs) = (0, 0u128);
+        for &r in &self.runs {
+            if r >= 2 {
+                work_in_runs += work.iter().skip(start).take(r).sum::<u128>();
+            }
+            start += r;
+        }
         Summary {
             jobs: self.jobs.len(),
             distinct_geometries: geometries.len(),
@@ -326,7 +353,9 @@ impl Call {
             } else {
                 best as f64 / total as f64
             },
-            run_coverage: (!self.runs.is_empty() && !self.jobs.is_empty())
+            run_coverage: (!self.runs.is_empty() && total > 0)
+                .then(|| work_in_runs as f64 / total as f64),
+            run_job_coverage: (!self.runs.is_empty() && !self.jobs.is_empty())
                 .then(|| in_runs as f64 / self.jobs.len() as f64),
             dominant,
         }

@@ -36,7 +36,9 @@ fn summarises_skew_geometry_and_runs() {
     // Sorted work 6, 120, 120: the cumulative sum first reaches 123 at the second job.
     assert_eq!(s.work_weighted_median, 120);
     assert_eq!(s.largest_job_share, 120.0 / 246.0);
-    assert_eq!(s.run_coverage, Some(2.0 / 3.0));
+    // Runs [1, 2]: jobs 1 and 2 are in a run, 240 of the 246 work.
+    assert_eq!(s.run_coverage, Some(240.0 / 246.0));
+    assert_eq!(s.run_job_coverage, Some(2.0 / 3.0));
     assert_eq!(s.dominant, (4, 5, 6));
 }
 
@@ -46,7 +48,19 @@ fn a_fresh_call_has_no_run_coverage() {
         .replace(r#""beta":[0.0,0.0]"#, r#""beta":null"#)
         .replace("[1, 2]", "[]");
     let call = &capture(&[&fresh]).unwrap().calls[0];
-    assert_eq!((call.beta, call.summary().run_coverage), (None, None));
+    let s = call.summary();
+    assert_eq!(
+        (call.beta, s.run_coverage, s.run_job_coverage),
+        (None, None, None)
+    );
+}
+
+#[test]
+fn default_families_group_by_dtype() {
+    let c64 = SKEWED.replace(r#""dtype":"F64""#, r#""dtype":"C64""#);
+    let c = [capture(&[&c64, SKEWED, &c64]).unwrap()];
+    assert_eq!(families(&c, Dtype::F64), ["t:r001"]);
+    assert_eq!(families(&c, Dtype::C64), ["t:r000", "t:r002"]);
 }
 
 #[test]
