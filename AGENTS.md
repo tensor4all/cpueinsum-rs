@@ -14,7 +14,9 @@ is tensor4all/tcontract-rs#62.
 - BLAS lives only in `crates/cpueinsum-blas`: the overwrite-only `StepBackend`
   and concrete prepared binary/grouped adapters depend on `cblas-sys` and
   link no provider (tests link one through dev-dependencies:
-  Accelerate on macOS, OpenBLAS elsewhere). `cpueinsum` itself never depends
+  Accelerate on macOS, OpenBLAS elsewhere). The `crates/cpueinsum-replay`
+  harness binary links the same provider for its `blas` row, which is why it is
+  a separate crate from `crates/cpueinsum-bench`. `cpueinsum` itself never depends
   on a BLAS crate and must build without a C toolchain; check with
   `cargo tree -p cpueinsum`. The plan is tensor4all/cpueinsum-rs#1.
 - Binary contraction kernels and strategy selection belong in tcontract.

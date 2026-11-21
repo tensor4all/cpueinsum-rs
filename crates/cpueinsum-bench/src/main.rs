@@ -20,13 +20,13 @@ mod corpus;
 mod diagnostics;
 mod elem;
 mod harness;
-mod json;
 mod report;
 
 use std::path::Path;
 use std::process::ExitCode;
 
 use cpueinsum::{Exec, Pool};
+use cpueinsum_bench::json;
 
 use crate::corpus::{Instance, ENGINE_ROWS};
 use crate::harness::{Config, Mode, Statistic};
