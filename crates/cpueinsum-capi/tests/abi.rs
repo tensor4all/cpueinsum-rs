@@ -129,7 +129,7 @@ fn an_owned_executor_runs_the_plan_on_its_pool() {
     let mut exec: isize = 0;
     // SAFETY: a writable out-parameter and a null options pointer.
     let status = unsafe {
-        tcontract_capi::tcontract_tapp_executor_create_rayon(&mut exec, 2, std::ptr::null())
+        tcontract_capi::tcontract_tapp_executor_create_pool(&mut exec, 2, std::ptr::null())
     };
     assert!(
         tcontract_capi::TAPP_check_success(status),
@@ -159,8 +159,7 @@ fn an_owned_executor_runs_the_plan_on_its_pool() {
 fn a_host_owned_pool_can_be_lent_to_the_plan() {
     let mut pool: isize = 0;
     // SAFETY: a writable out-parameter and a null options pointer.
-    let status =
-        unsafe { tcontract_capi::tcontract_pool_create_rayon(&mut pool, 2, std::ptr::null()) };
+    let status = unsafe { tcontract_capi::tcontract_pool_create(&mut pool, 2, std::ptr::null()) };
     assert!(
         tcontract_capi::TAPP_check_success(status),
         "{}",
