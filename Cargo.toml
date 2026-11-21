@@ -5,6 +5,7 @@ members = [
     "crates/cpueinsum-bench",
     "crates/cpueinsum-blas",
     "crates/cpueinsum-capi",
+    "crates/cpueinsum-replay",
 ]
 
 [workspace.package]

@@ -1,0 +1,38 @@
+[package]
+name = "cpueinsum-replay"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+description = "timing-v2 replay harness over the symtn grouped-GEMM trace corpus"
+
+[[bin]]
+name = "cpueinsum-replay"
+path = "src/main.rs"
+
+[dependencies]
+cpueinsum = { workspace = true }
+cpueinsum-blas = { path = "../cpueinsum-blas" }
+# The JSON reader of the sibling harness; the workspace carries no JSON crate.
+cpueinsum-bench = { path = "../cpueinsum-bench" }
+threadteam = { workspace = true }
+num-complex = { workspace = true }
+# The corpus files are `.jsonl.gz`; flate2 is already in the graph through
+# openblas-src's build dependency.
+flate2 = "1"
+# The export names each capture by its SHA-256.
+sha2 = "0.10"
+
+# The `blas` row needs a provider in the final binary, chosen as
+# cpueinsum-blas's own tests choose it: Accelerate on macOS, OpenBLAS elsewhere.
+[target.'cfg(target_os = "macos")'.dependencies]
+blas-src = { workspace = true, features = ["accelerate"] }
+
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+blas-src = { workspace = true, features = ["openblas"] }
+openblas-src = { workspace = true, features = ["cblas", "system"] }
+
+[lints]
+workspace = true
