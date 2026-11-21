@@ -43,15 +43,16 @@ fn assert_gemms_wide(route: &str, call: impl FnOnce()) {
 }
 
 /// All three vendor loops — the N-ary backend step, the prepared `BinaryPlan`
-/// and the grouped `GroupedPlan` — run on the whole CPU set when called through
+/// and the grouped `GroupedPlan` — run on more than one CPU when called through
 /// a placed team's token (`TeamExec::external`). Where the leader itself sits
 /// between sections is threadteam's placement, not asserted here.
+/// This is a cheap guard only: the two-engine probe in the PR is the acceptance.
 ///
 /// Skipped where the platform has no CPU set or the process has fewer than four
 /// CPUs, which is where threadteam places nothing and every call is plain; the
 /// skip prints a line, because a skipped run is not evidence.
 #[test]
-fn gemm_from_a_team_leader_sees_the_whole_set() {
+fn gemm_from_a_team_leader_sees_more_than_one_cpu() {
     let set = cpus_allowed();
     if set < 4 {
         eprintln!("skipped: {set} CPUs available, a team of four is not placed");
