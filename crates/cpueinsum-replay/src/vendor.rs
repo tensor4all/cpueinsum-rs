@@ -24,7 +24,9 @@ mod imp {
     pub fn identity() -> Vec<(&'static str, String)> {
         vec![
             ("vendor.name", "accelerate".into()),
-            ("vendor.linkage", "framework".into()),
+            // A framework bundle is a dynamically linked library, so it is
+            // `shared` in the campaign schema; `vendor.name` keeps the arm.
+            ("vendor.linkage", "shared".into()),
             (
                 "vendor.threads",
                 std::env::var(VARIABLE).unwrap_or_default(),
@@ -98,7 +100,9 @@ mod imp {
         };
         vec![
             ("vendor.name", "openblas".into()),
-            ("vendor.linkage", "system".into()),
+            // `openblas-src/system` links the host's libopenblas, a shared
+            // library, so it is `shared` in the campaign schema.
+            ("vendor.linkage", "shared".into()),
             ("vendor.version", version),
             ("vendor.config", config),
             ("vendor.corename", corename),
