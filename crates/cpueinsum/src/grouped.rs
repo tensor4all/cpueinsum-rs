@@ -1,14 +1,17 @@
 //! Prepared heterogeneous column-major GEMM groups.
 //!
-//! A [`GroupedPlan`] owns one immutable tcontract plan per distinct geometry. The
-//! caller lends flat input and output buffers at execution time; no pointers
-//! or executors are retained by the plan.
+//! A [`GroupedPlan`] holds one immutable tcontract plan per distinct geometry,
+//! shared through an [`Arc`] so a caller-owned cache can hand the same child to
+//! many grouped plans ([`GroupedPlan::from_prepared_with`], cpueinsum-rs#79).
+//! The caller lends flat input and output buffers at execution time; no
+//! pointers or executors are retained by the plan.
 
+use core::hash::{Hash, Hasher};
 use core::mem::MaybeUninit;
 use std::num::NonZeroUsize;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
-use tcontract::api::{CSpec, Labels, LayoutSpec, Op, OperandSpec, Problem};
+use tcontract::api::{CSpec, DType, Labels, LayoutSpec, Op, OperandSpec, Problem};
 use tcontract::ns_per_flop;
 use tcontract::{
     execute_uninit_with, OutputContract, Plan, PlanConfig, SliceAccumulationSource,
@@ -118,6 +121,13 @@ pub enum GroupedError {
     /// The jobs do not cover the fresh output exactly once, in order, from 0.
     #[error("grouped jobs do not cover the fresh output exactly once without gaps")]
     FreshCoverage,
+    /// A child plan supplied to [`GroupedPlan::from_prepared_with`] was not
+    /// planned for the problem its [`ChildKey`] describes.
+    #[error("the child plan supplied for grouped job {job} does not match its key")]
+    ChildMismatch {
+        /// Lowest original job index with the child's geometry.
+        job: usize,
+    },
 }
 
 /// A grouped buffer named by a [`GroupedError::Bounds`] failure.
@@ -233,6 +243,187 @@ struct ChildGeometry {
     id: usize,
 }
 
+/// Everything one child plan of a [`GroupedPlan`] depends on.
+///
+/// A key is handed to the `child` closure of
+/// [`GroupedPlan::from_prepared_with`], once per distinct geometry. It carries
+/// the dtype, the `(rows, contracted, cols)` geometry, the column-major leading
+/// dimensions `(lda, ldb, ldc)`, the three operations, and the effective child
+/// [`PlanConfig`] (the caller's config with `fresh_output` cleared, because the
+/// same child serves initialized and fresh output). Two keys are equal exactly
+/// when [`ChildKey::build`] plans the same problem under the same config, so a
+/// caller can key a cache by it across grouped plans.
+///
+/// The leading dimensions are those of today's compact jobs, `max(rows, 1)`,
+/// `max(contracted, 1)` and `max(rows, 1)`. They are part of the key so the
+/// key keeps its meaning when grouped jobs carry their own leading dimensions
+/// (the tensor4all/tcontract-rs#209 descriptor).
+///
+/// [`Hash`] covers every field except the config, which has no `Hash`; [`Eq`]
+/// compares the config too. A cache that mixes many configs therefore puts
+/// their keys in the same buckets, which stays correct.
+///
+/// # Examples
+///
+/// ```
+/// use cpueinsum::{ChildKey, GroupedGemmJob, GroupedPlan};
+/// let jobs = [GroupedGemmJob::new(0, 0, 0, 2, 3, 4)];
+/// let mut seen: Vec<ChildKey> = Vec::new();
+/// let plan = GroupedPlan::<f64>::from_prepared_with(
+///     GroupedPlan::<f64>::prepare_jobs(&jobs)?,
+///     Default::default(),
+///     &Default::default(),
+///     |key| {
+///         seen.push(key.clone());
+///         key.build::<f64>().map(std::sync::Arc::new)
+///     },
+/// )?;
+/// assert_eq!(seen[0].shape(), (2, 3, 4));
+/// assert_eq!(seen[0].leading_dims(), (2, 3, 2));
+/// assert_eq!(plan.required_out_len(), 8);
+/// # Ok::<(), cpueinsum::Error>(())
+/// ```
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ChildKey {
+    dtype: DType,
+    rows: usize,
+    contracted: usize,
+    cols: usize,
+    lda: usize,
+    ldb: usize,
+    ldc: usize,
+    ops: [Op; 3],
+    config: PlanConfig,
+}
+
+impl Hash for ChildKey {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        // `PlanConfig` has no `Hash`; leaving it out keeps `a == b => hash(a) ==
+        // hash(b)`, which is all `Hash` requires.
+        self.dtype.hash(state);
+        (self.rows, self.contracted, self.cols).hash(state);
+        (self.lda, self.ldb, self.ldc).hash(state);
+        self.ops.hash(state);
+    }
+}
+
+impl ChildKey {
+    fn new(dtype: DType, ops: [Op; 3], config: &PlanConfig) -> Self {
+        let mut config = config.clone();
+        config.fresh_output = false;
+        Self {
+            dtype,
+            rows: 0,
+            contracted: 0,
+            cols: 0,
+            lda: 1,
+            ldb: 1,
+            ldc: 1,
+            ops,
+            config,
+        }
+    }
+
+    /// Point the key at one compact geometry. Dimension-to-stride conversions
+    /// were checked by [`GroupedPlan::prepare_jobs`].
+    fn set_geometry(&mut self, child: &ChildGeometry) {
+        self.rows = child.rows;
+        self.contracted = child.contracted;
+        self.cols = child.cols;
+        self.lda = child.rows.max(1);
+        self.ldb = child.contracted.max(1);
+        self.ldc = child.rows.max(1);
+    }
+
+    /// The element type of the child.
+    /// See [`ChildKey`] for a runnable example.
+    pub fn dtype(&self) -> DType {
+        self.dtype
+    }
+
+    /// The child's `(rows, contracted, cols)`, unclamped: an empty reduction
+    /// `(m, 0, n)` and a one-element one `(m, 1, n)` are different children.
+    /// See [`ChildKey`] for a runnable example.
+    pub fn shape(&self) -> (usize, usize, usize) {
+        (self.rows, self.contracted, self.cols)
+    }
+
+    /// The column-major leading dimensions `(lda, ldb, ldc)` of the child's A, B
+    /// and D. See [`ChildKey`] for a runnable example.
+    pub fn leading_dims(&self) -> (usize, usize, usize) {
+        (self.lda, self.ldb, self.ldc)
+    }
+
+    /// The A, B and D operations; the third also applies to the accumulation
+    /// source. See [`ChildKey`] for a runnable example.
+    pub fn ops(&self) -> [Op; 3] {
+        self.ops
+    }
+
+    /// The effective child config: the grouped plan's config with
+    /// `fresh_output` cleared. See [`ChildKey`] for a runnable example.
+    pub fn config(&self) -> &PlanConfig {
+        &self.config
+    }
+
+    /// The tcontract problem the key describes: `D[i,j] = sum_l A[i,l] B[l,j]`
+    /// over column-major operands with this key's leading dimensions.
+    ///
+    /// A plan supplied for this key must report exactly this problem from
+    /// [`Plan::problem`].
+    ///
+    /// # Errors
+    ///
+    /// Returns tcontract's error when it rejects the problem.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cpueinsum::{ChildKey, GroupedGemmJob, GroupedPlan};
+    /// let jobs = [GroupedGemmJob::new(0, 0, 0, 1, 1, 1)];
+    /// let mut problems = Vec::new();
+    /// GroupedPlan::<f32>::from_prepared_with(
+    ///     GroupedPlan::<f32>::prepare_jobs(&jobs)?, Default::default(), &Default::default(),
+    ///     |key| {
+    ///         problems.push(key.problem()?);
+    ///         key.build::<f32>().map(std::sync::Arc::new)
+    ///     },
+    /// )?;
+    /// assert_eq!(problems.len(), 1);
+    /// # Ok::<(), cpueinsum::Error>(())
+    /// ```
+    pub fn problem(&self) -> tcontract::Result<Problem> {
+        let (m, k, n) = (self.rows, self.contracted, self.cols);
+        let ld = |value: usize| isize::try_from(value).unwrap_or(isize::MAX);
+        Problem::from_labels(
+            self.dtype,
+            spec(&[m, k], &[1, ld(self.lda)], self.ops[0])?,
+            spec(&[k, n], &[1, ld(self.ldb)], self.ops[1])?,
+            CSpec::Output(self.ops[2]),
+            spec(&[m, n], &[1, ld(self.ldc)], self.ops[2])?,
+            &Labels::new(&[0, 1], &[1, 2], &[0, 2]),
+        )
+    }
+
+    /// Build the child plan for this key exactly as [`GroupedPlan::from_prepared`]
+    /// does, so a cache's miss path is one call.
+    ///
+    /// # Errors
+    ///
+    /// Returns tcontract's error when it rejects the problem or the config,
+    /// including a `T` whose storage type is not [`ChildKey::dtype`].
+    ///
+    /// # Examples
+    ///
+    /// See [`GroupedPlan::from_prepared_with`] for a caller-side cache.
+    pub fn build<T: Scalar>(&self) -> tcontract::Result<Plan<T>> {
+        let plan = Plan::from_problem(self.problem()?, &self.config)?;
+        #[cfg(test)]
+        tests::PLAN_CONSTRUCTIONS.with(|count| count.set(count.get() + 1));
+        Ok(plan)
+    }
+}
+
 impl PreparedGroupedJobs {
     /// Reject a `beta`/coverage combination a fresh-output call cannot support.
     ///
@@ -301,7 +492,7 @@ impl PreparedGroupedJobs {
 #[derive(Debug)]
 pub struct GroupedPlan<T: Scalar> {
     meta: PreparedGroupedJobs,
-    plans: Vec<Plan<T>>,
+    plans: Vec<Arc<Plan<T>>>,
 }
 
 impl<T: Scalar> GroupedPlan<T> {
@@ -502,6 +693,9 @@ impl<T: Scalar> GroupedPlan<T> {
 
     /// Prepare one numerical child per distinct geometry of `prepared`.
     ///
+    /// This is [`Self::from_prepared_with`] with [`ChildKey::build`] as the
+    /// child source.
+    ///
     /// # Errors
     ///
     /// Returns [`Error::Contract`] when tcontract rejects a child problem; the
@@ -511,32 +705,124 @@ impl<T: Scalar> GroupedPlan<T> {
         ops: [Op; 3],
         config: &PlanConfig,
     ) -> Result<Self> {
-        let mut child_config = config.clone();
-        child_config.fresh_output = false;
+        // The built-in source plans each child from its own key, so checking the
+        // result against the key again would only repeat the problem lowering.
+        Self::with_children(prepared, ops, config, false, |key| {
+            key.build::<T>().map(Arc::new)
+        })
+    }
+
+    /// Prepare `prepared` with child plans supplied by the caller, for example
+    /// from a cache that outlives this grouped plan (cpueinsum-rs#79).
+    ///
+    /// `child` is called exactly once per distinct geometry, in child-index
+    /// order, before any execution. Child-index order is deterministic: the
+    /// distinct `(rows, contracted, cols)` geometries in ascending lexicographic
+    /// order, which does not depend on the order of the jobs. Every job with a
+    /// geometry shares that geometry's child; ties among them are broken by the
+    /// lowest original job id, which is the id an error names. The same job set
+    /// therefore produces the same sequence of keys and the same job-to-child
+    /// assignment however its jobs are ordered.
+    ///
+    /// Supplied plans are not trusted: each one must report from
+    /// [`Plan::problem`] exactly the problem [`ChildKey::problem`] describes and
+    /// must not be a rank-k plan, or construction fails before anything runs.
+    /// The config the child was built under is not visible on a [`Plan`] and is
+    /// not checked; a cache keyed by [`ChildKey`] gets it right by construction.
+    ///
+    /// The grouped plan keeps the returned [`Arc`]s and never rebuilds a child,
+    /// so one cached plan can serve any number of grouped plans and calls.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Contract`] when `child` fails, and
+    /// [`GroupedError::ChildMismatch`] when it returns a plan for another
+    /// problem. Both name the lowest original job id with the child's geometry;
+    /// construction stops at the first failing child in child-index order.
+    ///
+    /// # Examples
+    ///
+    /// A caller-owned cache shared by two grouped plans with different job
+    /// lists; the second plan builds nothing:
+    ///
+    /// ```
+    /// use std::collections::HashMap;
+    /// use std::sync::Arc;
+    /// use cpueinsum::tcontract::{Plan, PlanConfig};
+    /// use cpueinsum::{ChildKey, Exec, GroupedGemmJob, GroupedPlan};
+    ///
+    /// let mut cache: HashMap<ChildKey, Arc<Plan<f64>>> = HashMap::new();
+    /// let mut misses = 0;
+    /// let mut prepare = |jobs: &[GroupedGemmJob]| {
+    ///     GroupedPlan::<f64>::from_prepared_with(
+    ///         GroupedPlan::<f64>::prepare_jobs(jobs)?,
+    ///         Default::default(),
+    ///         &PlanConfig::default(),
+    ///         |key| {
+    ///             if let Some(plan) = cache.get(key) {
+    ///                 return Ok(Arc::clone(plan));
+    ///             }
+    ///             misses += 1;
+    ///             let plan = Arc::new(key.build::<f64>()?);
+    ///             cache.insert(key.clone(), Arc::clone(&plan));
+    ///             Ok(plan)
+    ///         },
+    ///     )
+    /// };
+    /// let first = prepare(&[GroupedGemmJob::new(0, 0, 0, 1, 1, 1)])?;
+    /// let second = prepare(&[
+    ///     GroupedGemmJob::new(0, 0, 1, 1, 1, 1),
+    ///     GroupedGemmJob::new(0, 0, 0, 1, 1, 1),
+    /// ])?;
+    /// drop(prepare);
+    /// assert_eq!(misses, 1);
+    ///
+    /// let mut d = [0.0; 2];
+    /// second.execute_into(&mut Exec::serial(), 1.0, &[3.0], &[4.0], &mut d)?;
+    /// assert_eq!(d, [12.0, 12.0]);
+    /// # let _ = first;
+    /// # Ok::<(), cpueinsum::Error>(())
+    /// ```
+    pub fn from_prepared_with<F>(
+        prepared: PreparedGroupedJobs,
+        ops: [Op; 3],
+        config: &PlanConfig,
+        child: F,
+    ) -> Result<Self>
+    where
+        F: FnMut(&ChildKey) -> tcontract::Result<Arc<Plan<T>>>,
+    {
+        Self::with_children(prepared, ops, config, true, child)
+    }
+
+    /// The one construction path: one `child` call per distinct geometry, in
+    /// child-index order, checked against its key when `verify` is set.
+    fn with_children<F>(
+        prepared: PreparedGroupedJobs,
+        ops: [Op; 3],
+        config: &PlanConfig,
+        verify: bool,
+        mut child: F,
+    ) -> Result<Self>
+    where
+        F: FnMut(&ChildKey) -> tcontract::Result<Arc<Plan<T>>>,
+    {
+        // One key, re-pointed per geometry: the config is cloned once per
+        // grouped plan, not once per child.
+        let mut key = ChildKey::new(T::STORAGE, ops, config);
         let mut plans = Vec::with_capacity(prepared.children.len());
-        for child in &prepared.children {
-            let ChildGeometry {
-                rows: m,
-                contracted: k,
-                cols: n,
-                id,
-            } = *child;
-            // Dimension-to-stride conversions were checked above for every job.
-            let rows = (m as isize).max(1);
-            let contracted = (k as isize).max(1);
-            let problem = Problem::from_labels(
-                T::STORAGE,
-                spec(&[m, k], &[1, rows], ops[0]),
-                spec(&[k, n], &[1, contracted], ops[1]),
-                CSpec::Output(ops[2]),
-                spec(&[m, n], &[1, rows], ops[2]),
-                &Labels::new(&[0, 1], &[1, 2], &[0, 2]),
-            )
-            .map_err(|source| Error::Contract { step: id, source })?;
-            let plan = Plan::new(&problem, &child_config)
-                .map_err(|source| Error::Contract { step: id, source })?;
-            #[cfg(test)]
-            tests::PLAN_CONSTRUCTIONS.with(|count| count.set(count.get() + 1));
+        for geometry in &prepared.children {
+            let id = geometry.id;
+            key.set_geometry(geometry);
+            let plan = child(&key).map_err(|source| Error::Contract { step: id, source })?;
+            if verify {
+                let expected = key
+                    .problem()
+                    .map_err(|source| Error::Contract { step: id, source })?;
+                if plan.problem() != &expected || plan.rank_k().is_some() {
+                    return Err(grouped(GroupedError::ChildMismatch { job: id }));
+                }
+            }
             plans.push(plan);
         }
         Ok(Self {
@@ -932,7 +1218,7 @@ impl<T: Scalar> GroupedPlan<T> {
                 };
                 let item = JobItem {
                     id,
-                    plan: &self.plans[job.plan as usize],
+                    plan: &*self.plans[job.plan as usize],
                     lhs: &lhs[job.meta.lhs_offset..job.meta.lhs_offset + job.meta.lhs_len],
                     rhs: &rhs[job.meta.rhs_offset..job.meta.rhs_offset + job.meta.rhs_len],
                     out: d,
@@ -1027,7 +1313,7 @@ impl<T: Scalar> GroupedPlan<T> {
                 };
                 let item = JobItem {
                     id: job.meta.id,
-                    plan: &self.plans[job.plan as usize],
+                    plan: &*self.plans[job.plan as usize],
                     lhs: &lhs[job.meta.lhs_offset..job.meta.lhs_offset + job.meta.lhs_len],
                     rhs: &rhs[job.meta.rhs_offset..job.meta.rhs_offset + job.meta.rhs_len],
                     out: d,
@@ -1205,8 +1491,8 @@ fn child_index(job: usize, index: usize) -> Result<u32> {
     })
 }
 
-fn spec(dims: &[usize], strides: &[isize], op: Op) -> OperandSpec {
-    OperandSpec::new(LayoutSpec::new(dims, strides, 0).expect("validated dimensions")).with_op(op)
+fn spec(dims: &[usize], strides: &[isize], op: Op) -> tcontract::Result<OperandSpec> {
+    Ok(OperandSpec::new(LayoutSpec::new(dims, strides, 0)?).with_op(op))
 }
 
 fn grouped(source: GroupedError) -> Error {

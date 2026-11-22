@@ -149,13 +149,16 @@ fn vendor_plan_construction_reuses_group_order_storage() {
     );
     for (count, native, vendor) in groups {
         assert!(
-            native <= 3,
-            "one geometry: compact jobs, geometry table and one child buffer"
+            native <= 4,
+            "one geometry: compact jobs, geometry table, child buffer and the child's Arc"
         );
         // #52: the vendor route prepares its own jobs instead of the native
-        // children, so it requests no more than the native route does.
+        // children. Since #79 each native child is its own `Arc`, so the vendor
+        // route requests exactly that one allocation fewer whenever there is a
+        // child.
         assert_eq!(
-            vendor, native,
+            vendor + usize::from(count > 0),
+            native,
             "the vendor route prepares no native child: {count} jobs"
         );
     }
