@@ -40,6 +40,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 use std::path::Path;
 use std::process::ExitCode;
+use std::time::Duration;
 
 use cpueinsum::{ArenaProvider, BatchPolicy, Exec};
 use num_complex::Complex64;
@@ -378,9 +379,15 @@ fn measure(args: &Args) -> ExitCode {
     }
 
     // The pool, its team and the budget the runtime actually granted, held
-    // across verification and timing; a clamped request fails.
+    // across verification and timing; a clamped request fails. `into_team`
+    // reserves members that may still be starting, so it waits for them
+    // (as `issue46_grouped.rs` does) instead of failing on a busy start.
     let t = args.threads;
-    let pool = match threadteam::Pool::builder().threads(t).build() {
+    let pool = match threadteam::Pool::builder()
+        .threads(t)
+        .acquire_timeout(Duration::from_secs(10))
+        .build()
+    {
         Ok(pool) if pool.width().get() == t => pool,
         Ok(pool) => {
             return die(&format!(
