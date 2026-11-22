@@ -281,7 +281,7 @@ fn a_child_for_another_problem_is_rejected_with_the_lowest_job_id() {
         [Op::Conjugate, Op::Identity, Op::Identity],
     );
     for (label, wrong) in [("other shape", other_shape), ("other ops", other_ops)] {
-        let mut written = vec![7.0; 13];
+        // Rejected at construction, so no plan exists that could run.
         let result = GroupedPlan::<f64>::from_prepared_with(
             GroupedPlan::<f64>::prepare_jobs(&jobs).unwrap(),
             identity,
@@ -293,10 +293,7 @@ fn a_child_for_another_problem_is_rejected_with_the_lowest_job_id() {
                     key.build::<f64>().map(Arc::new)
                 }
             },
-        )
-        .and_then(|plan| {
-            plan.execute_into(&mut Exec::serial(), 1.0, &[1.0; 4], &[1.0; 4], &mut written)
-        });
+        );
         assert!(
             matches!(
                 result,
@@ -304,7 +301,6 @@ fn a_child_for_another_problem_is_rejected_with_the_lowest_job_id() {
             ),
             "{label}: {result:?}"
         );
-        assert_eq!(written, [7.0; 13], "{label}: nothing ran");
     }
 }
 

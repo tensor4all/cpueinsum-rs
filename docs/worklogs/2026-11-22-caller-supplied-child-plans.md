@@ -21,8 +21,9 @@
   compact, so the leading dimensions are `max(rows,1)`, `max(contracted,1)`,
   `max(rows,1)`, derived from the shape. They are in the key in anticipation
   of the tcontract-rs#209 descriptor migration; nothing here tests per-job
-  leading dimensions, and `ChildKey::set_geometry` is the one place that
-  migration must change. `Hash` covers everything but the config
+  leading dimensions. That migration must change the compact lowering in both
+  `ChildKey::set_geometry` and the vendor route's per-job problem in
+  `cpueinsum-blas/src/grouped.rs`, which is a separate copy today. `Hash` covers everything but the config
   (tcontract's `PlanConfig` has no `Hash`); `Eq` compares the config too.
 - Supplied plans are checked: `plan.problem()` must equal `ChildKey::problem()`
   and the plan must not be a rank-k plan, else `GroupedError::ChildMismatch`
@@ -50,7 +51,9 @@
 - Allocation fixtures: one extra request per distinct child (its `Arc`), +24
   bytes per child on 64-bit (16 for the counts, 8 for the pointer the child
   vector now holds). `grouped_prepare_alloc` shared geometry 3 -> 4 requests
-  independent of job count; measured distinct geometry 4, 9, 23 requests for
-  G = 1, 5, 17 (3, 4, 6 before), so the bound `3 + G` becomes `3 + 2G`. `cpueinsum-blas` `alloc_free`: the native grouped plan is 4
+  independent of job count (this is the assertion that ties requests to G
+  rather than J); measured distinct geometry 4, 9, 23 requests for G = 1, 5,
+  17, against 3, 4, 6 measured on the base commit `cb8e71f` with the same
+  test, so the loose bound `3 + G` becomes `3 + 2G`. `cpueinsum-blas` `alloc_free`: the native grouped plan is 4
   requests, the vendor plan stays 3, so vendor = native - 1 for a nonempty group.
 - No timing claim is made.
