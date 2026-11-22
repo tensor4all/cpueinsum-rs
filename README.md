@@ -74,6 +74,13 @@ destination by the jobs, checks both before the first write, and returns the
 initialized slice only on success. Serial callers can retain `ArenaProvider`,
 and parallel callers retain `Pool`.
 
+A grouped plan holds one child tcontract plan per distinct geometry, as an
+`Arc<Plan<T>>`. Callers that build many grouped plans over recurring
+geometries can supply those children from their own cache with
+`GroupedPlan::from_prepared_with`, keyed by the public `ChildKey`; cpueinsum
+itself keeps no cache across calls (cpueinsum-rs#79). Supplied plans are
+checked against their key before anything runs.
+
 The shared-input overwrite/accumulation example lives in
 [`GroupedPlan`'s executable rustdoc](crates/cpueinsum/src/grouped.rs), checked
 with `cargo test -p cpueinsum --doc`; there is no duplicate snippet to drift.

@@ -58,9 +58,10 @@ pub use backend::{BackendError, StepBackend, Tcontract};
 pub use batch::VendorLoopRoute;
 pub use binary::contract_into;
 pub use error::{Error, Result, ShapeError, SpecError};
-#[doc(hidden)]
 pub use grouped::PreparedGroupedJobs;
-pub use grouped::{GroupedError, GroupedGemmJob, GroupedOperand, GroupedPlan, GroupedRoute};
+pub use grouped::{
+    ChildKey, GroupedError, GroupedGemmJob, GroupedOperand, GroupedPlan, GroupedRoute,
+};
 pub use layout::Layout;
 pub use plan::{einsum_into, EinsumPlan, Scratch};
 pub use prepared::BinaryPlan;
