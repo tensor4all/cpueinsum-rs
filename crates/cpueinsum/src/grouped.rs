@@ -217,11 +217,16 @@ struct PreparedJob {
 /// Checked grouped job metadata, before any numerical child plan exists.
 ///
 /// Produced by [`GroupedPlan::prepare_jobs`] and consumed by
-/// [`GroupedPlan::from_prepared`]. It is crate-internal plumbing, not API:
+/// [`GroupedPlan::from_prepared`] or [`GroupedPlan::from_prepared_with`]. It is
+/// opaque: it exists so the checks run once before the children are chosen.
 /// `cpueinsum-blas` uses it so a vendor plan pays the checked arithmetic, the
 /// output overlap admission and the geometry count, and builds the tcontract
-/// children only when it actually runs natively (cpueinsum-rs#52).
-#[doc(hidden)]
+/// children only when it actually runs natively (cpueinsum-rs#52); a caller
+/// with its own child cache passes it to `from_prepared_with` (cpueinsum-rs#79).
+///
+/// # Examples
+///
+/// See [`GroupedPlan::from_prepared_with`].
 #[derive(Clone, Debug)]
 pub struct PreparedGroupedJobs {
     jobs: Vec<PreparedJob>,
@@ -290,9 +295,11 @@ pub struct ChildKey {
     rows: usize,
     contracted: usize,
     cols: usize,
-    lda: usize,
-    ldb: usize,
-    ldc: usize,
+    // Stored as strides: whoever sets them proves they fit `isize`, so
+    // `problem` never has to convert (or saturate) one.
+    lda: isize,
+    ldb: isize,
+    ldc: isize,
     ops: [Op; 3],
     config: PlanConfig,
 }
@@ -325,15 +332,17 @@ impl ChildKey {
         }
     }
 
-    /// Point the key at one compact geometry. Dimension-to-stride conversions
-    /// were checked by [`GroupedPlan::prepare_jobs`].
+    /// Point the key at one compact geometry. [`GroupedPlan::prepare_jobs`]
+    /// checked every dimension against `isize` (`isize_dim`), so the casts are
+    /// lossless; a job format with its own leading dimensions must check them
+    /// the same way before setting them here.
     fn set_geometry(&mut self, child: &ChildGeometry) {
         self.rows = child.rows;
         self.contracted = child.contracted;
         self.cols = child.cols;
-        self.lda = child.rows.max(1);
-        self.ldb = child.contracted.max(1);
-        self.ldc = child.rows.max(1);
+        self.lda = (child.rows as isize).max(1);
+        self.ldb = (child.contracted as isize).max(1);
+        self.ldc = (child.rows as isize).max(1);
     }
 
     /// The element type of the child.
@@ -352,7 +361,8 @@ impl ChildKey {
     /// The column-major leading dimensions `(lda, ldb, ldc)` of the child's A, B
     /// and D. See [`ChildKey`] for a runnable example.
     pub fn leading_dims(&self) -> (usize, usize, usize) {
-        (self.lda, self.ldb, self.ldc)
+        // Positive by construction.
+        (self.lda as usize, self.ldb as usize, self.ldc as usize)
     }
 
     /// The A, B and D operations; the third also applies to the accumulation
@@ -395,13 +405,12 @@ impl ChildKey {
     /// ```
     pub fn problem(&self) -> tcontract::Result<Problem> {
         let (m, k, n) = (self.rows, self.contracted, self.cols);
-        let ld = |value: usize| isize::try_from(value).unwrap_or(isize::MAX);
         Problem::from_labels(
             self.dtype,
-            spec(&[m, k], &[1, ld(self.lda)], self.ops[0])?,
-            spec(&[k, n], &[1, ld(self.ldb)], self.ops[1])?,
+            spec(&[m, k], &[1, self.lda], self.ops[0])?,
+            spec(&[k, n], &[1, self.ldb], self.ops[1])?,
             CSpec::Output(self.ops[2]),
-            spec(&[m, n], &[1, ld(self.ldc)], self.ops[2])?,
+            spec(&[m, n], &[1, self.ldc], self.ops[2])?,
             &Labels::new(&[0, 1], &[1, 2], &[0, 2]),
         )
     }
