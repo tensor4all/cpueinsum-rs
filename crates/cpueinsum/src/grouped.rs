@@ -255,9 +255,11 @@ struct ChildGeometry {
 /// the dtype, the `(rows, contracted, cols)` geometry, the column-major leading
 /// dimensions `(lda, ldb, ldc)`, the three operations, and the effective child
 /// [`PlanConfig`] (the caller's config with `fresh_output` cleared, because the
-/// same child serves initialized and fresh output). Two keys are equal exactly
-/// when [`ChildKey::build`] plans the same problem under the same config, so a
-/// caller can key a cache by it across grouped plans.
+/// same child serves initialized and fresh output). Equal keys always describe
+/// the same problem under the same config, so a caller can key a cache by it
+/// across grouped plans. The converse is not promised: two keys whose ops
+/// tcontract lowers alike (for example a conjugation on a real dtype) differ,
+/// which costs a cache miss, never a wrong child.
 ///
 /// The leading dimensions are those of today's compact jobs, `max(rows, 1)`,
 /// `max(contracted, 1)` and `max(rows, 1)`, so they follow from the shape for
