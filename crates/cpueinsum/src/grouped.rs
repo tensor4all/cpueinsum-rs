@@ -271,6 +271,10 @@ struct ChildGeometry {
 /// compares the config too. A cache that mixes many configs therefore puts
 /// their keys in the same buckets, which stays correct.
 ///
+/// The host facts a plan is tuned against (CPU features, cache shape, tuning
+/// class) are not in the key because they are fixed for the process; a cache is
+/// therefore valid within one process, not across hosts.
+///
 /// # Examples
 ///
 /// ```
@@ -746,6 +750,12 @@ impl<T: Scalar> GroupedPlan<T> {
     ///
     /// The grouped plan keeps the returned [`Arc`]s and never rebuilds a child,
     /// so one cached plan can serve any number of grouped plans and calls.
+    ///
+    /// A child's memory is released when the last [`GroupedPlan`] holding it
+    /// drops, not when a caller's cache evicts or clears the entry. A caller
+    /// that budgets its cache in bytes therefore has to charge the children
+    /// that live grouped plans still reference to its own retained memory, or
+    /// drop those plans when the call ends.
     ///
     /// # Errors
     ///
