@@ -341,16 +341,21 @@ struct Grid<'a> {
 }
 
 fn measure(args: &Args) -> ExitCode {
-    // Before any BLAS call; on macOS this may re-execute the process.
-    match vendor::set_threads(args.threads) {
-        Ok(Some(got)) if got != args.threads => {
-            return die(&format!(
-                "requested {} vendor threads, the vendor reports {got}",
-                args.threads
-            ))
+    // Before any BLAS call; on macOS this may re-execute the process. Only the
+    // `blas` row calls the vendor, so a run without it neither sets nor checks
+    // the vendor's budget: a vendor that cannot reach the width (a
+    // single-threaded OpenBLAS) must not refuse a native-only grid.
+    if args.row_names.iter().any(|r| r == "blas") {
+        match vendor::set_threads(args.threads) {
+            Ok(Some(got)) if got != args.threads => {
+                return die(&format!(
+                    "requested {} vendor threads, the vendor reports {got}",
+                    args.threads
+                ))
+            }
+            Ok(_) => {}
+            Err(message) => return die(&message),
         }
-        Ok(_) => {}
-        Err(message) => return die(&message),
     }
     let captures = match corpus::load_dir(Path::new(&args.corpus_dir)) {
         Ok(c) => c,
