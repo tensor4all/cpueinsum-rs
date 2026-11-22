@@ -255,9 +255,10 @@ struct ChildGeometry {
 /// caller can key a cache by it across grouped plans.
 ///
 /// The leading dimensions are those of today's compact jobs, `max(rows, 1)`,
-/// `max(contracted, 1)` and `max(rows, 1)`. They are part of the key so the
-/// key keeps its meaning when grouped jobs carry their own leading dimensions
-/// (the tensor4all/tcontract-rs#209 descriptor).
+/// `max(contracted, 1)` and `max(rows, 1)`, so they follow from the shape for
+/// now. They are in the key in anticipation of jobs that carry their own
+/// leading dimensions (the tensor4all/tcontract-rs#209 descriptor), which is
+/// not implemented here.
 ///
 /// [`Hash`] covers every field except the config, which has no `Hash`; [`Eq`]
 /// compares the config too. A cache that mixes many configs therefore puts

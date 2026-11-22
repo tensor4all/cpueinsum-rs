@@ -72,8 +72,9 @@ fn prepare(jobs: &[GroupedGemmJob]) -> (usize, usize) {
 #[test]
 fn one_child_per_distinct_geometry_keeps_allocation_requests_constant() {
     let child = std::mem::size_of::<Plan<f64>>();
-    // The shared child box (#79): the plan plus the two reference counts.
-    let arc = 2 * std::mem::size_of::<usize>();
+    // Per child since #79: the `Arc`'s two reference counts plus the pointer
+    // the child vector now stores where the plan used to sit inline.
+    let arc = 3 * std::mem::size_of::<usize>();
     // Compact per-job descriptor: seven words plus the child index.
     let per_job = std::mem::size_of::<usize>() * 8;
     let mut shared = Vec::new();
@@ -120,10 +121,10 @@ fn one_child_per_distinct_geometry_keeps_allocation_requests_constant() {
         }
     }
     for (count, (calls, bytes)) in &distinct {
-        // Each distinct child is one `Arc` (#79) and may allocate its own plan
-        // internals.
+        // The pre-#79 bound `3 + count` (each distinct child may allocate its
+        // own plan internals) plus one `Arc` per distinct child.
         assert!(
-            *calls <= 4 + 2 * count,
+            *calls <= 3 + count + count,
             "distinct geometry, {count} jobs: {calls} requests"
         );
         assert!(

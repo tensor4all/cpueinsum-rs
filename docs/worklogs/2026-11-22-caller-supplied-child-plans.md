@@ -19,8 +19,10 @@
 - `ChildKey` carries dtype, geometry, `(lda, ldb, ldc)`, the three ops and the
   effective child config (`fresh_output` cleared, as before). Today's jobs are
   compact, so the leading dimensions are `max(rows,1)`, `max(contracted,1)`,
-  `max(rows,1)`; they are in the key now so it keeps its meaning after the
-  tcontract-rs#209 descriptor migration. `Hash` covers everything but the config
+  `max(rows,1)`, derived from the shape. They are in the key in anticipation
+  of the tcontract-rs#209 descriptor migration; nothing here tests per-job
+  leading dimensions, and `ChildKey::set_geometry` is the one place that
+  migration must change. `Hash` covers everything but the config
   (tcontract's `PlanConfig` has no `Hash`); `Eq` compares the config too.
 - Supplied plans are checked: `plan.problem()` must equal `ChildKey::problem()`
   and the plan must not be a rank-k plan, else `GroupedError::ChildMismatch`
@@ -46,8 +48,9 @@
   same keys for permuted job lists, mismatched shape and ops rejected before any
   write, closure error id, key equality/hash.
 - Allocation fixtures: one extra request per distinct child (its `Arc`), +24
-  bytes per child on 64-bit. `grouped_prepare_alloc` shared geometry 3 -> 4
-  requests independent of job count; distinct geometry bound `3 + G` ->
-  `4 + 2G`. `cpueinsum-blas` `alloc_free`: the native grouped plan is 4
+  bytes per child on 64-bit (16 for the counts, 8 for the pointer the child
+  vector now holds). `grouped_prepare_alloc` shared geometry 3 -> 4 requests
+  independent of job count; measured distinct geometry 4, 9, 23 requests for
+  G = 1, 5, 17 (3, 4, 6 before), so the bound `3 + G` becomes `3 + 2G`. `cpueinsum-blas` `alloc_free`: the native grouped plan is 4
   requests, the vendor plan stays 3, so vendor = native - 1 for a nonempty group.
 - No timing claim is made.
