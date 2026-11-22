@@ -693,8 +693,10 @@ impl<T: Scalar> GroupedPlan<T> {
 
     /// Prepare one numerical child per distinct geometry of `prepared`.
     ///
-    /// This is [`Self::from_prepared_with`] with [`ChildKey::build`] as the
-    /// child source.
+    /// This builds each child with [`ChildKey::build`] through the same
+    /// construction as [`Self::from_prepared_with`], so the child order, the
+    /// sharing and the error ids are the same. It skips the supplied-plan
+    /// check, because every child here is planned from its own key.
     ///
     /// # Errors
     ///
@@ -795,8 +797,9 @@ impl<T: Scalar> GroupedPlan<T> {
         Self::with_children(prepared, ops, config, true, child)
     }
 
-    /// The one construction path: one `child` call per distinct geometry, in
-    /// child-index order, checked against its key when `verify` is set.
+    /// The construction shared by both constructors: one `child` call per
+    /// distinct geometry, in child-index order. Only caller-supplied plans
+    /// (`verify`) are checked against their key; built-in ones come from it.
     fn with_children<F>(
         prepared: PreparedGroupedJobs,
         ops: [Op; 3],

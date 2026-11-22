@@ -154,6 +154,47 @@ fn supplied_children_match_the_rebuilt_path_bitwise() {
     }
 }
 
+/// A child planned without `ChildKey`: the pre-#79 recipe written out by hand
+/// (compact column-major, strides clamped to one, `D` as the in-place source).
+fn independent_child(rows: usize, contracted: usize, cols: usize) -> Arc<Plan<f64>> {
+    use cpueinsum::tcontract::api::{CSpec, DType, Labels, LayoutSpec, OperandSpec, Problem};
+    let layout = |dims: &[usize], ld: usize| {
+        OperandSpec::new(LayoutSpec::new(dims, &[1, ld.max(1) as isize], 0).unwrap())
+    };
+    let problem = Problem::from_labels(
+        DType::F64,
+        layout(&[rows, contracted], rows),
+        layout(&[contracted, cols], contracted),
+        CSpec::Output(Op::Identity),
+        layout(&[rows, cols], rows),
+        &Labels::new(&[0, 1], &[1, 2], &[0, 2]),
+    )
+    .unwrap();
+    Arc::new(Plan::new(&problem, &PlanConfig::default()).unwrap())
+}
+
+#[test]
+fn independently_planned_children_are_accepted_and_agree() {
+    // Children that do not come from `ChildKey::build`: if the key's lowering
+    // drifted from the historical problem, the check would reject them, and if
+    // the grouped plan misrouted a job the output would differ from the naive one.
+    let jobs = jobs(40, 4);
+    let supplied = GroupedPlan::<f64>::from_prepared_with(
+        GroupedPlan::<f64>::prepare_jobs(&jobs).unwrap(),
+        [Op::Identity; 3],
+        &PlanConfig::default(),
+        |key| {
+            let (m, k, n) = key.shape();
+            Ok(independent_child(m, k, n))
+        },
+    )
+    .unwrap();
+    let rebuilt = GroupedPlan::<f64>::new(&jobs, &PlanConfig::default()).unwrap();
+    let reference = bits(&naive(&jobs));
+    assert_eq!(bits(&run(&supplied, &mut Exec::serial()).0), reference);
+    assert_eq!(bits(&run(&rebuilt, &mut Exec::serial()).0), reference);
+}
+
 #[test]
 fn one_cached_child_serves_two_plans_and_repeated_calls() {
     let first_jobs = jobs(12, 3);

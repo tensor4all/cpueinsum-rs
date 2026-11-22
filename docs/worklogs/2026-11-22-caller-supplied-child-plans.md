@@ -3,9 +3,10 @@
 ## Decisions
 
 - `GroupedPlan` stores its children as `Arc<Plan<T>>`. The existing
-  constructors (`new`, `new_with_ops`, `from_prepared`) are now the new path
-  with the built-in builder (`ChildKey::build`), so their behaviour, child
-  order and error ids are unchanged.
+  constructors (`new`, `new_with_ops`, `from_prepared`) share the new
+  construction with the built-in builder (`ChildKey::build`), so their
+  behaviour, child order and error ids are unchanged. They skip the
+  supplied-plan check, since their children are planned from the key itself.
 - `GroupedPlan::from_prepared_with(prepared, ops, config, child)` calls
   `child(&ChildKey)` exactly once per distinct geometry, in child-index order,
   and keeps the returned `Arc`s. Nothing is rebuilt per call or per job.
