@@ -181,6 +181,7 @@ dependencies = [
  "rand",
  "rand_chacha",
  "strided-view",
+ "t4a-desc",
  "tcontract",
  "tcontract-exec",
  "thiserror 1.0.69",
@@ -1239,6 +1240,11 @@ dependencies = [
 
 [[package]]
 name = "t4a-cost"
+version = "0.1.0"
+source = "git+https://github.com/tensor4all/tcontract-rs.git?rev=ca44b476aaa7f017f59afb2807fa1fe0d4939a27#ca44b476aaa7f017f59afb2807fa1fe0d4939a27"
+
+[[package]]
+name = "t4a-desc"
 version = "0.1.0"
 source = "git+https://github.com/tensor4all/tcontract-rs.git?rev=ca44b476aaa7f017f59afb2807fa1fe0d4939a27#ca44b476aaa7f017f59afb2807fa1fe0d4939a27"
 

@@ -60,7 +60,8 @@ pub use binary::contract_into;
 pub use error::{Error, Result, ShapeError, SpecError};
 pub use grouped::PreparedGroupedJobs;
 pub use grouped::{
-    ChildKey, GroupedError, GroupedGemmJob, GroupedOperand, GroupedPlan, GroupedRoute,
+    ChildKey, GroupedError, GroupedGemmJob, GroupedOperand, GroupedOptions, GroupedPlan,
+    GroupedRoute,
 };
 pub use layout::Layout;
 pub use plan::{einsum_into, EinsumPlan, Scratch};
@@ -74,4 +75,5 @@ pub use tcontract_exec::{
 };
 
 pub use strided_view;
+pub use t4a_desc;
 pub use tcontract;

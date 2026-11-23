@@ -19,6 +19,9 @@ use tcontract::{
 };
 use tcontract_exec::{BatchPolicy, BatchQuery, BatchStrategy, Exec, WorkspaceReq};
 
+use t4a_desc::gemm::{GemmBatch, GemmJob, GemmOps, GemmRun, Trans};
+use t4a_desc::ScalarKind;
+
 use crate::{Error, Result, Scalar};
 
 /// One compact column-major matrix multiplication in a grouped execution.
@@ -167,7 +170,16 @@ const GROUPED_SECTIONS: u32 = 1;
 /// The route is resolved from the caller's [`Exec`] batch policy before any
 /// write: `Auto` takes the token's `width_for` decision, and a forced strategy
 /// is honored or refused up front. [`GroupedRoute::Outer`], `Inner` and `Split`
-/// report how many outer lanes and how many threads per item actually ran.
+/// report how many outer lanes ran and how many threads each item was granted.
+///
+/// Without batched strided runs, and under every forced strategy, a granted
+/// item width is also the width that runs: the item's child is forced to
+/// [`BatchStrategy::Inner`]. With batched strided runs under `Auto`
+/// ([`GroupedOptions::with_strided_runs`]), each batched run is granted the
+/// width the lanes leave unused and its child plans within that grant under its
+/// own `Auto` policy (a run spreads its batch axis itself), so it may use fewer
+/// threads than reported; jobs outside every run keep one thread, exactly as on
+/// the per-job route.
 ///
 /// # Examples
 ///
@@ -197,6 +209,53 @@ pub enum GroupedRoute {
     },
 }
 
+/// Preparation options of a [`GroupedPlan`].
+///
+/// The default is today's per-job route: one child execution per job.
+///
+/// # Examples
+///
+/// ```
+/// use cpueinsum::GroupedOptions;
+/// assert!(!GroupedOptions::default().strided_runs());
+/// assert!(GroupedOptions::default().with_strided_runs(true).strided_runs());
+/// ```
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct GroupedOptions {
+    strided_runs: bool,
+}
+
+impl GroupedOptions {
+    /// Execute each batched strided run as one child (cpueinsum-rs#78).
+    ///
+    /// A *strided run* is a maximal contiguous sequence of jobs, in the
+    /// caller's order, with the same `(rows, contracted, cols)` whose `lhs`,
+    /// `rhs` and `out` offsets each advance by one constant stride, with the
+    /// output stride at least `rows * cols`. The partition is
+    /// [`GemmBatch::runs`] of the tensor4all/tcontract-rs#209 descriptor:
+    /// runs are taken greedily from the left, so a job that could end one run
+    /// or start the next belongs to the earlier one. A run is *batched* when it
+    /// has at least two jobs, a non-empty output, and no other job's output
+    /// starting inside its output span (with the output overlap rule, no other
+    /// output reaches into it either); every other job keeps the per-job route,
+    /// bit-identically. A batched run executes as one tcontract problem with a
+    /// batch (Hadamard) label over the run, through the same child execution as
+    /// a single job.
+    ///
+    /// The route is opt-in until the corpus campaign shows where it wins
+    /// (cpueinsum-rs#80). See [`GroupedPlan::strided_runs`] for the partition.
+    pub const fn with_strided_runs(mut self, on: bool) -> Self {
+        self.strided_runs = on;
+        self
+    }
+
+    /// Whether batched strided runs are enabled.
+    /// See [`GroupedOptions`] for a runnable example.
+    pub const fn strided_runs(&self) -> bool {
+        self.strided_runs
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 struct JobMeta {
     id: usize,
@@ -212,6 +271,88 @@ struct JobMeta {
 struct PreparedJob {
     meta: JobMeta,
     plan: u32,
+}
+
+/// The part of one shared buffer an item reads or writes: `start..start + len`,
+/// with the child's origin at `start + origin`.
+#[derive(Clone, Copy, Debug, Default)]
+struct Window {
+    start: usize,
+    len: usize,
+    origin: usize,
+}
+
+impl Window {
+    /// A single job's compact range, its origin at the start.
+    fn job(offset: usize, len: usize) -> Self {
+        Self {
+            start: offset,
+            len,
+            origin: 0,
+        }
+    }
+
+    /// The union of `count` ranges of `len` elements at `offset + i * stride`.
+    /// An empty range reads nothing, so its window is empty at `offset`.
+    fn run(offset: usize, len: usize, stride: isize, count: usize) -> Self {
+        if len == 0 {
+            return Self::job(offset, 0);
+        }
+        // INVARIANT: every job of the run passed `prepare_jobs`, so both
+        // extreme offsets and their ends are representable.
+        let last = offset as isize + stride * (count as isize - 1);
+        let (lo, hi) = if stride < 0 {
+            (last as usize, offset)
+        } else {
+            (offset, last as usize)
+        };
+        Self {
+            start: lo,
+            len: hi - lo + len,
+            origin: offset - lo,
+        }
+    }
+
+    fn end(&self) -> usize {
+        self.start + self.len
+    }
+}
+
+/// One scheduled unit of a grouped execution: a single job, or a batched
+/// strided run named by its first (lowest) original job id.
+#[derive(Clone, Copy, Debug)]
+struct Item {
+    id: usize,
+    plan: u32,
+    lhs: Window,
+    rhs: Window,
+    out: Window,
+    /// A batched run, rather than a single job.
+    batched: bool,
+}
+
+impl Item {
+    fn job(job: &PreparedJob) -> Self {
+        let meta = &job.meta;
+        Self {
+            id: meta.id,
+            plan: job.plan,
+            lhs: Window::job(meta.lhs_offset, meta.lhs_len),
+            rhs: Window::job(meta.rhs_offset, meta.rhs_len),
+            out: Window::job(meta.out_offset, meta.out_len),
+            batched: false,
+        }
+    }
+}
+
+/// One distinct batched-run child: its geometry, its run length and its three
+/// offset strides, with the lowest original id of a run that uses it.
+#[derive(Clone, Copy, Debug)]
+struct RunChild {
+    geometry: u32,
+    len: usize,
+    stride: [isize; 3],
+    id: usize,
 }
 
 /// Checked grouped job metadata, before any numerical child plan exists.
@@ -237,6 +378,15 @@ pub struct PreparedGroupedJobs {
     required_out: usize,
     work: u128,
     max_job_work: u128,
+    /// The batched strided runs, in original order; empty unless enabled.
+    runs: Vec<GemmRun>,
+    /// One entry per distinct batched-run child, after the geometry children.
+    run_children: Vec<RunChild>,
+    /// The execution items in output order when any run is batched; empty
+    /// otherwise, and then every job is its own item.
+    items: Vec<Item>,
+    /// The largest work of one item.
+    max_item_work: u128,
 }
 
 /// One distinct local geometry and the lowest original id that uses it.
@@ -421,6 +571,23 @@ impl ChildKey {
         )
     }
 
+    /// The batched child of a strided run of `len` jobs with this key's
+    /// geometry whose offsets advance by `stride` (`lhs`, `rhs`, `out`):
+    /// `D[i,j,h] = sum_l A[i,l,h] B[l,j,h]`, the batch label `h` over the run.
+    /// A has dims `[m, k, len]` and strides `[1, lda, stride[0]]`, and likewise
+    /// B and D; the origin of each operand is the run's first job.
+    fn run_problem(&self, len: usize, stride: [isize; 3]) -> tcontract::Result<Problem> {
+        let (m, k, n) = (self.rows, self.contracted, self.cols);
+        Problem::from_labels(
+            self.dtype,
+            spec(&[m, k, len], &[1, self.lda, stride[0]], self.ops[0])?,
+            spec(&[k, n, len], &[1, self.ldb, stride[1]], self.ops[1])?,
+            CSpec::Output(self.ops[2]),
+            spec(&[m, n, len], &[1, self.ldc, stride[2]], self.ops[2])?,
+            &Labels::new(&[0, 1, 3], &[1, 2, 3], &[0, 2, 3]),
+        )
+    }
+
     /// Build the child plan for this key exactly as [`GroupedPlan::from_prepared`]
     /// does, so a cache's miss path is one call.
     ///
@@ -441,6 +608,53 @@ impl ChildKey {
 }
 
 impl PreparedGroupedJobs {
+    /// The batched strided runs, in original job order: each has at least two
+    /// jobs and executes as one child. Empty unless
+    /// [`GroupedOptions::with_strided_runs`] was set; jobs outside every listed
+    /// run take the per-job route.
+    ///
+    /// The partition is a function of the job list alone (and of the element
+    /// size, through the checked byte spans), computed once here; see
+    /// [`GroupedOptions::with_strided_runs`] for the rule.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cpueinsum::{GroupedGemmJob, GroupedOptions, GroupedPlan};
+    /// // Four 2x2x2 jobs advancing by 4 in every operand, then one irregular job.
+    /// let mut jobs: Vec<_> = (0..4).map(|i| GroupedGemmJob::new(4 * i, 4 * i, 4 * i, 2, 2, 2)).collect();
+    /// jobs.push(GroupedGemmJob::new(0, 0, 16, 1, 1, 1));
+    /// let options = GroupedOptions::default().with_strided_runs(true);
+    /// let prepared = GroupedPlan::<f64>::prepare_jobs_with(&jobs, options)?;
+    /// let runs = prepared.strided_runs();
+    /// assert_eq!((runs.len(), runs[0].first, runs[0].len, runs[0].stride), (1, 0, 4, [4, 4, 4]));
+    /// # Ok::<(), cpueinsum::Error>(())
+    /// ```
+    pub fn strided_runs(&self) -> &[GemmRun] {
+        &self.runs
+    }
+
+    /// Number of scheduled items: one per batched run and one per other job.
+    fn item_count(&self) -> usize {
+        if self.items.is_empty() {
+            self.jobs.len()
+        } else {
+            self.items.len()
+        }
+    }
+
+    /// Item `index` in output order. Without batched runs every job is its own
+    /// item. The execution loops read their item source directly (`run_items`);
+    /// this is the tests' view of the same list.
+    #[cfg(test)]
+    fn item(&self, index: usize) -> Item {
+        if self.items.is_empty() {
+            Item::job(&self.jobs[index])
+        } else {
+            self.items[index]
+        }
+    }
+
     /// Reject a `beta`/coverage combination a fresh-output call cannot support.
     ///
     /// The same rule [`GroupedPlan::validate_uninit`] applies, on metadata only,
@@ -573,6 +787,48 @@ impl<T: Scalar> GroupedPlan<T> {
         Self::from_prepared(Self::prepare_jobs(jobs)?, ops, config)
     }
 
+    /// Prepare jobs with common A, B and D operations under `options`.
+    ///
+    /// With default options this is [`Self::new_with_ops`]. With
+    /// [`GroupedOptions::with_strided_runs`], each batched strided run executes
+    /// as one child; see [`Self::strided_runs`].
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::new_with_ops`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cpueinsum::{Exec, GroupedGemmJob, GroupedOptions, GroupedPlan};
+    /// // Three 1x1x1 jobs advancing by one element: one batched run.
+    /// let jobs: Vec<_> = (0..3).map(|i| GroupedGemmJob::new(i, i, i, 1, 1, 1)).collect();
+    /// let options = GroupedOptions::default().with_strided_runs(true);
+    /// let plan = GroupedPlan::<f64>::new_with_options(&jobs, Default::default(),
+    ///     &Default::default(), options)?;
+    /// assert_eq!(plan.strided_runs().len(), 1);
+    /// let mut d = [0.0; 3];
+    /// plan.execute_into(&mut Exec::serial(), 1.0, &[1., 2., 3.], &[4., 5., 6.], &mut d)?;
+    /// assert_eq!(d, [4.0, 10.0, 18.0]);
+    /// # Ok::<(), cpueinsum::Error>(())
+    /// ```
+    pub fn new_with_options(
+        jobs: &[GroupedGemmJob],
+        ops: [Op; 3],
+        config: &PlanConfig,
+        options: GroupedOptions,
+    ) -> Result<Self> {
+        Self::from_prepared(Self::prepare_jobs_with(jobs, options)?, ops, config)
+    }
+
+    /// The batched strided runs this plan executes as one child each, in
+    /// original job order; empty unless enabled. See
+    /// [`PreparedGroupedJobs::strided_runs`].
+    /// See [`Self::new_with_options`] for a runnable example.
+    pub fn strided_runs(&self) -> &[GemmRun] {
+        self.meta.strided_runs()
+    }
+
     /// Check every descriptor, the output overlap rule and the distinct
     /// geometries, without preparing any numerical child plan.
     ///
@@ -587,6 +843,27 @@ impl<T: Scalar> GroupedPlan<T> {
     /// Returns [`Error::Grouped`] for checked arithmetic or overlapping output
     /// ranges, with the original descriptor index in the error.
     pub fn prepare_jobs(jobs: &[GroupedGemmJob]) -> Result<PreparedGroupedJobs> {
+        Self::prepare_jobs_with(jobs, GroupedOptions::default())
+    }
+
+    /// [`Self::prepare_jobs`] under `options`.
+    ///
+    /// With [`GroupedOptions::with_strided_runs`], this also computes the
+    /// strided-run partition, the distinct batched-run children and the
+    /// execution items, once; see [`PreparedGroupedJobs::strided_runs`]. With
+    /// the default options it is exactly [`Self::prepare_jobs`].
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::prepare_jobs`].
+    ///
+    /// # Examples
+    ///
+    /// See [`PreparedGroupedJobs::strided_runs`].
+    pub fn prepare_jobs_with(
+        jobs: &[GroupedGemmJob],
+        options: GroupedOptions,
+    ) -> Result<PreparedGroupedJobs> {
         let mut prepared = Vec::with_capacity(jobs.len());
         let mut required_lhs = 0;
         let mut required_rhs = 0;
@@ -696,7 +973,7 @@ impl<T: Scalar> GroupedPlan<T> {
         }
         // Restore the output-sorted storage order the execution paths index by.
         prepared.sort_unstable_by_key(by_output);
-        Ok(PreparedGroupedJobs {
+        let mut prepared = PreparedGroupedJobs {
             jobs: prepared,
             children,
             required_lhs,
@@ -704,7 +981,18 @@ impl<T: Scalar> GroupedPlan<T> {
             required_out,
             work,
             max_job_work,
-        })
+            runs: Vec::new(),
+            run_children: Vec::new(),
+            items: Vec::new(),
+            max_item_work: max_job_work,
+        };
+        if options.strided_runs {
+            let runs = batched_runs(jobs, scalar_kind(T::STORAGE), &prepared.jobs);
+            if !runs.is_empty() {
+                plan_runs(&mut prepared, jobs, runs)?;
+            }
+        }
+        Ok(prepared)
     }
 
     /// Prepare one numerical child per distinct geometry of `prepared`.
@@ -850,6 +1138,19 @@ impl<T: Scalar> GroupedPlan<T> {
             }
             plans.push(plan);
         }
+        // Batched-run children (#78) are planned here from their own problems,
+        // never supplied: a caller's cache sees exactly the per-geometry keys
+        // whether or not runs are enabled.
+        plans.reserve_exact(prepared.run_children.len());
+        for run in &prepared.run_children {
+            let id = run.id;
+            key.set_geometry(&prepared.children[run.geometry as usize]);
+            let plan = key
+                .run_problem(run.len, run.stride)
+                .and_then(|problem| Plan::from_problem(problem, key.config()))
+                .map_err(|source| Error::Contract { step: id, source })?;
+            plans.push(Arc::new(plan));
+        }
         Ok(Self {
             meta: prepared,
             plans,
@@ -889,7 +1190,8 @@ impl<T: Scalar> GroupedPlan<T> {
     ///
     /// This is a conservative bound on the outer `exec`; each job also runs on
     /// the child context [`GroupedPlan::execute_into`] derives (one thread per
-    /// item under `Auto`), so callers that size a
+    /// item under `Auto` without batched strided runs; the granted item width
+    /// otherwise, see [`GroupedRoute`]), so callers that size a
     /// [`Workspace`](tcontract_exec::Workspace) directly should use the item
     /// width the chosen policy grants. See
     /// [`EinsumPlan::native_workspace_req`](crate::EinsumPlan::native_workspace_req)
@@ -1055,21 +1357,15 @@ impl<T: Scalar> GroupedPlan<T> {
         out: &'d mut [MaybeUninit<T>],
     ) -> Result<(&'d mut [T], GroupedRoute)> {
         self.validate_uninit(beta, out.len())?;
-        let (lanes, item_threads) =
-            self.prepare(exec, alpha, lhs, rhs, out.len(), OutputContract::Fresh)?;
+        let widths = self.prepare(exec, alpha, lhs, rhs, out.len(), OutputContract::Fresh)?;
         let source = SliceAccumulationSource::Absent;
         // One publication: the lower helper proves the jobs' receipts cover the
         // storage, then hands out the initialized whole slice on success only.
         execute_uninit_with(out, |storage| {
-            let (route, receipts) = self.run_lanes(
-                exec,
-                lanes,
-                item_threads,
-                lhs,
-                rhs,
-                storage,
-                |item, exec| run_item_uninit(item, exec, alpha, beta, source),
-            )?;
+            let (route, receipts) =
+                self.run_items(exec, widths, lhs, rhs, storage, |item, exec| {
+                    run_item_uninit(item, exec, alpha, beta, source)
+                })?;
             Ok((receipts, route))
         })
         .map_err(|source| match source {
@@ -1091,7 +1387,7 @@ impl<T: Scalar> GroupedPlan<T> {
         accumulate: bool,
         out: &mut [T],
     ) -> Result<GroupedRoute> {
-        let (lanes, item_threads) = self.prepare(
+        let widths = self.prepare(
             exec,
             alpha,
             lhs,
@@ -1104,11 +1400,34 @@ impl<T: Scalar> GroupedPlan<T> {
         } else {
             SliceAccumulationSource::Absent
         };
-        let (route, _receipts) =
-            self.run_lanes(exec, lanes, item_threads, lhs, rhs, out, |item, exec| {
-                run_item(item, exec, alpha, beta, source)
-            })?;
+        let (route, _receipts) = self.run_items(exec, widths, lhs, rhs, out, |item, exec| {
+            run_item(item, exec, alpha, beta, source)
+        })?;
         Ok(route)
+    }
+
+    /// Dispatch once between the job list (no batched run: every job is its own
+    /// item, exactly the per-job route) and the item list (#78), so the item
+    /// loops are specialised and carry no per-item branch.
+    fn run_items<'d, D, R, F>(
+        &self,
+        exec: &mut Exec<'_>,
+        widths: Widths,
+        lhs: &[T],
+        rhs: &[T],
+        out: &'d mut [D],
+        run: F,
+    ) -> Result<(GroupedRoute, Vec<R>)>
+    where
+        D: Send,
+        R: Send,
+        F: Fn(JobItem<'_, 'd, T, D>, &mut Exec<'_>) -> Result<R> + Sync,
+    {
+        if self.meta.items.is_empty() {
+            self.run_lanes(&self.meta.jobs[..], exec, widths, lhs, rhs, out, run)
+        } else {
+            self.run_lanes(&self.meta.items[..], exec, widths, lhs, rhs, out, run)
+        }
     }
 
     /// Resolve the route and run every pre-write check: buffer bounds, then child
@@ -1121,10 +1440,10 @@ impl<T: Scalar> GroupedPlan<T> {
         rhs: &[T],
         out_len: usize,
         contract: OutputContract,
-    ) -> Result<(usize, usize)> {
+    ) -> Result<Widths> {
         // Resolve the route first, before bounds checks, the empty shortcut or
         // any write, so the outer width is fixed before the children run.
-        let (lanes, item_threads) = self.lane_decision(exec)?;
+        let widths = self.lane_decision(exec)?;
 
         // Construction checked every endpoint against these aggregate lengths.
         if lhs.len() < self.required_lhs_len()
@@ -1167,25 +1486,38 @@ impl<T: Scalar> GroupedPlan<T> {
             }
         }
         {
-            let child_exec = child_context(exec, item_threads);
+            // Single jobs next to batched runs keep the per-job route's context.
+            let single_exec = widths.single_context(exec);
+            let child_exec = child_context(exec, widths);
             let mut route_failure: Option<(usize, Error)> = None;
-            for job in &self.meta.jobs {
-                let id = job.meta.id;
+            let mut admit = |id: usize, plan: u32, batched: bool| {
                 // Admission only: a child that would take a packed SPMD team on the
                 // coordinator is not refused here. tcontract's packed driver checks
                 // `can_broadcast` on the token it is given, so a child running on a
                 // pool worker takes the barrier-free route, before any lane writes.
-                if let Err(source) =
-                    self.plans[job.plan as usize].execution_route(&child_exec, alpha, contract)
-                {
+                let plan = &self.plans[plan as usize];
+                let route = match &single_exec {
+                    Some(single) if !batched => plan.execution_route(single, alpha, contract),
+                    _ => plan.execution_route(&child_exec, alpha, contract),
+                };
+                if let Err(source) = route {
                     keep_lowest(&mut route_failure, id, Error::Contract { step: id, source });
+                }
+            };
+            if self.meta.items.is_empty() {
+                for job in &self.meta.jobs {
+                    admit(job.meta.id, job.plan, false);
+                }
+            } else {
+                for item in &self.meta.items {
+                    admit(item.id, item.plan, item.batched);
                 }
             }
             if let Some((_, error)) = route_failure {
                 return Err(error);
             }
         }
-        Ok((lanes, item_threads))
+        Ok(widths)
     }
 
     /// Drive every job on the resolved widths, one receipt per successful job.
@@ -1195,17 +1527,18 @@ impl<T: Scalar> GroupedPlan<T> {
     /// and `D = MaybeUninit<T>, R = &mut [T]` for fresh storage. Initialized
     /// receipts use no heap (`Vec<()>`); fresh receipts collect the initialized
     /// sub-slices. Parallel execution collects them lane-locally.
-    fn run_lanes<'d, D, R, F>(
+    fn run_lanes<'d, S, D, R, F>(
         &self,
+        items: &[S],
         exec: &mut Exec<'_>,
-        lanes: usize,
-        item_threads: usize,
+        widths: Widths,
         lhs: &[T],
         rhs: &[T],
         out: &'d mut [D],
         run: F,
     ) -> Result<(GroupedRoute, Vec<R>)>
     where
+        S: ItemSource,
         D: Send,
         R: Send,
         F: Fn(JobItem<'_, 'd, T, D>, &mut Exec<'_>) -> Result<R> + Sync,
@@ -1213,42 +1546,53 @@ impl<T: Scalar> GroupedPlan<T> {
         if self.meta.jobs.is_empty() {
             return Ok((GroupedRoute::Empty, Vec::new()));
         }
+        let Widths {
+            lanes,
+            item_threads,
+            ..
+        } = widths;
         let route = grouped_route(lanes, item_threads);
+        let item_count = items.len();
+        let plans = &self.plans[..];
 
         if lanes == 1 {
             // Serial: carve disjoint output slices, retaining completion
             // receipts (zero-sized for initialized output).
-            let mut child_exec = child_context(exec, item_threads);
+            let mut single_exec = if S::MAY_BATCH {
+                widths.single_context(exec)
+            } else {
+                None
+            };
+            let mut child_exec = child_context(exec, widths);
             let mut cursor = 0usize;
             let mut remaining: &'d mut [D] = out;
             let mut failure: Option<(usize, Error)> = None;
             let mut receipts: Vec<R> = Vec::new();
-            for job in &self.meta.jobs {
-                let id = job.meta.id;
+            for source in items {
+                let id = source.id();
+                let (out_start, out_len) = source.out_range();
                 let current = core::mem::take(&mut remaining);
-                let d = if job.meta.out_len == 0 {
+                let d = if out_len == 0 {
                     // An empty job writes nothing; borrow the empty front of the
                     // remaining output so the slice keeps the output lifetime.
                     let (slice, tail) = current.split_at_mut(0);
                     remaining = tail;
                     slice
                 } else {
-                    let start = job.meta.out_offset;
-                    let end = start + job.meta.out_len;
+                    let start = out_start;
+                    let end = start + out_len;
                     let (_, rest) = current.split_at_mut(start - cursor);
                     let (slice, tail) = rest.split_at_mut(end - start);
                     remaining = tail;
                     cursor = end;
                     slice
                 };
-                let item = JobItem {
-                    id,
-                    plan: &*self.plans[job.plan as usize],
-                    lhs: &lhs[job.meta.lhs_offset..job.meta.lhs_offset + job.meta.lhs_len],
-                    rhs: &rhs[job.meta.rhs_offset..job.meta.rhs_offset + job.meta.rhs_len],
-                    out: d,
+                let item = source.job_item(plans, lhs, rhs, d);
+                let result = match &mut single_exec {
+                    Some(single) if !source.batched() => run(item, single),
+                    _ => run(item, &mut child_exec),
                 };
-                match run(item, &mut child_exec) {
+                match result {
                     Ok(receipt) => receipts.push(receipt),
                     // Keep running the remaining jobs: a failure here must not
                     // hide a lower-id one that runs later in stored order.
@@ -1270,7 +1614,6 @@ impl<T: Scalar> GroupedPlan<T> {
         // Boundaries are monotone even though empty jobs sort last and may carry
         // a smaller offset: an empty job contributes no output, so it must never
         // pull a boundary back and leave an earlier non-empty job without room.
-        let item_count = self.meta.jobs.len();
         let lane_range = |lane: usize| {
             let base = item_count / lanes;
             let rem = item_count % lanes;
@@ -1288,9 +1631,10 @@ impl<T: Scalar> GroupedPlan<T> {
             // nothing, so a lane at or after the transition to empty jobs gets an
             // empty chunk.
             let mut end = cursor;
-            for job in &self.meta.jobs[lo..hi] {
-                if job.meta.out_len != 0 {
-                    end = end.max(job.meta.out_offset + job.meta.out_len);
+            for source in &items[lo..hi] {
+                let (out_start, out_len) = source.out_range();
+                if out_len != 0 {
+                    end = end.max(out_start + out_len);
                 }
             }
             if lane + 1 == lanes {
@@ -1310,9 +1654,14 @@ impl<T: Scalar> GroupedPlan<T> {
         // lane `i` its share of the budget, and every share is at least
         // `item_threads` because `lanes * item_threads <= budget`.
         let workspace = exec.workspace();
-        let policy = child_policy(item_threads);
+        let policy = widths.item_policy();
         let item_budget = NonZeroUsize::new(item_threads).unwrap_or(NonZeroUsize::MIN);
         exec.token().fork(lanes, |lane, token| {
+            let mut single_exec = if S::MAY_BATCH {
+                widths.single_context_from(workspace)
+            } else {
+                None
+            };
             let mut lane_exec = Exec::from_token(token.limit(item_budget), workspace, policy);
             let (lo, hi) = lane_range(lane);
             let mut lane_receipts: Vec<R> = Vec::new();
@@ -1322,34 +1671,33 @@ impl<T: Scalar> GroupedPlan<T> {
             let (base_offset, chunk) = &mut *guard;
             let base_offset = *base_offset;
             let mut lane_cursor = 0usize;
-            for job in &self.meta.jobs[lo..hi] {
+            for source in &items[lo..hi] {
+                let (out_start, out_len) = source.out_range();
                 let current = core::mem::take(chunk);
-                let d = if job.meta.out_len == 0 {
+                let d = if out_len == 0 {
                     let (slice, tail) = current.split_at_mut(0);
                     *chunk = tail;
                     slice
                 } else {
-                    let start = job.meta.out_offset - base_offset;
+                    let start = out_start - base_offset;
                     let (_, rest) = current.split_at_mut(start - lane_cursor);
-                    let (slice, tail) = rest.split_at_mut(job.meta.out_len);
+                    let (slice, tail) = rest.split_at_mut(out_len);
                     *chunk = tail;
-                    lane_cursor = start + job.meta.out_len;
+                    lane_cursor = start + out_len;
                     slice
                 };
-                let item = JobItem {
-                    id: job.meta.id,
-                    plan: &*self.plans[job.plan as usize],
-                    lhs: &lhs[job.meta.lhs_offset..job.meta.lhs_offset + job.meta.lhs_len],
-                    rhs: &rhs[job.meta.rhs_offset..job.meta.rhs_offset + job.meta.rhs_len],
-                    out: d,
+                let item = source.job_item(plans, lhs, rhs, d);
+                let result = match &mut single_exec {
+                    Some(single) if !source.batched() => run(item, single),
+                    _ => run(item, &mut lane_exec),
                 };
-                match run(item, &mut lane_exec) {
+                match result {
                     Ok(receipt) => lane_receipts.push(receipt),
                     Err(error) => {
                         let mut slot = failure.lock().unwrap_or_else(|poison| poison.into_inner());
                         // Recording by id, not by arrival, keeps the reported error
                         // independent of lane scheduling.
-                        keep_lowest(&mut slot, job.meta.id, error);
+                        keep_lowest(&mut slot, source.id(), error);
                     }
                 }
             }
@@ -1383,23 +1731,39 @@ impl<T: Scalar> GroupedPlan<T> {
     /// lanes) nor the packed balanced-lanes rule (which adds a near-even
     /// restriction here absent) is this route's rule.
     ///
+    /// With batched strided runs (#78), `Auto` grants the batched runs the part
+    /// of that width the lanes leave unused, under the child's own `Auto`
+    /// policy (single jobs keep the per-job route's serial context):
+    /// a run is one item whose child spreads its batch axis itself (tcontract's
+    /// packed driver claims batch entries on lanes), so one lane holding a long
+    /// run would otherwise run it on one thread. The route then reports the
+    /// granted item width; the child may use fewer threads. Without batched
+    /// runs, `Auto` items stay serial as before.
+    ///
     /// Every forced strategy goes through [`Exec::batch_decision`] on the
     /// original host budget, which clamps but never falls back.
-    fn lane_decision(&self, exec: &Exec<'_>) -> Result<(usize, usize)> {
+    fn lane_decision(&self, exec: &Exec<'_>) -> Result<Widths> {
         if let BatchStrategy::Auto = exec.batch_policy().strategy {
             let serial_ns =
                 2.0 * self.meta.work as f64 * ns_per_flop() * if T::IS_COMPLEX { 4.0 } else { 1.0 };
-            let lanes = exec
+            let width = exec
                 .width_for(serial_ns, GROUPED_SECTIONS)
                 .min(exec.budget())
-                .min(self.meta.jobs.len())
                 .max(1);
-            return Ok((lanes, 1));
+            let lanes = width.min(self.meta.item_count()).max(1);
+            if self.meta.runs.is_empty() {
+                return Ok(Widths::new(lanes, 1));
+            }
+            return Ok(Widths {
+                lanes,
+                item_threads: (width / lanes).max(1),
+                item_policy: Some(BatchPolicy::default()),
+            });
         }
-        let query = BatchQuery::new(self.meta.jobs.len(), self.meta.max_job_work as f64)
+        let query = BatchQuery::new(self.meta.item_count(), self.meta.max_item_work as f64)
             .with_item_parallel(true);
         let decision = exec.batch_decision(&query);
-        Ok((decision.lanes, decision.item_threads))
+        Ok(Widths::new(decision.lanes, decision.item_threads))
     }
 }
 
@@ -1412,17 +1776,153 @@ impl<T: Scalar> GroupedPlan<T> {
 /// so the granted width is actually executed: a reset to `Auto` would let a
 /// small item fall back below the Auto threshold and run serially while the
 /// route still reported several threads.
-fn child_context<'b>(exec: &'b mut Exec<'_>, item_threads: usize) -> Exec<'b> {
+fn child_context<'b>(exec: &'b mut Exec<'_>, widths: Widths) -> Exec<'b> {
     let workspace = exec.workspace();
-    if item_threads <= 1 {
+    if widths.item_threads <= 1 {
         return workspace.map_or(Exec::serial(), Exec::serial_with_workspace);
     }
-    let budget = NonZeroUsize::new(item_threads).unwrap_or(NonZeroUsize::MIN);
-    Exec::from_token(
-        exec.token().limit(budget),
-        workspace,
-        child_policy(item_threads),
-    )
+    let budget = NonZeroUsize::new(widths.item_threads).unwrap_or(NonZeroUsize::MIN);
+    Exec::from_token(exec.token().limit(budget), workspace, widths.item_policy())
+}
+
+/// The resolved widths of one grouped execution and the batch policy every
+/// item's child context runs under.
+#[derive(Clone, Copy, Debug)]
+struct Widths {
+    lanes: usize,
+    item_threads: usize,
+    /// `None` is the historical item policy, [`child_policy`], built only where
+    /// a child context needs it (a default policy reads the host model).
+    item_policy: Option<BatchPolicy>,
+}
+
+impl Widths {
+    /// Widths with the historical item policy.
+    fn new(lanes: usize, item_threads: usize) -> Self {
+        Self {
+            lanes,
+            item_threads,
+            item_policy: None,
+        }
+    }
+
+    fn item_policy(&self) -> BatchPolicy {
+        self.item_policy
+            .unwrap_or_else(|| child_policy(self.item_threads))
+    }
+
+    /// The context single jobs run on when the item grant is only for batched
+    /// runs (`Auto` with runs, #78): the serial context the per-job route gives
+    /// them, so a job outside every run executes exactly as on that route.
+    /// `None` otherwise: every item then shares the item context.
+    fn single_context<'w>(&self, exec: &Exec<'w>) -> Option<Exec<'w>> {
+        self.single_context_from(exec.workspace())
+    }
+
+    fn single_context_from<'w>(
+        &self,
+        workspace: Option<&'w dyn tcontract_exec::WorkspaceProvider>,
+    ) -> Option<Exec<'w>> {
+        (self.item_policy.is_some() && self.item_threads > 1)
+            .then(|| workspace.map_or(Exec::serial(), Exec::serial_with_workspace))
+    }
+}
+
+/// Where the item loops read their items from: the prepared jobs themselves
+/// (the per-job route, read exactly as before #78) or the item list with
+/// batched runs.
+trait ItemSource: Sync {
+    /// Whether this source can hold batched runs; `false` compiles the
+    /// single-job context out of the per-job loops.
+    const MAY_BATCH: bool;
+    /// The original job id an error names.
+    fn id(&self) -> usize;
+    /// Whether the item is a batched run.
+    fn batched(&self) -> bool;
+    /// The item's output `(start, len)` in the shared output buffer.
+    fn out_range(&self) -> (usize, usize);
+    /// The child's view of the item: its windows of the shared inputs, the
+    /// origins inside them, and its own disjoint output slice `out`.
+    fn job_item<'p, 'd, T: Scalar, D>(
+        &self,
+        plans: &'p [Arc<Plan<T>>],
+        lhs: &'p [T],
+        rhs: &'p [T],
+        out: &'d mut [D],
+    ) -> JobItem<'p, 'd, T, D>;
+}
+
+impl ItemSource for PreparedJob {
+    const MAY_BATCH: bool = false;
+
+    #[inline(always)]
+    fn id(&self) -> usize {
+        self.meta.id
+    }
+
+    #[inline(always)]
+    fn batched(&self) -> bool {
+        false
+    }
+
+    #[inline(always)]
+    fn out_range(&self) -> (usize, usize) {
+        (self.meta.out_offset, self.meta.out_len)
+    }
+
+    #[inline(always)]
+    fn job_item<'p, 'd, T: Scalar, D>(
+        &self,
+        plans: &'p [Arc<Plan<T>>],
+        lhs: &'p [T],
+        rhs: &'p [T],
+        out: &'d mut [D],
+    ) -> JobItem<'p, 'd, T, D> {
+        let meta = &self.meta;
+        JobItem {
+            id: meta.id,
+            plan: &plans[self.plan as usize],
+            lhs: (&lhs[meta.lhs_offset..meta.lhs_offset + meta.lhs_len], 0),
+            rhs: (&rhs[meta.rhs_offset..meta.rhs_offset + meta.rhs_len], 0),
+            out: (out, 0),
+        }
+    }
+}
+
+impl ItemSource for Item {
+    const MAY_BATCH: bool = true;
+
+    #[inline(always)]
+    fn id(&self) -> usize {
+        self.id
+    }
+
+    #[inline(always)]
+    fn batched(&self) -> bool {
+        self.batched
+    }
+
+    #[inline(always)]
+    fn out_range(&self) -> (usize, usize) {
+        (self.out.start, self.out.len)
+    }
+
+    #[inline(always)]
+    fn job_item<'p, 'd, T: Scalar, D>(
+        &self,
+        plans: &'p [Arc<Plan<T>>],
+        lhs: &'p [T],
+        rhs: &'p [T],
+        out: &'d mut [D],
+    ) -> JobItem<'p, 'd, T, D> {
+        JobItem {
+            id: self.id,
+            plan: &plans[self.plan as usize],
+            lhs: (&lhs[self.lhs.start..self.lhs.end()], self.lhs.origin),
+            rhs: (&rhs[self.rhs.start..self.rhs.end()], self.rhs.origin),
+            out: (out, self.out.origin),
+        }
+    }
 }
 
 /// The batch policy of an item context: serial items keep the default policy,
@@ -1456,9 +1956,15 @@ fn grouped_route(lanes: usize, item_threads: usize) -> GroupedRoute {
 struct JobItem<'p, 'd, T: Scalar, D> {
     id: usize,
     plan: &'p Plan<T>,
-    lhs: &'p [T],
-    rhs: &'p [T],
-    out: &'d mut [D],
+    lhs: (&'p [T], usize),
+    rhs: (&'p [T], usize),
+    out: (&'d mut [D], usize),
+}
+
+/// A window origin as tcontract's slice origin. Origins lie inside windows of
+/// buffers whose byte lengths `prepare_jobs` bounded by `isize::MAX`.
+fn origin(offset: usize) -> isize {
+    offset as isize
 }
 
 fn run_item<T: Scalar>(
@@ -1472,11 +1978,11 @@ fn run_item<T: Scalar>(
         .execute_slices_accum(
             exec,
             alpha,
-            (item.lhs, 0),
-            (item.rhs, 0),
+            (item.lhs.0, origin(item.lhs.1)),
+            (item.rhs.0, origin(item.rhs.1)),
             beta,
             source,
-            (item.out, 0),
+            (item.out.0, origin(item.out.1)),
         )
         .map_err(|source| Error::Contract {
             step: item.id,
@@ -1495,16 +2001,174 @@ fn run_item_uninit<'d, T: Scalar>(
         .execute_uninit_slices(
             exec,
             alpha,
-            (item.lhs, 0),
-            (item.rhs, 0),
+            (item.lhs.0, origin(item.lhs.1)),
+            (item.rhs.0, origin(item.rhs.1)),
             beta,
             source,
-            (item.out, 0),
+            (item.out.0, origin(item.out.1)),
         )
         .map_err(|source| Error::Contract {
             step: item.id,
             source,
         })
+}
+
+fn scalar_kind(dtype: DType) -> ScalarKind {
+    match dtype {
+        DType::F32 => ScalarKind::F32,
+        DType::F64 => ScalarKind::F64,
+        DType::C32 => ScalarKind::C32,
+        DType::C64 => ScalarKind::C64,
+    }
+}
+
+/// The batched strided runs of `jobs`, in original order (#78).
+///
+/// The partition is [`GemmBatch::runs`] of the jobs as compact descriptors:
+/// maximal runs, greedy from the left. A run is batched when it has at least
+/// two jobs, a non-empty output, and its output span
+/// `[first.out_offset, last.out_offset + rows * cols)` holds no other job's
+/// output, so it can own one disjoint slice of the output buffer. `sorted` is
+/// the prepared output order of the same jobs (non-empty outputs first, by
+/// offset); it is derived from `jobs`, so the result is a function of `jobs`
+/// and the element size alone.
+fn batched_runs(
+    jobs: &[GroupedGemmJob],
+    scalar: ScalarKind,
+    sorted: &[PreparedJob],
+) -> Vec<GemmRun> {
+    let ops = GemmOps {
+        a: Trans::N,
+        b: Trans::N,
+    };
+    let descriptors = jobs
+        .iter()
+        .map(|job| {
+            let offsets = [job.lhs_offset, job.rhs_offset, job.out_offset];
+            GemmJob::compact(ops, offsets, job.rows, job.cols, job.contracted)
+        })
+        .collect();
+    // `prepare_jobs` already checked the same extents, byte spans and the
+    // output overlap rule for compact jobs, so the descriptor accepts what it
+    // accepted. Were a descriptor revision ever to refuse, no run is batched
+    // and every job keeps the per-job route (still correct); the debug
+    // assertion makes the test suite catch that drift on a tcontract rev bump.
+    let batch = GemmBatch::new(scalar, ops, descriptors);
+    debug_assert!(
+        batch.is_ok(),
+        "t4a-desc refused jobs prepare_jobs accepted: {batch:?}"
+    );
+    let Ok(batch) = batch else {
+        return Vec::new();
+    };
+    let nonempty = &sorted[..sorted.partition_point(|job| job.meta.out_len != 0)];
+    let batched = |run: &&GemmRun| {
+        let first = &jobs[run.first];
+        if run.len < 2 || first.rows == 0 || first.cols == 0 {
+            return false;
+        }
+        // Output strides are positive (a `GemmRun` invariant), so the run's
+        // outputs ascend from its first job to its last; exclusive when exactly
+        // its own jobs start in that range.
+        debug_assert!(
+            run.stride[2] > 0,
+            "a strided run's output stride is positive"
+        );
+        let lo = first.out_offset;
+        let hi = jobs[run.first + run.len - 1].out_offset;
+        let inside = nonempty.partition_point(|job| job.meta.out_offset <= hi)
+            - nonempty.partition_point(|job| job.meta.out_offset < lo);
+        inside == run.len
+    };
+    let mut runs = Vec::with_capacity(batch.runs().iter().filter(batched).count());
+    runs.extend(batch.runs().iter().filter(batched).copied());
+    runs
+}
+
+/// Store `runs`, their distinct children and the execution items in
+/// `prepared`.
+///
+/// Children are deduplicated by `(geometry, len, stride)` and ordered by that
+/// key, so the same job set gives the same children in any job order; each
+/// names the lowest first id among its runs. Items are in output order: a run
+/// is one item at its first job's output, and its jobs are consecutive in that
+/// order because its output span holds no other job's output.
+fn plan_runs(
+    prepared: &mut PreparedGroupedJobs,
+    jobs: &[GroupedGemmJob],
+    runs: Vec<GemmRun>,
+) -> Result<()> {
+    let nonempty = prepared.jobs.partition_point(|job| job.meta.out_len != 0);
+    // A run's first job has a non-empty output, so it is found by offset.
+    let geometry = |run: &GemmRun| {
+        let offset = jobs[run.first].out_offset;
+        let index = prepared.jobs[..nonempty]
+            .binary_search_by_key(&offset, |job| job.meta.out_offset)
+            .unwrap_or_else(|_| unreachable!("a batched run starts at a non-empty output"));
+        prepared.jobs[index].plan
+    };
+    let key = |run: &GemmRun| (geometry(run), run.len, run.stride, run.first);
+    let mut order: Vec<usize> = (0..runs.len()).collect();
+    order.sort_unstable_by_key(|&r| key(&runs[r]));
+    let mut run_children: Vec<RunChild> = Vec::new();
+    let mut child_of = vec![0u32; runs.len()];
+    for &r in &order {
+        let run = &runs[r];
+        let (geometry, len, stride, id) = key(run);
+        let same = run_children
+            .last()
+            .is_some_and(|c| (c.geometry, c.len, c.stride) == (geometry, len, stride));
+        if !same {
+            run_children.push(RunChild {
+                geometry,
+                len,
+                stride,
+                id,
+            });
+        }
+        child_of[r] = child_index(id, prepared.children.len() + run_children.len() - 1)?;
+    }
+
+    // Merge the runs, by first output offset, into the output-ordered jobs.
+    order.sort_unstable_by_key(|&r| jobs[runs[r].first].out_offset);
+    let folded: usize = runs.iter().map(|run| run.len - 1).sum();
+    let mut items = Vec::with_capacity(prepared.jobs.len() - folded);
+    let mut max_item_work = prepared.max_job_work;
+    let mut next = order.iter().peekable();
+    let mut skip = 0usize;
+    for job in &prepared.jobs {
+        if skip > 0 {
+            skip -= 1;
+            continue;
+        }
+        let starts_run = next.peek().is_some_and(|&&r| job.meta.id == runs[r].first);
+        if !starts_run {
+            items.push(Item::job(job));
+            continue;
+        }
+        let Some(&r) = next.next() else {
+            unreachable!("peeked above")
+        };
+        let run = &runs[r];
+        let first = &jobs[run.first];
+        let work = (first.rows as u128) * (first.contracted as u128) * (first.cols as u128);
+        // INVARIANT: at most the total work, which `prepare_jobs` checked.
+        max_item_work = max_item_work.max(work * run.len as u128);
+        items.push(Item {
+            id: run.first,
+            plan: child_of[r],
+            lhs: Window::run(first.lhs_offset, job.meta.lhs_len, run.stride[0], run.len),
+            rhs: Window::run(first.rhs_offset, job.meta.rhs_len, run.stride[1], run.len),
+            out: Window::run(first.out_offset, job.meta.out_len, run.stride[2], run.len),
+            batched: true,
+        });
+        skip = run.len - 1;
+    }
+    prepared.runs = runs;
+    prepared.run_children = run_children;
+    prepared.items = items;
+    prepared.max_item_work = max_item_work;
+    Ok(())
 }
 
 fn child_index(job: usize, index: usize) -> Result<u32> {

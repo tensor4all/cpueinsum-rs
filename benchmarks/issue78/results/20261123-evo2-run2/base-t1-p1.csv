@@ -1,0 +1,11 @@
+jobs,m,k,n,threads,route,median_ns,q1_ns,q3_ns,iqr_ns,allocs_per_call,calls_per_sample,reps,route_reported,build
+64,2,2,2,1,per-job,6042,6028,6061,33,0.04,317,21,Serial,base-ebc74c3
+64,4,4,4,1,per-job,6466,6464,6469,4,0,303,21,Serial,base-ebc74c3
+64,8,8,8,1,per-job,7810,7800,7817,16,0,252,21,Serial,base-ebc74c3
+64,16,16,16,1,per-job,20269,20254,20280,26,0,98,21,Serial,base-ebc74c3
+64,32,32,32,1,per-job,66817,66532,67096,565,0,30,21,Serial,base-ebc74c3
+256,2,2,2,1,per-job,24033,24021,24077,57,0,83,21,Serial,base-ebc74c3
+256,4,4,4,1,per-job,25838,25820,25854,34,0,77,21,Serial,base-ebc74c3
+256,8,8,8,1,per-job,31649,31638,31665,27,0,63,21,Serial,base-ebc74c3
+256,16,16,16,1,per-job,84477,84275,84613,338,0,23,21,Serial,base-ebc74c3
+256,32,32,32,1,per-job,272531,271436,273687,2251,0,7,21,Serial,base-ebc74c3

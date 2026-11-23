@@ -23,6 +23,9 @@ repository = "https://github.com/tensor4all/cpueinsum-rs"
 # copies make `Exec` two distinct types at the capi boundary.
 tcontract = { git = "https://github.com/tensor4all/tcontract-rs.git", rev = "ca44b476aaa7f017f59afb2807fa1fe0d4939a27", version = "0.13.0" }
 tcontract-exec = { git = "https://github.com/tensor4all/tcontract-rs.git", rev = "ca44b476aaa7f017f59afb2807fa1fe0d4939a27", version = "0.13.0" }
+# The grouped-GEMM job descriptor (tensor4all/tcontract-rs#209), on the same rev:
+# `GroupedPlan` takes its strided-run partition from `GemmBatch::runs` (#78).
+t4a-desc = { git = "https://github.com/tensor4all/tcontract-rs.git", rev = "ca44b476aaa7f017f59afb2807fa1fe0d4939a27", version = "0.1.0" }
 tcontract-capi = { git = "https://github.com/tensor4all/tcontract-rs.git", rev = "ca44b476aaa7f017f59afb2807fa1fe0d4939a27", version = "0.1.0" }
 # One strided release train: the registry resolves one version of each crate, so
 # `StridedView` and `threadteam::Exec` stay single types across the graph.

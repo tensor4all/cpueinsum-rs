@@ -1,0 +1,11 @@
+jobs,m,k,n,threads,route,median_ns,q1_ns,q3_ns,iqr_ns,allocs_per_call,calls_per_sample,reps,route_reported,build
+64,2,2,2,8,per-job,6107,6103,6113,10,0,313,21,Serial,cand-518aed8
+64,4,4,4,8,per-job,6518,6508,6533,26,0,305,21,Serial,cand-518aed8
+64,8,8,8,8,per-job,6262,6207,6291,84,1,313,21,Outer { lanes: 3 },cand-518aed8
+64,16,16,16,8,per-job,7026,7000,7061,61,1,246,21,Outer { lanes: 8 },cand-518aed8
+64,32,32,32,8,per-job,10932,10881,11042,160,1,180,21,Outer { lanes: 8 },cand-518aed8
+256,2,2,2,8,per-job,24336,24321,24345,24,0,82,21,Serial,cand-518aed8
+256,4,4,4,8,per-job,25940,25925,25980,55,0,77,21,Serial,cand-518aed8
+256,8,8,8,8,per-job,23277,23207,23331,124,1,84,21,Outer { lanes: 8 },cand-518aed8
+256,16,16,16,8,per-job,22680,22658,22860,202,1,86,21,Outer { lanes: 8 },cand-518aed8
+256,32,32,32,8,per-job,38649,38465,38870,405,1,46,21,Outer { lanes: 8 },cand-518aed8

@@ -8,7 +8,8 @@ use std::time::{Duration, Instant};
 use cpueinsum::tcontract::api::{CSpec, DType, Labels, LayoutSpec, OperandSpec, Problem};
 use cpueinsum::tcontract::{Algorithm, FaerLimit, Plan, PlanConfig};
 use cpueinsum::{
-    ArenaProvider, BatchPolicy, BatchStrategy, Exec, GroupedGemmJob, GroupedPlan, GroupedRoute,
+    ArenaProvider, BatchPolicy, BatchStrategy, Exec, GroupedGemmJob, GroupedOptions, GroupedPlan,
+    GroupedRoute,
 };
 
 fn shapes(name: &str) -> Vec<(usize, usize, usize)> {
@@ -109,7 +110,17 @@ fn assert_faer(m: usize, k: usize, n: usize, cfg: &PlanConfig) {
 
 fn main() {
     let args: Vec<_> = std::env::args().collect();
-    assert_eq!(args.len(), 6, "workload threads strategy warm_ms cpu_ms");
+    assert!(
+        args.len() == 6 || args.len() == 7,
+        "workload threads strategy warm_ms cpu_ms [per-job|runs]"
+    );
+    // The optional route (#78): `runs` executes each batched strided run as one
+    // child; the default is the per-job route.
+    let runs = match args.get(6).map(String::as_str) {
+        None | Some("per-job") => false,
+        Some("runs") => true,
+        Some(other) => panic!("unknown route {other}"),
+    };
     let name = &args[1];
     let threads: usize = args[2].parse().unwrap();
     assert!(threads > 0);
@@ -151,7 +162,10 @@ fn main() {
             }
         }
     }
-    let plan = GroupedPlan::<f64>::new(&jobs, &cfg).unwrap();
+    let options = GroupedOptions::default().with_strided_runs(runs);
+    let plan =
+        GroupedPlan::<f64>::new_with_options(&jobs, Default::default(), &cfg, options).unwrap();
+    let batched_runs = plan.strided_runs().len();
     let pool = threadteam::Pool::builder()
         .threads(threads)
         .pin_participants(false)
@@ -230,7 +244,7 @@ fn main() {
     let ticks = cpu_ticks() - c0;
     verify(&jobs, black_box(&d));
     let (lanes, item_threads) = widths(route);
-    if strategy != "Auto" {
+    if strategy != "Auto" && !runs {
         let expected_lanes = match strategy.as_str() {
             "Inner" => 1,
             "Split2" => 2.min(threads).min(jobs.len()),
@@ -242,8 +256,13 @@ fn main() {
             (expected_lanes, threads / expected_lanes)
         );
     }
+    // Lanes split the job list; with batched runs they split items instead, so
+    // the per-lane work below is reported as 0 there.
     let work: Vec<_> = (0..lanes)
         .map(|lane| {
+            if runs {
+                return 0;
+            }
             let lo = lane * (jobs.len() / lanes) + lane.min(jobs.len() % lanes);
             let hi = lo + jobs.len() / lanes + usize::from(lane < jobs.len() % lanes);
             shape[lo..hi]
@@ -268,7 +287,7 @@ fn main() {
         .split_whitespace()
         .nth(16)
         .unwrap();
-    println!("workload,threads,strategy,jobs,macs,bytes,wall_ns,cpu_wall_ns,cpu_calls,cpu_ticks,lanes,item_threads,item_auto_width,lane_min_macs,lane_max_macs,affinity,nice,build");
-    println!("{name},{threads},{strategy},{},{macs},{},{wall_ns},{cpu_wall_ns},{calls},{ticks},{lanes},{item_threads},{item_auto_width},{},{},{affinity},{nice},{}",
-        jobs.len(), (al+bl+dl)*8, work.iter().min().unwrap(), work.iter().max().unwrap(), option_env!("ISSUE46_BUILD").unwrap_or("unlabelled"));
+    println!("workload,threads,strategy,jobs,macs,bytes,wall_ns,cpu_wall_ns,cpu_calls,cpu_ticks,lanes,item_threads,item_auto_width,lane_min_macs,lane_max_macs,affinity,nice,build,route,batched_runs");
+    println!("{name},{threads},{strategy},{},{macs},{},{wall_ns},{cpu_wall_ns},{calls},{ticks},{lanes},{item_threads},{item_auto_width},{},{},{affinity},{nice},{},{},{batched_runs}",
+        jobs.len(), (al+bl+dl)*8, work.iter().min().unwrap(), work.iter().max().unwrap(), option_env!("ISSUE46_BUILD").unwrap_or("unlabelled"), if runs { "runs" } else { "per-job" });
 }
