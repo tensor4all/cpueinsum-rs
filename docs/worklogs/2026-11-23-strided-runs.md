@@ -70,16 +70,24 @@ width the lanes leave unused under the child's own `Auto`).
 ### Run 2 (candidate `d7e0e68`): per-job regression remains, candidate revised
 
 Batched now won at 8 threads up to 16³, but the per-job gate still flagged
-3-6 % on 2³-8³. Diagnostic (`results/diag-layout`): a build of `main` with only
-the `t4a-desc` dependency added matched `main`, so the cost was code. Fixed in
+3-6 % on 2³-8³. Diagnostic (`results/diag-layout`, 1 thread, three
+alternating processes per binary): a build of `main` with only the `t4a-desc`
+dependency added was -1.5 % to +0.8 % against `main` on 2³-8³, the `d7e0e68`
+code +0.2 % to +4.0 %, so the cost was code, not the dependency. (The first
+pass of this diagnostic printed to the terminal only; `rows.csv` and
+`load.log` there are a rerun of the same binaries, checked against
+`binaries.sha256`, with the output kept.) Fixed in
 `1f35056`: the job source builds each child view straight from the job
 metadata with literal zero origins as `main` does, and the default item policy
 (a host-model read) is built only where needed.
 
 ### Run 3 (candidate `1f35056`): the final candidate
 
-Per-job non-regression: 19 of 20 cases pass (2³-8³ now +0.7 to +2.9 %). The
-gate flags **64 × 16³ at 8 threads, +10.2 %** (base process medians 7517,
+Per-job non-regression: 19 of 20 cases pass. On 2³-8³ the candidate/base
+ratio of the median process medians ranges from 0.990 to 1.041; the largest,
+64 × 8³ at 8 threads (+4.1 %), passes only because the process ranges overlap
+(base 6066-6303 ns, candidate 6270-6465 ns). The same final code was -1.3 %
+to +2.1 % on 2³-8³ at 1 thread in the diag-layout rerun. The gate flags **64 × 16³ at 8 threads, +10.2 %** (base process medians 7517,
 7256, 7323 ns; candidate 8071, 7956, 8140 ns). The same case was +8.5 % in
 run 1 and -1.8 % in run 2. A follow-up diagnostic, not the gated experiment
 (`results/diag-64x16-t8`, 10 alternating process pairs of the run-3

@@ -170,7 +170,15 @@ const GROUPED_SECTIONS: u32 = 1;
 /// The route is resolved from the caller's [`Exec`] batch policy before any
 /// write: `Auto` takes the token's `width_for` decision, and a forced strategy
 /// is honored or refused up front. [`GroupedRoute::Outer`], `Inner` and `Split`
-/// report how many outer lanes and how many threads per item actually ran.
+/// report how many outer lanes ran and how many threads each item was granted.
+///
+/// Without batched strided runs, and under every forced strategy, a granted
+/// item width is also the width that runs: the item's child is forced to
+/// [`BatchStrategy::Inner`]. With batched strided runs under `Auto`
+/// ([`GroupedOptions::with_strided_runs`]), the items are granted the width
+/// the lanes leave unused, and each child plans within that grant under its own
+/// `Auto` policy (a run spreads its batch axis itself), so it may use fewer
+/// threads than reported.
 ///
 /// # Examples
 ///
@@ -1177,7 +1185,8 @@ impl<T: Scalar> GroupedPlan<T> {
     ///
     /// This is a conservative bound on the outer `exec`; each job also runs on
     /// the child context [`GroupedPlan::execute_into`] derives (one thread per
-    /// item under `Auto`), so callers that size a
+    /// item under `Auto` without batched strided runs; the granted item width
+    /// otherwise, see [`GroupedRoute`]), so callers that size a
     /// [`Workspace`](tcontract_exec::Workspace) directly should use the item
     /// width the chosen policy grants. See
     /// [`EinsumPlan::native_workspace_req`](crate::EinsumPlan::native_workspace_req)
@@ -1975,9 +1984,15 @@ fn batched_runs(
         .collect();
     // `prepare_jobs` already checked the same extents, byte spans and the
     // output overlap rule for compact jobs, so the descriptor accepts what it
-    // accepted; were it ever to refuse, no run is batched and every job keeps
-    // the per-job route.
-    let Ok(batch) = GemmBatch::new(scalar, ops, descriptors) else {
+    // accepted. Were a descriptor revision ever to refuse, no run is batched
+    // and every job keeps the per-job route (still correct); the debug
+    // assertion makes the test suite catch that drift on a tcontract rev bump.
+    let batch = GemmBatch::new(scalar, ops, descriptors);
+    debug_assert!(
+        batch.is_ok(),
+        "t4a-desc refused jobs prepare_jobs accepted: {batch:?}"
+    );
+    let Ok(batch) = batch else {
         return Vec::new();
     };
     let nonempty = &sorted[..sorted.partition_point(|job| job.meta.out_len != 0)];
