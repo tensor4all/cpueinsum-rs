@@ -16,6 +16,7 @@ strided-view = { workspace = true }
 thiserror = { workspace = true }
 tcontract = { workspace = true }
 tcontract-exec = { workspace = true }
+t4a-desc = { workspace = true }
 
 [dev-dependencies]
 rand = { workspace = true }
@@ -29,6 +30,10 @@ harness = false
 
 [[bench]]
 name = "issue46_grouped"
+harness = false
+
+[[bench]]
+name = "issue78_strided_runs"
 harness = false
 
 [lints]

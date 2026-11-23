@@ -139,3 +139,43 @@ fn one_child_per_distinct_geometry_keeps_allocation_requests_constant() {
         shared[2].1
     );
 }
+
+/// Allocation requests of one preparation with batched strided runs (#78).
+fn prepare_runs(jobs: &[GroupedGemmJob]) -> usize {
+    let options = cpueinsum::GroupedOptions::default().with_strided_runs(true);
+    let calls = CALLS.with(Cell::get);
+    ARMED.with(|armed| armed.set(1));
+    let plan = GroupedPlan::<f64>::new_with_options(
+        jobs,
+        Default::default(),
+        &Default::default(),
+        options,
+    )
+    .unwrap();
+    ARMED.with(|armed| armed.set(0));
+    assert_eq!(plan.strided_runs().len(), 2);
+    CALLS.with(Cell::get) - calls
+}
+
+#[test]
+fn the_run_partition_adds_a_constant_number_of_requests() {
+    // Two runs of one geometry separated by one job, at growing job counts: the
+    // partition (the descriptor batch, its runs, the run children and the
+    // items) and the one run child per distinct run add the same number of
+    // requests at every count.
+    let mut measured = Vec::new();
+    for half in [4usize, 32, 128] {
+        let mut jobs: Vec<_> = (0..half)
+            .map(|i| GroupedGemmJob::new(4 * i, 4 * i, 4 * i, 2, 2, 2))
+            .collect();
+        jobs.push(GroupedGemmJob::new(0, 0, 4 * half, 1, 1, 1));
+        let base = 4 * half + 4;
+        jobs.extend((0..half).map(|i| GroupedGemmJob::new(4 * i, 4 * i, base + 4 * i, 2, 2, 2)));
+        measured.push((jobs.len(), prepare_runs(&jobs)));
+    }
+    println!("strided runs: {measured:?}");
+    let (_, first) = measured[0];
+    for (count, calls) in &measured {
+        assert_eq!(*calls, first, "{count} jobs");
+    }
+}

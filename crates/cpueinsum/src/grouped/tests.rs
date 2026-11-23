@@ -150,3 +150,85 @@ fn child_index_conversion_is_checked() {
         }))
     ));
 }
+
+fn runs_on() -> GroupedOptions {
+    GroupedOptions::default().with_strided_runs(true)
+}
+
+#[test]
+fn a_batched_run_is_one_item_with_one_batched_child() {
+    // 64 jobs of one geometry in one run: one geometry child, one run child,
+    // and one execution item instead of 64.
+    let jobs: Vec<_> = (0..64)
+        .map(|i| GroupedGemmJob::new(4 * i, 4 * i, 4 * i, 2, 2, 2))
+        .collect();
+    PLAN_CONSTRUCTIONS.with(|counter| counter.set(0));
+    let plan = GroupedPlan::<f64>::new_with_options(
+        &jobs,
+        [Op::Identity; 3],
+        &PlanConfig::default(),
+        runs_on(),
+    )
+    .unwrap();
+    // The geometry child goes through `ChildKey::build`; the run child is
+    // planned from its own problem.
+    assert_eq!(PLAN_CONSTRUCTIONS.with(Cell::get), 1);
+    assert_eq!(plan.plans.len(), 2);
+    assert_eq!(plan.meta.item_count(), 1);
+    let item = plan.meta.item(0);
+    assert_eq!((item.id, item.plan), (0, 1));
+    assert_eq!((item.out.start, item.out.len, item.out.origin), (0, 256, 0));
+    let problem = plan.plans[1].problem();
+    assert_eq!(problem.a().layout().dims(), &[2, 2, 64]);
+    assert_eq!(problem.d().layout().strides(), &[1, 2, 4]);
+    assert_eq!(plan.meta.max_item_work, 64 * 8);
+}
+
+#[test]
+fn equal_runs_share_one_child() {
+    // Two runs of three 2x2x2 jobs with the same strides, and a third of two:
+    // two run children, ordered by key, each naming its lowest first id.
+    let family = |base: usize, count: usize| {
+        (0..count)
+            .map(move |i| GroupedGemmJob::new(base + 4 * i, base + 4 * i, base + 4 * i, 2, 2, 2))
+    };
+    let separator = |out| GroupedGemmJob::new(0, 0, out, 1, 1, 1);
+    let mut jobs: Vec<_> = family(0, 3).collect();
+    jobs.push(separator(12));
+    jobs.extend(family(16, 3));
+    jobs.push(separator(28));
+    jobs.extend(family(32, 2));
+    let prepared = GroupedPlan::<f64>::prepare_jobs_with(&jobs, runs_on()).unwrap();
+    assert_eq!(prepared.strided_runs().len(), 3);
+    let children: Vec<_> = prepared
+        .run_children
+        .iter()
+        .map(|c| (c.len, c.stride, c.id))
+        .collect();
+    assert_eq!(children, [(2, [4, 4, 4], 8), (3, [4, 4, 4], 0)]);
+    // Items: run, separator, run, separator, run.
+    assert_eq!(prepared.item_count(), 5);
+    let plans: Vec<_> = (0..5).map(|i| prepared.item(i).plan).collect();
+    let (run2, run3) = (
+        prepared.children.len() as u32,
+        prepared.children.len() as u32 + 1,
+    );
+    assert_eq!(plans[0], run3);
+    assert_eq!(plans[2], run3);
+    assert_eq!(plans[4], run2);
+}
+
+#[test]
+fn run_windows_cover_descending_and_shared_inputs() {
+    assert_eq!(
+        {
+            let w = Window::run(12, 4, -4, 4);
+            (w.start, w.len, w.origin)
+        },
+        (0, 16, 12)
+    );
+    let w = Window::run(5, 4, 0, 3);
+    assert_eq!((w.start, w.len, w.origin), (5, 4, 0));
+    let w = Window::run(7, 0, 9, 3);
+    assert_eq!((w.start, w.len, w.origin), (7, 0, 0));
+}
