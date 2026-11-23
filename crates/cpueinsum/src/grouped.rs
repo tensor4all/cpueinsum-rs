@@ -235,7 +235,8 @@ impl GroupedOptions {
     /// runs are taken greedily from the left, so a job that could end one run
     /// or start the next belongs to the earlier one. A run is *batched* when it
     /// has at least two jobs, a non-empty output, and no other job's output
-    /// inside its output span; every other job keeps the per-job route,
+    /// starting inside its output span (with the output overlap rule, no other
+    /// output reaches into it either); every other job keeps the per-job route,
     /// bit-identically. A batched run executes as one tcontract problem with a
     /// batch (Hadamard) label over the run, through the same child execution as
     /// a single job.

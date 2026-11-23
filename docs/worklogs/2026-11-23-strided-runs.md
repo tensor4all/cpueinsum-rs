@@ -113,6 +113,13 @@ serial, 1 per-job with outer lanes):
 | 256 | 16 | 1.27 wins | 2.50 wins |
 | 256 | 32 | 1.08 wins | **0.16 loses** |
 
+One cell is less precise than the protocol describes: in run 3's 8-thread
+paired process, the 64 × 16³ calibration call took over 2 ms, so both arms of
+that cell ran 1 call per sample instead of about 260 (`calls_per_sample` in
+`paired-t8.csv`; IQRs 760 and 120 ns). Run 2's cell, at 263 calls per sample,
+gives the same verdict (2.11, batched wins). Every other cell has at least 7
+calls per sample (7 only at 256 × 32³ on 1 thread, about 2 ms as designed).
+
 The batched route wins everywhere on one thread and up to 16³ on eight; at
 32³ on eight threads it loses 5-6×. There tcontract plans the batched problem
 with its Faer strategy, which runs at serial speed (about 65 and 260 µs, the
