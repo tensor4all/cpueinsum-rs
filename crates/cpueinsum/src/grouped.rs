@@ -1534,15 +1534,7 @@ impl<T: Scalar> GroupedPlan<T> {
         } = widths;
         let route = grouped_route(lanes, item_threads);
         let item_count = items.len();
-        // The child's view of one item: its windows of the shared buffers, the
-        // origins inside them, and its own disjoint output slice.
-        let job_item = |item: &Item, out: &'d mut [D]| JobItem {
-            id: item.id,
-            plan: &*self.plans[item.plan as usize],
-            lhs: (&lhs[item.lhs.start..item.lhs.end()], item.lhs.origin),
-            rhs: (&rhs[item.rhs.start..item.rhs.end()], item.rhs.origin),
-            out: (out, item.out.origin),
-        };
+        let plans = &self.plans[..];
 
         if lanes == 1 {
             // Serial: carve disjoint output slices, retaining completion
@@ -1552,26 +1544,26 @@ impl<T: Scalar> GroupedPlan<T> {
             let mut remaining: &'d mut [D] = out;
             let mut failure: Option<(usize, Error)> = None;
             let mut receipts: Vec<R> = Vec::new();
-            for index in 0..item_count {
-                let item = items[index].item();
-                let id = item.id;
+            for source in items {
+                let id = source.id();
+                let (out_start, out_len) = source.out_range();
                 let current = core::mem::take(&mut remaining);
-                let d = if item.out.len == 0 {
+                let d = if out_len == 0 {
                     // An empty job writes nothing; borrow the empty front of the
                     // remaining output so the slice keeps the output lifetime.
                     let (slice, tail) = current.split_at_mut(0);
                     remaining = tail;
                     slice
                 } else {
-                    let start = item.out.start;
-                    let end = item.out.end();
+                    let start = out_start;
+                    let end = start + out_len;
                     let (_, rest) = current.split_at_mut(start - cursor);
                     let (slice, tail) = rest.split_at_mut(end - start);
                     remaining = tail;
                     cursor = end;
                     slice
                 };
-                match run(job_item(&item, d), &mut child_exec) {
+                match run(source.job_item(plans, lhs, rhs, d), &mut child_exec) {
                     Ok(receipt) => receipts.push(receipt),
                     // Keep running the remaining jobs: a failure here must not
                     // hide a lower-id one that runs later in stored order.
@@ -1610,10 +1602,10 @@ impl<T: Scalar> GroupedPlan<T> {
             // nothing, so a lane at or after the transition to empty jobs gets an
             // empty chunk.
             let mut end = cursor;
-            for index in lo..hi {
-                let item = items[index].item();
-                if item.out.len != 0 {
-                    end = end.max(item.out.end());
+            for source in &items[lo..hi] {
+                let (out_start, out_len) = source.out_range();
+                if out_len != 0 {
+                    end = end.max(out_start + out_len);
                 }
             }
             if lane + 1 == lanes {
@@ -1633,7 +1625,7 @@ impl<T: Scalar> GroupedPlan<T> {
         // lane `i` its share of the budget, and every share is at least
         // `item_threads` because `lanes * item_threads <= budget`.
         let workspace = exec.workspace();
-        let policy = widths.item_policy;
+        let policy = widths.item_policy();
         let item_budget = NonZeroUsize::new(item_threads).unwrap_or(NonZeroUsize::MIN);
         exec.token().fork(lanes, |lane, token| {
             let mut lane_exec = Exec::from_token(token.limit(item_budget), workspace, policy);
@@ -1645,28 +1637,28 @@ impl<T: Scalar> GroupedPlan<T> {
             let (base_offset, chunk) = &mut *guard;
             let base_offset = *base_offset;
             let mut lane_cursor = 0usize;
-            for index in lo..hi {
-                let item = items[index].item();
+            for source in &items[lo..hi] {
+                let (out_start, out_len) = source.out_range();
                 let current = core::mem::take(chunk);
-                let d = if item.out.len == 0 {
+                let d = if out_len == 0 {
                     let (slice, tail) = current.split_at_mut(0);
                     *chunk = tail;
                     slice
                 } else {
-                    let start = item.out.start - base_offset;
+                    let start = out_start - base_offset;
                     let (_, rest) = current.split_at_mut(start - lane_cursor);
-                    let (slice, tail) = rest.split_at_mut(item.out.len);
+                    let (slice, tail) = rest.split_at_mut(out_len);
                     *chunk = tail;
-                    lane_cursor = start + item.out.len;
+                    lane_cursor = start + out_len;
                     slice
                 };
-                match run(job_item(&item, d), &mut lane_exec) {
+                match run(source.job_item(plans, lhs, rhs, d), &mut lane_exec) {
                     Ok(receipt) => lane_receipts.push(receipt),
                     Err(error) => {
                         let mut slot = failure.lock().unwrap_or_else(|poison| poison.into_inner());
                         // Recording by id, not by arrival, keeps the reported error
                         // independent of lane scheduling.
-                        keep_lowest(&mut slot, item.id, error);
+                        keep_lowest(&mut slot, source.id(), error);
                     }
                 }
             }
@@ -1725,7 +1717,7 @@ impl<T: Scalar> GroupedPlan<T> {
             return Ok(Widths {
                 lanes,
                 item_threads: (width / lanes).max(1),
-                item_policy: BatchPolicy::default(),
+                item_policy: Some(BatchPolicy::default()),
             });
         }
         let query = BatchQuery::new(self.meta.item_count(), self.meta.max_item_work as f64)
@@ -1750,7 +1742,7 @@ fn child_context<'b>(exec: &'b mut Exec<'_>, widths: Widths) -> Exec<'b> {
         return workspace.map_or(Exec::serial(), Exec::serial_with_workspace);
     }
     let budget = NonZeroUsize::new(widths.item_threads).unwrap_or(NonZeroUsize::MIN);
-    Exec::from_token(exec.token().limit(budget), workspace, widths.item_policy)
+    Exec::from_token(exec.token().limit(budget), workspace, widths.item_policy())
 }
 
 /// The resolved widths of one grouped execution and the batch policy every
@@ -1759,37 +1751,102 @@ fn child_context<'b>(exec: &'b mut Exec<'_>, widths: Widths) -> Exec<'b> {
 struct Widths {
     lanes: usize,
     item_threads: usize,
-    item_policy: BatchPolicy,
+    /// `None` is the historical item policy, [`child_policy`], built only where
+    /// a child context needs it (a default policy reads the host model).
+    item_policy: Option<BatchPolicy>,
 }
 
 impl Widths {
-    /// Widths with the historical item policy ([`child_policy`]).
+    /// Widths with the historical item policy.
     fn new(lanes: usize, item_threads: usize) -> Self {
         Self {
             lanes,
             item_threads,
-            item_policy: child_policy(item_threads),
+            item_policy: None,
         }
+    }
+
+    fn item_policy(&self) -> BatchPolicy {
+        self.item_policy
+            .unwrap_or_else(|| child_policy(self.item_threads))
     }
 }
 
 /// Where the item loops read their items from: the prepared jobs themselves
-/// (the per-job route) or the item list with batched runs (#78).
+/// (the per-job route, read exactly as before #78) or the item list with
+/// batched runs.
 trait ItemSource: Sync {
-    fn item(&self) -> Item;
+    /// The original job id an error names.
+    fn id(&self) -> usize;
+    /// The item's output `(start, len)` in the shared output buffer.
+    fn out_range(&self) -> (usize, usize);
+    /// The child's view of the item: its windows of the shared inputs, the
+    /// origins inside them, and its own disjoint output slice `out`.
+    fn job_item<'p, 'd, T: Scalar, D>(
+        &self,
+        plans: &'p [Arc<Plan<T>>],
+        lhs: &'p [T],
+        rhs: &'p [T],
+        out: &'d mut [D],
+    ) -> JobItem<'p, 'd, T, D>;
 }
 
 impl ItemSource for PreparedJob {
     #[inline(always)]
-    fn item(&self) -> Item {
-        Item::job(self)
+    fn id(&self) -> usize {
+        self.meta.id
+    }
+
+    #[inline(always)]
+    fn out_range(&self) -> (usize, usize) {
+        (self.meta.out_offset, self.meta.out_len)
+    }
+
+    #[inline(always)]
+    fn job_item<'p, 'd, T: Scalar, D>(
+        &self,
+        plans: &'p [Arc<Plan<T>>],
+        lhs: &'p [T],
+        rhs: &'p [T],
+        out: &'d mut [D],
+    ) -> JobItem<'p, 'd, T, D> {
+        let meta = &self.meta;
+        JobItem {
+            id: meta.id,
+            plan: &plans[self.plan as usize],
+            lhs: (&lhs[meta.lhs_offset..meta.lhs_offset + meta.lhs_len], 0),
+            rhs: (&rhs[meta.rhs_offset..meta.rhs_offset + meta.rhs_len], 0),
+            out: (out, 0),
+        }
     }
 }
 
 impl ItemSource for Item {
     #[inline(always)]
-    fn item(&self) -> Item {
-        *self
+    fn id(&self) -> usize {
+        self.id
+    }
+
+    #[inline(always)]
+    fn out_range(&self) -> (usize, usize) {
+        (self.out.start, self.out.len)
+    }
+
+    #[inline(always)]
+    fn job_item<'p, 'd, T: Scalar, D>(
+        &self,
+        plans: &'p [Arc<Plan<T>>],
+        lhs: &'p [T],
+        rhs: &'p [T],
+        out: &'d mut [D],
+    ) -> JobItem<'p, 'd, T, D> {
+        JobItem {
+            id: self.id,
+            plan: &plans[self.plan as usize],
+            lhs: (&lhs[self.lhs.start..self.lhs.end()], self.lhs.origin),
+            rhs: (&rhs[self.rhs.start..self.rhs.end()], self.rhs.origin),
+            out: (out, self.out.origin),
+        }
     }
 }
 
