@@ -81,7 +81,7 @@ pass of this diagnostic printed to the terminal only; `rows.csv` and
 metadata with literal zero origins as `main` does, and the default item policy
 (a host-model read) is built only where needed.
 
-### Run 3 (candidate `1f35056`): the final candidate
+### Run 3 (candidate `1f35056`)
 
 Per-job non-regression: 19 of 20 cases pass. On 2³-8³ the candidate/base
 ratio of the median process medians ranges from 0.990 to 1.041; the largest,
@@ -95,6 +95,10 @@ binaries), gave base 7595-7905 ns and candidate 7780-8032 ns (medians about
 7790 and 7890, +1.3 %). This 8-lane case runs on an unpinned pool
 (`pin_participants(false)`), whose placement is exactly what threadteam-rs#88
 will change; the run-3 verdict stands as recorded.
+
+Review of PR #89 then changed the candidate (single jobs next to batched runs
+keep the per-job route's serial context; see run 4), so run 3's numbers
+describe `1f35056`, not the final head.
 
 Batched vs per-job (run 3; ratio = per-job / batched median, > 1 means
 batched is faster; allocation requests per call 0 for batched, 0 per-job
@@ -127,6 +131,38 @@ same as one thread) although the child is granted 8 threads, while the
 per-job route spreads 64 or 256 jobs over 8 outer lanes. Spreading that
 batch is tcontract's planner decision (AGENTS.md: fix planner behaviour
 there), so it is a follow-up, and the reason the route stays opt-in.
+
+### Run 4 (candidate `518aed8`): the final head's code
+
+Same protocol and binaries layout (`results/20261123-evo2-run4`); maximum
+1-minute load 4.56 (gate 8); every cell at least 7 calls per sample.
+
+Per-job non-regression: 19 of 20 cases pass. The 2³-8³ ratios are 1.006 to
+1.021, and the case run 3 flagged (64 × 16³ at 8 threads) is 0.981. The gate
+flags **256 × 32³ at 1 thread, +3.2 %** (base 271909, 271992, 272707 ns;
+candidate 280816, 284748, 275529 ns), a case where per-job overhead is about
+1 % of the call. Diagnostic, not the gate (`results/diag-256x32-t1`, 10
+alternating process pairs of the run-4 binaries): medians 273164 vs 277518 ns
+(+1.6 %), ranges 269039-279716 vs 273029-282946 ns. The run-4 verdict stands
+as recorded: in runs 3 and 4 the gate flagged one case each, a different one
+each time, with diagnostics of +1.3 % and +1.6 %; whether that is this shared
+host's noise floor at a 3 % threshold or a small real cost is not settled by
+this protocol.
+
+Batched vs per-job (run 4; per-job / batched median):
+
+| jobs | m=k=n | 1 thread | 8 threads |
+|---:|---:|---:|---:|
+| 64 | 2 | 3.19 wins | 3.16 wins |
+| 64 | 4 | 2.49 wins | 2.49 wins |
+| 64 | 8 | 2.09 wins | 2.90 wins |
+| 64 | 16 | 1.27 wins | 2.09 wins |
+| 64 | 32 | 1.10 wins | **0.17 loses** |
+| 256 | 2 | 3.30 wins | 3.31 wins |
+| 256 | 4 | 2.58 wins | 2.59 wins |
+| 256 | 8 | 2.18 wins | 7.09 wins |
+| 256 | 16 | 1.26 wins | 2.39 wins |
+| 256 | 32 | 1.10 wins | **0.16 loses** |
 
 ### issue46 rows (diagnostic, single-call wall time, `1f35056`)
 
