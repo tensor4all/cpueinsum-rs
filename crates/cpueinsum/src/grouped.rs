@@ -631,8 +631,9 @@ impl PreparedGroupedJobs {
     }
 
     /// Item `index` in output order. Without batched runs every job is its own
-    /// item, so the per-job route reads the job list itself.
-    #[inline]
+    /// item. The execution loops read their item source directly (`run_items`);
+    /// this is the tests' view of the same list.
+    #[cfg(test)]
     fn item(&self, index: usize) -> Item {
         if self.items.is_empty() {
             Item::job(&self.jobs[index])
@@ -1342,21 +1343,15 @@ impl<T: Scalar> GroupedPlan<T> {
         out: &'d mut [MaybeUninit<T>],
     ) -> Result<(&'d mut [T], GroupedRoute)> {
         self.validate_uninit(beta, out.len())?;
-        let (lanes, item_threads) =
-            self.prepare(exec, alpha, lhs, rhs, out.len(), OutputContract::Fresh)?;
+        let widths = self.prepare(exec, alpha, lhs, rhs, out.len(), OutputContract::Fresh)?;
         let source = SliceAccumulationSource::Absent;
         // One publication: the lower helper proves the jobs' receipts cover the
         // storage, then hands out the initialized whole slice on success only.
         execute_uninit_with(out, |storage| {
-            let (route, receipts) = self.run_lanes(
-                exec,
-                lanes,
-                item_threads,
-                lhs,
-                rhs,
-                storage,
-                |item, exec| run_item_uninit(item, exec, alpha, beta, source),
-            )?;
+            let (route, receipts) =
+                self.run_items(exec, widths, lhs, rhs, storage, |item, exec| {
+                    run_item_uninit(item, exec, alpha, beta, source)
+                })?;
             Ok((receipts, route))
         })
         .map_err(|source| match source {
@@ -1378,7 +1373,7 @@ impl<T: Scalar> GroupedPlan<T> {
         accumulate: bool,
         out: &mut [T],
     ) -> Result<GroupedRoute> {
-        let (lanes, item_threads) = self.prepare(
+        let widths = self.prepare(
             exec,
             alpha,
             lhs,
@@ -1391,11 +1386,34 @@ impl<T: Scalar> GroupedPlan<T> {
         } else {
             SliceAccumulationSource::Absent
         };
-        let (route, _receipts) =
-            self.run_lanes(exec, lanes, item_threads, lhs, rhs, out, |item, exec| {
-                run_item(item, exec, alpha, beta, source)
-            })?;
+        let (route, _receipts) = self.run_items(exec, widths, lhs, rhs, out, |item, exec| {
+            run_item(item, exec, alpha, beta, source)
+        })?;
         Ok(route)
+    }
+
+    /// Dispatch once between the job list (no batched run: every job is its own
+    /// item, exactly the per-job route) and the item list (#78), so the item
+    /// loops are specialised and carry no per-item branch.
+    fn run_items<'d, D, R, F>(
+        &self,
+        exec: &mut Exec<'_>,
+        widths: Widths,
+        lhs: &[T],
+        rhs: &[T],
+        out: &'d mut [D],
+        run: F,
+    ) -> Result<(GroupedRoute, Vec<R>)>
+    where
+        D: Send,
+        R: Send,
+        F: Fn(JobItem<'_, 'd, T, D>, &mut Exec<'_>) -> Result<R> + Sync,
+    {
+        if self.meta.items.is_empty() {
+            self.run_lanes(&self.meta.jobs[..], exec, widths, lhs, rhs, out, run)
+        } else {
+            self.run_lanes(&self.meta.items[..], exec, widths, lhs, rhs, out, run)
+        }
     }
 
     /// Resolve the route and run every pre-write check: buffer bounds, then child
@@ -1408,10 +1426,10 @@ impl<T: Scalar> GroupedPlan<T> {
         rhs: &[T],
         out_len: usize,
         contract: OutputContract,
-    ) -> Result<(usize, usize)> {
+    ) -> Result<Widths> {
         // Resolve the route first, before bounds checks, the empty shortcut or
         // any write, so the outer width is fixed before the children run.
-        let (lanes, item_threads) = self.lane_decision(exec)?;
+        let widths = self.lane_decision(exec)?;
 
         // Construction checked every endpoint against these aggregate lengths.
         if lhs.len() < self.required_lhs_len()
@@ -1454,26 +1472,33 @@ impl<T: Scalar> GroupedPlan<T> {
             }
         }
         {
-            let child_exec = child_context(exec, item_threads);
+            let child_exec = child_context(exec, widths);
             let mut route_failure: Option<(usize, Error)> = None;
-            for index in 0..self.meta.item_count() {
-                let item = self.meta.item(index);
-                let id = item.id;
+            let mut admit = |id: usize, plan: u32| {
                 // Admission only: a child that would take a packed SPMD team on the
                 // coordinator is not refused here. tcontract's packed driver checks
                 // `can_broadcast` on the token it is given, so a child running on a
                 // pool worker takes the barrier-free route, before any lane writes.
                 if let Err(source) =
-                    self.plans[item.plan as usize].execution_route(&child_exec, alpha, contract)
+                    self.plans[plan as usize].execution_route(&child_exec, alpha, contract)
                 {
                     keep_lowest(&mut route_failure, id, Error::Contract { step: id, source });
+                }
+            };
+            if self.meta.items.is_empty() {
+                for job in &self.meta.jobs {
+                    admit(job.meta.id, job.plan);
+                }
+            } else {
+                for item in &self.meta.items {
+                    admit(item.id, item.plan);
                 }
             }
             if let Some((_, error)) = route_failure {
                 return Err(error);
             }
         }
-        Ok((lanes, item_threads))
+        Ok(widths)
     }
 
     /// Drive every job on the resolved widths, one receipt per successful job.
@@ -1483,17 +1508,18 @@ impl<T: Scalar> GroupedPlan<T> {
     /// and `D = MaybeUninit<T>, R = &mut [T]` for fresh storage. Initialized
     /// receipts use no heap (`Vec<()>`); fresh receipts collect the initialized
     /// sub-slices. Parallel execution collects them lane-locally.
-    fn run_lanes<'d, D, R, F>(
+    fn run_lanes<'d, S, D, R, F>(
         &self,
+        items: &[S],
         exec: &mut Exec<'_>,
-        lanes: usize,
-        item_threads: usize,
+        widths: Widths,
         lhs: &[T],
         rhs: &[T],
         out: &'d mut [D],
         run: F,
     ) -> Result<(GroupedRoute, Vec<R>)>
     where
+        S: ItemSource,
         D: Send,
         R: Send,
         F: Fn(JobItem<'_, 'd, T, D>, &mut Exec<'_>) -> Result<R> + Sync,
@@ -1501,8 +1527,13 @@ impl<T: Scalar> GroupedPlan<T> {
         if self.meta.jobs.is_empty() {
             return Ok((GroupedRoute::Empty, Vec::new()));
         }
+        let Widths {
+            lanes,
+            item_threads,
+            ..
+        } = widths;
         let route = grouped_route(lanes, item_threads);
-        let item_count = self.meta.item_count();
+        let item_count = items.len();
         // The child's view of one item: its windows of the shared buffers, the
         // origins inside them, and its own disjoint output slice.
         let job_item = |item: &Item, out: &'d mut [D]| JobItem {
@@ -1516,13 +1547,13 @@ impl<T: Scalar> GroupedPlan<T> {
         if lanes == 1 {
             // Serial: carve disjoint output slices, retaining completion
             // receipts (zero-sized for initialized output).
-            let mut child_exec = child_context(exec, item_threads);
+            let mut child_exec = child_context(exec, widths);
             let mut cursor = 0usize;
             let mut remaining: &'d mut [D] = out;
             let mut failure: Option<(usize, Error)> = None;
             let mut receipts: Vec<R> = Vec::new();
             for index in 0..item_count {
-                let item = self.meta.item(index);
+                let item = items[index].item();
                 let id = item.id;
                 let current = core::mem::take(&mut remaining);
                 let d = if item.out.len == 0 {
@@ -1580,7 +1611,7 @@ impl<T: Scalar> GroupedPlan<T> {
             // empty chunk.
             let mut end = cursor;
             for index in lo..hi {
-                let item = self.meta.item(index);
+                let item = items[index].item();
                 if item.out.len != 0 {
                     end = end.max(item.out.end());
                 }
@@ -1602,7 +1633,7 @@ impl<T: Scalar> GroupedPlan<T> {
         // lane `i` its share of the budget, and every share is at least
         // `item_threads` because `lanes * item_threads <= budget`.
         let workspace = exec.workspace();
-        let policy = child_policy(item_threads);
+        let policy = widths.item_policy;
         let item_budget = NonZeroUsize::new(item_threads).unwrap_or(NonZeroUsize::MIN);
         exec.token().fork(lanes, |lane, token| {
             let mut lane_exec = Exec::from_token(token.limit(item_budget), workspace, policy);
@@ -1615,7 +1646,7 @@ impl<T: Scalar> GroupedPlan<T> {
             let base_offset = *base_offset;
             let mut lane_cursor = 0usize;
             for index in lo..hi {
-                let item = self.meta.item(index);
+                let item = items[index].item();
                 let current = core::mem::take(chunk);
                 let d = if item.out.len == 0 {
                     let (slice, tail) = current.split_at_mut(0);
@@ -1669,23 +1700,38 @@ impl<T: Scalar> GroupedPlan<T> {
     /// lanes) nor the packed balanced-lanes rule (which adds a near-even
     /// restriction here absent) is this route's rule.
     ///
+    /// With batched strided runs (#78), `Auto` grants the items the part of
+    /// that width the lanes leave unused, under the child's own `Auto` policy:
+    /// a run is one item whose child spreads its batch axis itself (tcontract's
+    /// packed driver claims batch entries on lanes), so one lane holding a long
+    /// run would otherwise run it on one thread. The route then reports the
+    /// granted item width; the child may use fewer threads. Without batched
+    /// runs, `Auto` items stay serial as before.
+    ///
     /// Every forced strategy goes through [`Exec::batch_decision`] on the
     /// original host budget, which clamps but never falls back.
-    fn lane_decision(&self, exec: &Exec<'_>) -> Result<(usize, usize)> {
+    fn lane_decision(&self, exec: &Exec<'_>) -> Result<Widths> {
         if let BatchStrategy::Auto = exec.batch_policy().strategy {
             let serial_ns =
                 2.0 * self.meta.work as f64 * ns_per_flop() * if T::IS_COMPLEX { 4.0 } else { 1.0 };
-            let lanes = exec
+            let width = exec
                 .width_for(serial_ns, GROUPED_SECTIONS)
                 .min(exec.budget())
-                .min(self.meta.item_count())
                 .max(1);
-            return Ok((lanes, 1));
+            let lanes = width.min(self.meta.item_count()).max(1);
+            if self.meta.runs.is_empty() {
+                return Ok(Widths::new(lanes, 1));
+            }
+            return Ok(Widths {
+                lanes,
+                item_threads: (width / lanes).max(1),
+                item_policy: BatchPolicy::default(),
+            });
         }
         let query = BatchQuery::new(self.meta.item_count(), self.meta.max_item_work as f64)
             .with_item_parallel(true);
         let decision = exec.batch_decision(&query);
-        Ok((decision.lanes, decision.item_threads))
+        Ok(Widths::new(decision.lanes, decision.item_threads))
     }
 }
 
@@ -1698,17 +1744,53 @@ impl<T: Scalar> GroupedPlan<T> {
 /// so the granted width is actually executed: a reset to `Auto` would let a
 /// small item fall back below the Auto threshold and run serially while the
 /// route still reported several threads.
-fn child_context<'b>(exec: &'b mut Exec<'_>, item_threads: usize) -> Exec<'b> {
+fn child_context<'b>(exec: &'b mut Exec<'_>, widths: Widths) -> Exec<'b> {
     let workspace = exec.workspace();
-    if item_threads <= 1 {
+    if widths.item_threads <= 1 {
         return workspace.map_or(Exec::serial(), Exec::serial_with_workspace);
     }
-    let budget = NonZeroUsize::new(item_threads).unwrap_or(NonZeroUsize::MIN);
-    Exec::from_token(
-        exec.token().limit(budget),
-        workspace,
-        child_policy(item_threads),
-    )
+    let budget = NonZeroUsize::new(widths.item_threads).unwrap_or(NonZeroUsize::MIN);
+    Exec::from_token(exec.token().limit(budget), workspace, widths.item_policy)
+}
+
+/// The resolved widths of one grouped execution and the batch policy every
+/// item's child context runs under.
+#[derive(Clone, Copy, Debug)]
+struct Widths {
+    lanes: usize,
+    item_threads: usize,
+    item_policy: BatchPolicy,
+}
+
+impl Widths {
+    /// Widths with the historical item policy ([`child_policy`]).
+    fn new(lanes: usize, item_threads: usize) -> Self {
+        Self {
+            lanes,
+            item_threads,
+            item_policy: child_policy(item_threads),
+        }
+    }
+}
+
+/// Where the item loops read their items from: the prepared jobs themselves
+/// (the per-job route) or the item list with batched runs (#78).
+trait ItemSource: Sync {
+    fn item(&self) -> Item;
+}
+
+impl ItemSource for PreparedJob {
+    #[inline(always)]
+    fn item(&self) -> Item {
+        Item::job(self)
+    }
+}
+
+impl ItemSource for Item {
+    #[inline(always)]
+    fn item(&self) -> Item {
+        *self
+    }
 }
 
 /// The batch policy of an item context: serial items keep the default policy,
