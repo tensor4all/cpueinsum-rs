@@ -54,4 +54,81 @@ batched run the item list is the job list itself.
 
 ## Results
 
-Pending.
+Raw CSVs, binaries' SHA-256 and the load log of every run are in
+`benchmarks/issue78/results/`; `summarize.py` there produces each run's
+`summary.md`. All runs: 1-minute load at most 2.9, so the noise gate held.
+
+### Run 1 (candidate `ae1bc79`): per-job regression, candidate revised
+
+The predeclared gate flagged a per-job regression of 3-8 % on 2³-8³ jobs at
+both widths: the item loops built a generic item and branched on the item
+list per job. The batched route also lost at 8 threads for 16³ and 32³,
+because under `Auto` every item was serial and a run is one item. Both fixed
+in `d7e0e68` (one dispatch between job list and item list; run items get the
+width the lanes leave unused under the child's own `Auto`).
+
+### Run 2 (candidate `d7e0e68`): per-job regression remains, candidate revised
+
+Batched now won at 8 threads up to 16³, but the per-job gate still flagged
+3-6 % on 2³-8³. Diagnostic (`results/diag-layout`): a build of `main` with only
+the `t4a-desc` dependency added matched `main`, so the cost was code. Fixed in
+`1f35056`: the job source builds each child view straight from the job
+metadata with literal zero origins as `main` does, and the default item policy
+(a host-model read) is built only where needed.
+
+### Run 3 (candidate `1f35056`): the final candidate
+
+Per-job non-regression: 19 of 20 cases pass (2³-8³ now +0.7 to +2.9 %). The
+gate flags **64 × 16³ at 8 threads, +10.2 %** (base process medians 7517,
+7256, 7323 ns; candidate 8071, 7956, 8140 ns). The same case was +8.5 % in
+run 1 and -1.8 % in run 2. A follow-up diagnostic, not the gated experiment
+(`results/diag-64x16-t8`, 10 alternating process pairs of the run-3
+binaries), gave base 7595-7905 ns and candidate 7780-8032 ns (medians about
+7790 and 7890, +1.3 %). This 8-lane case runs on an unpinned pool
+(`pin_participants(false)`), whose placement is exactly what threadteam-rs#88
+will change; the run-3 verdict stands as recorded.
+
+Batched vs per-job (run 3; ratio = per-job / batched median, > 1 means
+batched is faster; allocation requests per call 0 for batched, 0 per-job
+serial, 1 per-job with outer lanes):
+
+| jobs | m=k=n | 1 thread | 8 threads |
+|---:|---:|---:|---:|
+| 64 | 2 | 3.23 wins | 3.19 wins |
+| 64 | 4 | 2.54 wins | 2.57 wins |
+| 64 | 8 | 2.08 wins | 3.00 wins |
+| 64 | 16 | 1.26 wins | 2.17 wins |
+| 64 | 32 | 1.07 wins | **0.18 loses** |
+| 256 | 2 | 3.34 wins | 3.32 wins |
+| 256 | 4 | 2.62 wins | 2.62 wins |
+| 256 | 8 | 2.18 wins | 7.40 wins |
+| 256 | 16 | 1.27 wins | 2.50 wins |
+| 256 | 32 | 1.08 wins | **0.16 loses** |
+
+The batched route wins everywhere on one thread and up to 16³ on eight; at
+32³ on eight threads it loses 5-6×. There tcontract plans the batched problem
+with its Faer strategy, which runs at serial speed (about 65 and 260 µs, the
+same as one thread) although the child is granted 8 threads, while the
+per-job route spreads 64 or 256 jobs over 8 outer lanes. Spreading that
+batch is tcontract's planner decision (AGENTS.md: fix planner behaviour
+there), so it is a follow-up, and the reason the route stays opt-in.
+
+### issue46 rows (diagnostic, single-call wall time, `1f35056`)
+
+`issue46_grouped <B|C> <1|8> Auto 250 1000 <per-job|runs>`, 1 thread on CPU 2,
+8 threads on CPUs 0-7 (`results/20261123-evo2-issue46/rows.csv`):
+
+| workload | threads | per-job | runs | per-job route | runs route |
+|---|---:|---:|---:|---|---|
+| B (16384 × 32³) | 1 | 40.7 ms | 35.6 ms | Serial | Serial |
+| B (16384 × 32³) | 8 | 8.9 ms | 40.2 ms | 8 lanes | 1 lane × 8 |
+| C (32³ ×8192 + one 1024×256×1024) | 1 | 25.3 ms | 22.6 ms | Serial | Serial |
+| C | 8 | 10.0 ms | 18.4 ms | 8 lanes | 2 lanes × 4 |
+
+Same picture as the 32³ rows above.
+
+## Not checked
+
+Other CPUs (only Zen 5 here), other thread counts than 1 and 8, complex
+dtypes in timing (tests cover them for correctness), the BLAS backend
+(`cpueinsum-blas` ignores the option), and anything after threadteam-rs#88.

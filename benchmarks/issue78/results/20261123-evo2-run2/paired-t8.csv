@@ -1,0 +1,21 @@
+jobs,m,k,n,threads,route,median_ns,q1_ns,q3_ns,iqr_ns,allocs_per_call,calls_per_sample,reps,route_reported,build
+64,2,2,2,8,per-job,6400,6390,6417,27,0,298,21,Serial,cand-d7e0e68
+64,2,2,2,8,batched,1931,1922,1940,18,0,298,21,Serial,cand-d7e0e68
+64,4,4,4,8,per-job,6663,6647,6676,28,0,294,21,Serial,cand-d7e0e68
+64,4,4,4,8,batched,2673,2667,2676,8,0,294,21,Serial,cand-d7e0e68
+64,8,8,8,8,per-job,6454,6435,6510,76,1,263,21,Outer { lanes: 3 },cand-d7e0e68
+64,8,8,8,8,batched,2020,2017,2025,9,0,263,21,Inner { threads: 3 },cand-d7e0e68
+64,16,16,16,8,per-job,7013,7002,7032,30,1,263,21,Outer { lanes: 8 },cand-d7e0e68
+64,16,16,16,8,batched,3316,3306,3344,39,0,263,21,Inner { threads: 8 },cand-d7e0e68
+64,32,32,32,8,per-job,11245,11159,11306,147,1,172,21,Outer { lanes: 8 },cand-d7e0e68
+64,32,32,32,8,batched,64946,64852,65011,159,0,172,21,Inner { threads: 8 },cand-d7e0e68
+256,2,2,2,8,per-job,24676,24637,24841,204,0,80,21,Serial,cand-d7e0e68
+256,2,2,2,8,batched,7314,7282,7339,56,0,80,21,Serial,cand-d7e0e68
+256,4,4,4,8,per-job,26302,26248,26341,93,0,76,21,Serial,cand-d7e0e68
+256,4,4,4,8,batched,10054,10023,10136,113,0,76,21,Serial,cand-d7e0e68
+256,8,8,8,8,per-job,23440,23404,23490,86,1,84,21,Outer { lanes: 8 },cand-d7e0e68
+256,8,8,8,8,batched,3154,3134,3170,36,0,84,21,Inner { threads: 8 },cand-d7e0e68
+256,16,16,16,8,per-job,22597,22515,22828,313,1,77,21,Outer { lanes: 8 },cand-d7e0e68
+256,16,16,16,8,batched,9320,9266,9377,111,0,77,21,Inner { threads: 8 },cand-d7e0e68
+256,32,32,32,8,per-job,40727,39639,40964,1326,1,30,21,Outer { lanes: 8 },cand-d7e0e68
+256,32,32,32,8,batched,262606,262102,263223,1120,0,30,21,Inner { threads: 8 },cand-d7e0e68
