@@ -56,7 +56,7 @@ batched run the item list is the job list itself.
 
 Raw CSVs, binaries' SHA-256 and the load log of every run are in
 `benchmarks/issue78/results/`; `summarize.py` there produces each run's
-`summary.md`. All runs: 1-minute load at most 2.9, so the noise gate held.
+`summary.md`. 1-minute load at most 2.9 in runs 1-3 and 4.56 in run 4, all under the gate of 8.
 
 ### Run 1 (candidate `ae1bc79`): per-job regression, candidate revised
 
@@ -137,7 +137,7 @@ there), so it is a follow-up, and the reason the route stays opt-in.
 Same protocol and binaries layout (`results/20261123-evo2-run4`); maximum
 1-minute load 4.56 (gate 8); every cell at least 7 calls per sample.
 
-Per-job non-regression: 19 of 20 cases pass. The 2³-8³ ratios are 1.006 to
+Per-job non-regression: 19 of 20 cases pass. The 2³-8³ ratios are 0.980 to
 1.021, and the case run 3 flagged (64 × 16³ at 8 threads) is 0.981. The gate
 flags **256 × 32³ at 1 thread, +3.2 %** (base 271909, 271992, 272707 ns;
 candidate 280816, 284748, 275529 ns), a case where per-job overhead is about
