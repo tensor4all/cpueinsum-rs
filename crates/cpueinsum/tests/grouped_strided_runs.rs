@@ -406,3 +406,66 @@ fn a_short_buffer_is_refused_before_any_write_with_the_lowest_id() {
     ));
     assert_eq!(out, [7.0; 16]);
 }
+
+#[test]
+fn single_jobs_next_to_batched_runs_are_bitwise_the_per_job_route() {
+    // Two batched runs of 2x2x2 jobs around one large single job (three items,
+    // so `Auto` on a wide budget grants the runs more than one thread while the
+    // single must stay serial), random non-integer inputs: the job outside the
+    // runs must give the bits the per-job route gives, at every width; run jobs
+    // agree to rounding. (On the Zen 5 development host, width 8 under `Auto`
+    // resolves to `Split { lanes: 3, item_threads: 2 }` here.)
+    let mut rng = ChaCha8Rng::seed_from_u64(89);
+    let mut jobs = strided([0, 0, 0], [4, 4, 4], 4, (2, 2, 2));
+    jobs.push(job([0, 0, 16], 128, 128, 128));
+    jobs.extend(strided([16, 16, 16 + 128 * 128], [4, 4, 4], 4, (2, 2, 2)));
+    let config = PlanConfig::default();
+    let per_job = GroupedPlan::<f64>::new(&jobs, &config).unwrap();
+    let routed =
+        GroupedPlan::<f64>::new_with_options(&jobs, [Op::Identity; 3], &config, on()).unwrap();
+    assert_eq!(
+        routed.strided_runs(),
+        [run(0, 4, [4, 4, 4]), run(5, 4, [4, 4, 4])]
+    );
+    let lhs: Vec<f64> = (0..per_job.required_lhs_len()).map(|_| rng.gen()).collect();
+    let rhs: Vec<f64> = (0..per_job.required_rhs_len()).map(|_| rng.gen()).collect();
+    let initial: Vec<f64> = (0..per_job.required_out_len()).map(|_| rng.gen()).collect();
+    let singles = [4usize];
+    let thread_pool = threadteam::Pool::builder().threads(8).build().unwrap();
+    let pool = cpueinsum::Pool::borrow(&thread_pool);
+    for width in [1, 4, 8] {
+        for strategy in [BatchStrategy::Auto, BatchStrategy::Outer] {
+            let mut outs = Vec::new();
+            for plan in [&per_job, &routed] {
+                let mut exec = Exec::new(&pool, width)
+                    .unwrap()
+                    .with_batch_policy(BatchPolicy::new(strategy));
+                let mut out = initial.clone();
+                plan.execute_into_accum(&mut exec, 0.7, &lhs, &rhs, 0.3, &mut out)
+                    .unwrap();
+                outs.push(out);
+            }
+            for &id in &singles {
+                let j = jobs[id];
+                let range = j.out_offset..j.out_offset + j.rows * j.cols;
+                let bits = |out: &[f64]| {
+                    out[range.clone()]
+                        .iter()
+                        .map(|x| x.to_bits())
+                        .collect::<Vec<_>>()
+                };
+                assert_eq!(
+                    bits(&outs[0]),
+                    bits(&outs[1]),
+                    "job {id}, width {width}, {strategy:?}"
+                );
+            }
+            for (a, b) in outs[0].iter().zip(&outs[1]) {
+                assert!(
+                    (a - b).abs() <= 1e-12 * a.abs().max(1.0),
+                    "width {width}, {strategy:?}"
+                );
+            }
+        }
+    }
+}

@@ -175,10 +175,11 @@ const GROUPED_SECTIONS: u32 = 1;
 /// Without batched strided runs, and under every forced strategy, a granted
 /// item width is also the width that runs: the item's child is forced to
 /// [`BatchStrategy::Inner`]. With batched strided runs under `Auto`
-/// ([`GroupedOptions::with_strided_runs`]), the items are granted the width
-/// the lanes leave unused, and each child plans within that grant under its own
-/// `Auto` policy (a run spreads its batch axis itself), so it may use fewer
-/// threads than reported.
+/// ([`GroupedOptions::with_strided_runs`]), each batched run is granted the
+/// width the lanes leave unused and its child plans within that grant under its
+/// own `Auto` policy (a run spreads its batch axis itself), so it may use fewer
+/// threads than reported; jobs outside every run keep one thread, exactly as on
+/// the per-job route.
 ///
 /// # Examples
 ///
@@ -326,6 +327,8 @@ struct Item {
     lhs: Window,
     rhs: Window,
     out: Window,
+    /// A batched run, rather than a single job.
+    batched: bool,
 }
 
 impl Item {
@@ -337,6 +340,7 @@ impl Item {
             lhs: Window::job(meta.lhs_offset, meta.lhs_len),
             rhs: Window::job(meta.rhs_offset, meta.rhs_len),
             out: Window::job(meta.out_offset, meta.out_len),
+            batched: false,
         }
     }
 }
@@ -1482,26 +1486,31 @@ impl<T: Scalar> GroupedPlan<T> {
             }
         }
         {
+            // Single jobs next to batched runs keep the per-job route's context.
+            let single_exec = widths.single_context(exec);
             let child_exec = child_context(exec, widths);
             let mut route_failure: Option<(usize, Error)> = None;
-            let mut admit = |id: usize, plan: u32| {
+            let mut admit = |id: usize, plan: u32, batched: bool| {
                 // Admission only: a child that would take a packed SPMD team on the
                 // coordinator is not refused here. tcontract's packed driver checks
                 // `can_broadcast` on the token it is given, so a child running on a
                 // pool worker takes the barrier-free route, before any lane writes.
-                if let Err(source) =
-                    self.plans[plan as usize].execution_route(&child_exec, alpha, contract)
-                {
+                let plan = &self.plans[plan as usize];
+                let route = match &single_exec {
+                    Some(single) if !batched => plan.execution_route(single, alpha, contract),
+                    _ => plan.execution_route(&child_exec, alpha, contract),
+                };
+                if let Err(source) = route {
                     keep_lowest(&mut route_failure, id, Error::Contract { step: id, source });
                 }
             };
             if self.meta.items.is_empty() {
                 for job in &self.meta.jobs {
-                    admit(job.meta.id, job.plan);
+                    admit(job.meta.id, job.plan, false);
                 }
             } else {
                 for item in &self.meta.items {
-                    admit(item.id, item.plan);
+                    admit(item.id, item.plan, item.batched);
                 }
             }
             if let Some((_, error)) = route_failure {
@@ -1549,6 +1558,11 @@ impl<T: Scalar> GroupedPlan<T> {
         if lanes == 1 {
             // Serial: carve disjoint output slices, retaining completion
             // receipts (zero-sized for initialized output).
+            let mut single_exec = if S::MAY_BATCH {
+                widths.single_context(exec)
+            } else {
+                None
+            };
             let mut child_exec = child_context(exec, widths);
             let mut cursor = 0usize;
             let mut remaining: &'d mut [D] = out;
@@ -1573,7 +1587,12 @@ impl<T: Scalar> GroupedPlan<T> {
                     cursor = end;
                     slice
                 };
-                match run(source.job_item(plans, lhs, rhs, d), &mut child_exec) {
+                let item = source.job_item(plans, lhs, rhs, d);
+                let result = match &mut single_exec {
+                    Some(single) if !source.batched() => run(item, single),
+                    _ => run(item, &mut child_exec),
+                };
+                match result {
                     Ok(receipt) => receipts.push(receipt),
                     // Keep running the remaining jobs: a failure here must not
                     // hide a lower-id one that runs later in stored order.
@@ -1638,6 +1657,11 @@ impl<T: Scalar> GroupedPlan<T> {
         let policy = widths.item_policy();
         let item_budget = NonZeroUsize::new(item_threads).unwrap_or(NonZeroUsize::MIN);
         exec.token().fork(lanes, |lane, token| {
+            let mut single_exec = if S::MAY_BATCH {
+                widths.single_context_from(workspace)
+            } else {
+                None
+            };
             let mut lane_exec = Exec::from_token(token.limit(item_budget), workspace, policy);
             let (lo, hi) = lane_range(lane);
             let mut lane_receipts: Vec<R> = Vec::new();
@@ -1662,7 +1686,12 @@ impl<T: Scalar> GroupedPlan<T> {
                     lane_cursor = start + out_len;
                     slice
                 };
-                match run(source.job_item(plans, lhs, rhs, d), &mut lane_exec) {
+                let item = source.job_item(plans, lhs, rhs, d);
+                let result = match &mut single_exec {
+                    Some(single) if !source.batched() => run(item, single),
+                    _ => run(item, &mut lane_exec),
+                };
+                match result {
                     Ok(receipt) => lane_receipts.push(receipt),
                     Err(error) => {
                         let mut slot = failure.lock().unwrap_or_else(|poison| poison.into_inner());
@@ -1702,8 +1731,9 @@ impl<T: Scalar> GroupedPlan<T> {
     /// lanes) nor the packed balanced-lanes rule (which adds a near-even
     /// restriction here absent) is this route's rule.
     ///
-    /// With batched strided runs (#78), `Auto` grants the items the part of
-    /// that width the lanes leave unused, under the child's own `Auto` policy:
+    /// With batched strided runs (#78), `Auto` grants the batched runs the part
+    /// of that width the lanes leave unused, under the child's own `Auto`
+    /// policy (single jobs keep the per-job route's serial context):
     /// a run is one item whose child spreads its batch axis itself (tcontract's
     /// packed driver claims batch entries on lanes), so one lane holding a long
     /// run would otherwise run it on one thread. The route then reports the
@@ -1780,14 +1810,35 @@ impl Widths {
         self.item_policy
             .unwrap_or_else(|| child_policy(self.item_threads))
     }
+
+    /// The context single jobs run on when the item grant is only for batched
+    /// runs (`Auto` with runs, #78): the serial context the per-job route gives
+    /// them, so a job outside every run executes exactly as on that route.
+    /// `None` otherwise: every item then shares the item context.
+    fn single_context<'w>(&self, exec: &Exec<'w>) -> Option<Exec<'w>> {
+        self.single_context_from(exec.workspace())
+    }
+
+    fn single_context_from<'w>(
+        &self,
+        workspace: Option<&'w dyn tcontract_exec::WorkspaceProvider>,
+    ) -> Option<Exec<'w>> {
+        (self.item_policy.is_some() && self.item_threads > 1)
+            .then(|| workspace.map_or(Exec::serial(), Exec::serial_with_workspace))
+    }
 }
 
 /// Where the item loops read their items from: the prepared jobs themselves
 /// (the per-job route, read exactly as before #78) or the item list with
 /// batched runs.
 trait ItemSource: Sync {
+    /// Whether this source can hold batched runs; `false` compiles the
+    /// single-job context out of the per-job loops.
+    const MAY_BATCH: bool;
     /// The original job id an error names.
     fn id(&self) -> usize;
+    /// Whether the item is a batched run.
+    fn batched(&self) -> bool;
     /// The item's output `(start, len)` in the shared output buffer.
     fn out_range(&self) -> (usize, usize);
     /// The child's view of the item: its windows of the shared inputs, the
@@ -1802,9 +1853,16 @@ trait ItemSource: Sync {
 }
 
 impl ItemSource for PreparedJob {
+    const MAY_BATCH: bool = false;
+
     #[inline(always)]
     fn id(&self) -> usize {
         self.meta.id
+    }
+
+    #[inline(always)]
+    fn batched(&self) -> bool {
+        false
     }
 
     #[inline(always)]
@@ -1832,9 +1890,16 @@ impl ItemSource for PreparedJob {
 }
 
 impl ItemSource for Item {
+    const MAY_BATCH: bool = true;
+
     #[inline(always)]
     fn id(&self) -> usize {
         self.id
+    }
+
+    #[inline(always)]
+    fn batched(&self) -> bool {
+        self.batched
     }
 
     #[inline(always)]
@@ -2002,9 +2067,13 @@ fn batched_runs(
         if run.len < 2 || first.rows == 0 || first.cols == 0 {
             return false;
         }
-        // Output strides are positive, so the run's outputs ascend from its
-        // first job to its last; exclusive when exactly its own jobs start in
-        // that range.
+        // Output strides are positive (a `GemmRun` invariant), so the run's
+        // outputs ascend from its first job to its last; exclusive when exactly
+        // its own jobs start in that range.
+        debug_assert!(
+            run.stride[2] > 0,
+            "a strided run's output stride is positive"
+        );
         let lo = first.out_offset;
         let hi = jobs[run.first + run.len - 1].out_offset;
         let inside = nonempty.partition_point(|job| job.meta.out_offset <= hi)
@@ -2091,6 +2160,7 @@ fn plan_runs(
             lhs: Window::run(first.lhs_offset, job.meta.lhs_len, run.stride[0], run.len),
             rhs: Window::run(first.rhs_offset, job.meta.rhs_len, run.stride[1], run.len),
             out: Window::run(first.out_offset, job.meta.out_len, run.stride[2], run.len),
+            batched: true,
         });
         skip = run.len - 1;
     }
