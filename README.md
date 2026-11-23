@@ -81,6 +81,13 @@ geometries can supply those children from their own cache with
 itself keeps no cache across calls (cpueinsum-rs#79). Supplied plans are
 checked against their key before anything runs.
 
+`GroupedOptions::with_strided_runs` (opt-in, cpueinsum-rs#78) executes each
+maximal run of same-shape jobs whose three offsets advance by constant strides
+as one tcontract problem with a batch label, instead of one child per job; jobs
+outside such a run keep the per-job route. On Zen 5 it wins for small jobs at
+one thread and up to 16³ at eight, and loses at 32³ on eight threads (see the
+[measurements](docs/worklogs/2026-11-23-strided-runs.md)).
+
 The shared-input overwrite/accumulation example lives in
 [`GroupedPlan`'s executable rustdoc](crates/cpueinsum/src/grouped.rs), checked
 with `cargo test -p cpueinsum --doc`; there is no duplicate snippet to drift.
