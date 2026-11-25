@@ -20,7 +20,9 @@
 //! equal-share placement at the lane cap scored like every other count (symtn
 //! fills it by serial time); no process-global cache, no grant-key
 //! representatives and no lower-bound pruning (the caller caches the result per
-//! grouped plan instead); and every candidate must pass [`within_bound`].
+//! grouped plan and memoises grants and item times per child plan instead);
+//! when no job's child widens on every slot the baseline is returned without
+//! a search; and every candidate must pass [`within_bound`].
 //!
 //! # Model
 //!
@@ -205,6 +207,13 @@ pub(super) fn place(
     );
     compact(placement, count);
     debug_assert!(within_bound(placement, model, times));
+    // No child widens even on every slot: a grant never grows as its lane
+    // narrows, so every job's item time is its serial time on every lane and
+    // the baseline is kept without a search (a deliberate rule, not a proof
+    // that no smaller lane count could tie or win under list scheduling).
+    if (0..jobs).all(|j| model.grant(j, slots) <= 1) {
+        return;
+    }
     // Ties keep the larger lane count.
     candidate.lane_of.clear();
     candidate.lane_of.resize(jobs, 0);

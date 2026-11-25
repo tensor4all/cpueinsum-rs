@@ -2081,6 +2081,9 @@ struct LaneCache {
     /// Each child plan's grant at every width `1..=slots`, plan-major; zero
     /// until asked.
     grants: Vec<Cell<usize>>,
+    /// Each child plan's modeled item time at every width `1..=slots`,
+    /// plan-major; `Duration::MAX` until asked.
+    items: Vec<Cell<Duration>>,
     /// The dispatch cost at every width `0..=slots` (zero below two).
     dispatch: Vec<Duration>,
     placement: Placement,
@@ -2155,6 +2158,11 @@ impl LaneCache {
         self.grants.clear();
         self.grants
             .resize_with(plan.meta.children.len() * slots, || Cell::new(0));
+        self.items.clear();
+        self.items
+            .resize_with(plan.meta.children.len() * slots, || {
+                Cell::new(Duration::MAX)
+            });
         let model = JobModel {
             jobs: &plan.meta.jobs,
             plans: &plan.plans,
@@ -2163,6 +2171,7 @@ impl LaneCache {
             slots,
             serial: &self.serial,
             grants: &self.grants,
+            items: &self.items,
             dispatch: &self.dispatch,
         };
         placement::place(
@@ -2188,6 +2197,7 @@ struct JobModel<'a, 'e, T: Scalar> {
     slots: usize,
     serial: &'a [Duration],
     grants: &'a [Cell<usize>],
+    items: &'a [Cell<Duration>],
     dispatch: &'a [Duration],
 }
 
@@ -2221,6 +2231,25 @@ impl<T: Scalar> placement::Model for JobModel<'_, '_, T> {
 
     fn dispatch(&self, width: usize) -> Duration {
         self.dispatch.get(width).copied().unwrap_or(Duration::ZERO)
+    }
+
+    /// The trait's item time, memoised per child plan and width: jobs that
+    /// share a geometry share it, and the search asks for it many times.
+    fn item(&self, j: usize, width: usize) -> Duration {
+        let width = width.clamp(1, self.slots);
+        let p = self.jobs[j].plan as usize;
+        let cell = &self.items[p * self.slots + width - 1];
+        if cell.get() == Duration::MAX {
+            let granted = self.grant(j, width);
+            let time = placement::item_time(self.serial(j), granted, self.dispatch(granted));
+            // A saturated time stays unmemoised rather than colliding with the
+            // sentinel.
+            if time != Duration::MAX {
+                cell.set(time);
+            }
+            return time;
+        }
+        cell.get()
     }
 }
 
