@@ -6,10 +6,12 @@
 //! The caller lends flat input and output buffers at execution time; no
 //! pointers or executors are retained by the plan.
 
+use core::cell::Cell;
 use core::hash::{Hash, Hasher};
 use core::mem::MaybeUninit;
+use core::time::Duration;
 use std::num::NonZeroUsize;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, TryLockError};
 
 use tcontract::api::{CSpec, DType, Labels, LayoutSpec, Op, OperandSpec, Problem};
 use tcontract::ns_per_flop;
@@ -23,6 +25,9 @@ use t4a_desc::gemm::{GemmBatch, GemmJob, GemmOps, GemmRun, Trans};
 use t4a_desc::ScalarKind;
 
 use crate::{Error, Result, Scalar};
+
+mod placement;
+use placement::{PlaceScratch, Placement};
 
 /// One compact column-major matrix multiplication in a grouped execution.
 ///
@@ -169,17 +174,32 @@ const GROUPED_SECTIONS: u32 = 1;
 ///
 /// The route is resolved from the caller's [`Exec`] batch policy before any
 /// write: `Auto` takes the token's `width_for` decision, and a forced strategy
-/// is honored or refused up front. [`GroupedRoute::Outer`], `Inner` and `Split`
-/// report how many outer lanes ran and how many threads each item was granted.
+/// is honored or refused up front. [`GroupedRoute::Outer`], `Inner`, `Split`
+/// and `Placed` report how many outer lanes ran and how many threads each item
+/// was granted.
 ///
-/// Without batched strided runs, and under every forced strategy, a granted
-/// item width is also the width that runs: the item's child is forced to
-/// [`BatchStrategy::Inner`]. With batched strided runs under `Auto`
+/// Under `Auto` without batched strided runs, the per-job route places the
+/// jobs by estimated work (cpueinsum-rs#80): longest first, on at most as many
+/// job-holding lanes as the `width_for` decision and the job count allow, each
+/// lane with its own width, so a job holding most of the work can get most of
+/// the threads. A one-thread lane runs its jobs as the historical `Outer` lane
+/// does; a wider lane hands each job's child its width under the caller's
+/// `Auto` policy, so the child may use fewer threads than its lane
+/// ([`tcontract::Plan::execution_width`]). The placement is deterministic for a
+/// fixed job list and context. A lane only decides which threads run a job and
+/// how many: each job is still computed by its own child plan into its own
+/// output slice, in the child's accumulation order, which for tcontract's Faer
+/// and packed GEMM children does not depend on the width (checked bit for bit
+/// against the serial route in `tests/grouped_placement.rs`).
+///
+/// Under every forced strategy, a granted item width is also the width that
+/// runs: the item's child is forced to [`BatchStrategy::Inner`]. With batched
+/// strided runs under `Auto`
 /// ([`GroupedOptions::with_strided_runs`]), each batched run is granted the
 /// width the lanes leave unused and its child plans within that grant under its
 /// own `Auto` policy (a run spreads its batch axis itself), so it may use fewer
-/// threads than reported; jobs outside every run keep one thread, exactly as on
-/// the per-job route.
+/// threads than reported; jobs outside every run keep one thread, as the
+/// historical `Outer` lanes do.
 ///
 /// # Examples
 ///
@@ -206,6 +226,17 @@ pub enum GroupedRoute {
         lanes: usize,
         /// Threads granted to each item.
         item_threads: usize,
+    },
+    /// Jobs were placed on `lanes` lanes of uneven widths by their estimated
+    /// work (cpueinsum-rs#80), the widest `widest` threads; each job's child
+    /// plans within its lane's width under the caller's `Auto` policy, so it
+    /// may use fewer threads. Equal widths report [`GroupedRoute::Split`],
+    /// [`GroupedRoute::Outer`] or [`GroupedRoute::Inner`] instead.
+    Placed {
+        /// Number of lanes that hold jobs.
+        lanes: usize,
+        /// Threads of the widest lane.
+        widest: usize,
     },
 }
 
@@ -723,6 +754,9 @@ impl PreparedGroupedJobs {
 pub struct GroupedPlan<T: Scalar> {
     meta: PreparedGroupedJobs,
     plans: Vec<Arc<Plan<T>>>,
+    /// The per-job route's last `Auto` placement and its working tables, so a
+    /// warm call on the same context places nothing and allocates nothing.
+    lanes: Mutex<LaneCache>,
 }
 
 impl<T: Scalar> GroupedPlan<T> {
@@ -1154,6 +1188,7 @@ impl<T: Scalar> GroupedPlan<T> {
         Ok(Self {
             meta: prepared,
             plans,
+            lanes: Mutex::new(LaneCache::default()),
         })
     }
 
@@ -1189,8 +1224,8 @@ impl<T: Scalar> GroupedPlan<T> {
     /// `output` storage contract, folded field by field with a maximum.
     ///
     /// This is a conservative bound on the outer `exec`; each job also runs on
-    /// the child context [`GroupedPlan::execute_into`] derives (one thread per
-    /// item under `Auto` without batched strided runs; the granted item width
+    /// the child context [`GroupedPlan::execute_into`] derives (its lane's width
+    /// under `Auto` without batched strided runs; the granted item width
     /// otherwise, see [`GroupedRoute`]), so callers that size a
     /// [`Workspace`](tcontract_exec::Workspace) directly should use the item
     /// width the chosen policy grants. See
@@ -1362,8 +1397,9 @@ impl<T: Scalar> GroupedPlan<T> {
         // One publication: the lower helper proves the jobs' receipts cover the
         // storage, then hands out the initialized whole slice on success only.
         execute_uninit_with(out, |storage| {
+            let call = (alpha, OutputContract::Fresh);
             let (route, receipts) =
-                self.run_items(exec, widths, lhs, rhs, storage, |item, exec| {
+                self.run_items(exec, widths, call, lhs, rhs, storage, |item, exec| {
                     run_item_uninit(item, exec, alpha, beta, source)
                 })?;
             Ok((receipts, route))
@@ -1400,19 +1436,24 @@ impl<T: Scalar> GroupedPlan<T> {
         } else {
             SliceAccumulationSource::Absent
         };
-        let (route, _receipts) = self.run_items(exec, widths, lhs, rhs, out, |item, exec| {
-            run_item(item, exec, alpha, beta, source)
-        })?;
+        let call = (alpha, OutputContract::Initialized);
+        let (route, _receipts) =
+            self.run_items(exec, widths, call, lhs, rhs, out, |item, exec| {
+                run_item(item, exec, alpha, beta, source)
+            })?;
         Ok(route)
     }
 
     /// Dispatch once between the job list (no batched run: every job is its own
     /// item, exactly the per-job route) and the item list (#78), so the item
-    /// loops are specialised and carry no per-item branch.
+    /// loops are specialised and carry no per-item branch. A placed call (#80)
+    /// runs the jobs on the lanes of its work-weighted placement.
+    #[allow(clippy::too_many_arguments)]
     fn run_items<'d, D, R, F>(
         &self,
         exec: &mut Exec<'_>,
         widths: Widths,
+        call: (T, OutputContract),
         lhs: &[T],
         rhs: &[T],
         out: &'d mut [D],
@@ -1423,6 +1464,9 @@ impl<T: Scalar> GroupedPlan<T> {
         R: Send,
         F: Fn(JobItem<'_, 'd, T, D>, &mut Exec<'_>) -> Result<R> + Sync,
     {
+        if let Some(slots) = widths.placed {
+            return self.run_placed(exec, (slots, widths.lanes), call, lhs, rhs, out, run);
+        }
         if self.meta.items.is_empty() {
             self.run_lanes(&self.meta.jobs[..], exec, widths, lhs, rhs, out, run)
         } else {
@@ -1722,6 +1766,173 @@ impl<T: Scalar> GroupedPlan<T> {
         }
     }
 
+    /// Run the per-job route on its work-weighted placement over `slots`
+    /// threads, at most `cap` lanes holding jobs (cpueinsum-rs#80).
+    ///
+    /// Each lane is one [`fork_sized`](threadteam::Exec::fork_sized) child of
+    /// exactly its share. A one-slot lane runs its jobs exactly as a lane of
+    /// the historical `Outer` route does (a one-thread token, the default
+    /// policy); a wider lane hands its token and the caller's `Auto` policy to
+    /// each job's child, which takes [`Plan::execution_width`] of it. A lane
+    /// runs its jobs in ascending stored order, and every job writes only its
+    /// own disjoint output slice, so the placement changes which thread
+    /// computes a job and with how many threads, never what any other job
+    /// reads or writes.
+    ///
+    /// The placement is cached in the plan for the context it was computed on;
+    /// a call that finds the cache busy (a concurrent call on the same plan)
+    /// places into tables of its own, which allocates.
+    #[allow(clippy::too_many_arguments)]
+    fn run_placed<'d, D, R, F>(
+        &self,
+        exec: &mut Exec<'_>,
+        (slots, cap): (usize, usize),
+        (alpha, contract): (T, OutputContract),
+        lhs: &[T],
+        rhs: &[T],
+        out: &'d mut [D],
+        run: F,
+    ) -> Result<(GroupedRoute, Vec<R>)>
+    where
+        D: Send,
+        R: Send,
+        F: Fn(JobItem<'_, 'd, T, D>, &mut Exec<'_>) -> Result<R> + Sync,
+    {
+        let jobs = &self.meta.jobs[..];
+        if jobs.is_empty() {
+            return Ok((GroupedRoute::Empty, Vec::new()));
+        }
+        let mut local;
+        let mut guard;
+        let cache: &mut LaneCache = match self.lanes.try_lock() {
+            Ok(held) => {
+                guard = held;
+                &mut guard
+            }
+            Err(TryLockError::Poisoned(poison)) => {
+                guard = poison.into_inner();
+                &mut guard
+            }
+            Err(TryLockError::WouldBlock) => {
+                local = LaneCache::default();
+                &mut local
+            }
+        };
+        cache.update(self, exec, (slots, cap), alpha, contract);
+        let LaneCache {
+            placement,
+            filed: parked_filed,
+            parts: parked_parts,
+            ..
+        } = cache;
+        let placement = &*placement;
+        let policy = *exec.batch_policy();
+        if placement.lanes() == 1 {
+            // One lane of every slot: the jobs in stored order on one context
+            // of that width, under the caller's policy.
+            let share = placement.shares()[0];
+            let widths = Widths {
+                item_policy: Some(policy),
+                ..Widths::new(1, share)
+            };
+            return self.run_lanes(jobs, exec, widths, lhs, rhs, out, run);
+        }
+        let route = placed_route(placement.shares());
+        let plans = &self.plans[..];
+        let workspace = exec.workspace();
+        let lane_policy = |share: usize| {
+            if share > 1 {
+                policy
+            } else {
+                BatchPolicy::default()
+            }
+        };
+
+        // Every job's own output slice, carved in stored order and filed at its
+        // position in lane order. Empty jobs sort last and borrow an empty
+        // front, as in `run_lanes`.
+        let mut filed: Vec<Option<&'d mut [D]>> = recycle(core::mem::take(parked_filed));
+        filed.resize_with(jobs.len(), || None);
+        let mut remaining: &'d mut [D] = out;
+        let mut cursor = 0usize;
+        for (i, job) in jobs.iter().enumerate() {
+            let (out_start, out_len) = job.out_range();
+            let current = core::mem::take(&mut remaining);
+            let d = if out_len == 0 {
+                let (slice, tail) = current.split_at_mut(0);
+                remaining = tail;
+                slice
+            } else {
+                let (_, rest) = current.split_at_mut(out_start - cursor);
+                let (slice, tail) = rest.split_at_mut(out_len);
+                remaining = tail;
+                cursor = out_start + out_len;
+                slice
+            };
+            filed[placement.position(i)] = Some(d);
+        }
+        let mut lanes: Vec<&mut [Option<&'d mut [D]>]> = recycle(core::mem::take(parked_parts));
+        lanes.reserve_exact(placement.lanes());
+        let mut rest = &mut filed[..];
+        for lane in 0..placement.lanes() {
+            let (mine, tail) = core::mem::take(&mut rest).split_at_mut(placement.jobs(lane).len());
+            lanes.push(mine);
+            rest = tail;
+        }
+        let failure: Mutex<Option<(usize, Error)>> = Mutex::new(None);
+        let receipts: Mutex<Vec<R>> = Mutex::new(Vec::new());
+        let forked =
+            exec.token()
+                .fork_sized_slots(placement.shares(), &mut lanes, |lane, filed, token| {
+                    let share = placement.shares()[lane];
+                    let mut lane_exec = Exec::from_token(token, workspace, lane_policy(share));
+                    let mut lane_receipts: Vec<R> = Vec::new();
+                    for (&i, d) in placement.jobs(lane).iter().zip(filed.iter_mut()) {
+                        let Some(d) = d.take() else { continue };
+                        let source = &jobs[i];
+                        let item = source.job_item(plans, lhs, rhs, d);
+                        match run(item, &mut lane_exec) {
+                            Ok(receipt) => lane_receipts.push(receipt),
+                            Err(error) => {
+                                let mut slot =
+                                    failure.lock().unwrap_or_else(|poison| poison.into_inner());
+                                keep_lowest(&mut slot, source.id(), error);
+                            }
+                        }
+                    }
+                    if !lane_receipts.is_empty() {
+                        receipts
+                            .lock()
+                            .unwrap_or_else(|poison| poison.into_inner())
+                            .append(&mut lane_receipts);
+                    }
+                });
+        *parked_parts = recycle(lanes);
+        *parked_filed = recycle(filed);
+        if let Err(source) = forked {
+            // INVARIANT: unreachable in practice: the shares are nonzero, one per
+            // lane, and sum to at most `slots <= exec.budget()`. Reported before
+            // any job ran, against the lowest job id.
+            let step = jobs.iter().map(|job| job.meta.id).min().unwrap_or(0);
+            return Err(Error::Contract {
+                step,
+                source: tcontract_exec::ExecError::from(source).into(),
+            });
+        }
+        match failure
+            .into_inner()
+            .unwrap_or_else(|poison| poison.into_inner())
+        {
+            Some((_, error)) => Err(error),
+            None => Ok((
+                route,
+                receipts
+                    .into_inner()
+                    .unwrap_or_else(|poison| poison.into_inner()),
+            )),
+        }
+    }
+
     /// Resolve `(lanes, item_threads)` from the caller's batch policy.
     ///
     /// `Auto` is the width the total estimated work pays for under the token's
@@ -1738,7 +1949,9 @@ impl<T: Scalar> GroupedPlan<T> {
     /// packed driver claims batch entries on lanes), so one lane holding a long
     /// run would otherwise run it on one thread. The route then reports the
     /// granted item width; the child may use fewer threads. Without batched
-    /// runs, `Auto` items stay serial as before.
+    /// runs, `Auto` places the jobs by estimated work over `width` threads
+    /// (`Widths::placed`, #80, see `run_placed`), with `lanes` the cap on
+    /// job-holding lanes.
     ///
     /// Every forced strategy goes through [`Exec::batch_decision`] on the
     /// original host budget, which clamps but never falls back.
@@ -1752,12 +1965,19 @@ impl<T: Scalar> GroupedPlan<T> {
                 .max(1);
             let lanes = width.min(self.meta.item_count()).max(1);
             if self.meta.runs.is_empty() {
-                return Ok(Widths::new(lanes, 1));
+                // The per-job route places its jobs by estimated work on lanes
+                // of their own widths (#80) whenever the call pays for a second
+                // thread; `lanes` stays the cap on job-holding lanes.
+                return Ok(Widths {
+                    placed: (width > 1).then_some(width),
+                    ..Widths::new(lanes, 1)
+                });
             }
             return Ok(Widths {
                 lanes,
                 item_threads: (width / lanes).max(1),
                 item_policy: Some(BatchPolicy::default()),
+                placed: None,
             });
         }
         let query = BatchQuery::new(self.meta.item_count(), self.meta.max_item_work as f64)
@@ -1794,6 +2014,10 @@ struct Widths {
     /// `None` is the historical item policy, [`child_policy`], built only where
     /// a child context needs it (a default policy reads the host model).
     item_policy: Option<BatchPolicy>,
+    /// `Some(slots)` when the per-job route places its jobs by estimated work
+    /// on `slots` threads (`Auto`, no batched run, #80); `lanes` is then the
+    /// cap on job-holding lanes and `item_threads` is unused.
+    placed: Option<usize>,
 }
 
 impl Widths {
@@ -1803,6 +2027,7 @@ impl Widths {
             lanes,
             item_threads,
             item_policy: None,
+            placed: None,
         }
     }
 
@@ -1825,6 +2050,203 @@ impl Widths {
     ) -> Option<Exec<'w>> {
         (self.item_policy.is_some() && self.item_threads > 1)
             .then(|| workspace.map_or(Exec::serial(), Exec::serial_with_workspace))
+    }
+}
+
+/// Everything a per-job placement reads from the call besides the dispatch
+/// costs, which [`LaneCache`] keeps as a row.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct LaneKey {
+    budget: usize,
+    slots: usize,
+    cap: usize,
+    policy: BatchPolicy,
+    team: bool,
+    /// A zero `alpha` makes every child output-only (no width).
+    alpha_zero: bool,
+    contract: OutputContract,
+}
+
+/// The per-job route's placement (#80) for the last context it was computed
+/// on, with the tables that computed it. Every input of the placement is in
+/// the key or the dispatch-cost row, so a hit is the placement a fresh search
+/// would return; a hit reads the row once and allocates nothing.
+#[derive(Debug, Default)]
+struct LaneCache {
+    key: Option<LaneKey>,
+    /// The token's dispatch cost at every width `2..=budget`.
+    costs: Vec<Duration>,
+    /// Each child plan's serial time.
+    serial: Vec<Duration>,
+    /// Each child plan's grant at every width `1..=slots`, plan-major; zero
+    /// until asked.
+    grants: Vec<Cell<usize>>,
+    /// The dispatch cost at every width `0..=slots` (zero below two).
+    dispatch: Vec<Duration>,
+    placement: Placement,
+    scratch: PlaceScratch,
+    /// The parked allocations of a placed call's two lane tables (each job's
+    /// output slice in lane order, and each lane's part of it), emptied and
+    /// re-typed by [`recycle`] so a warm call allocates neither.
+    filed: Vec<Option<&'static mut [u8]>>,
+    parts: Vec<Option<&'static mut [u8]>>,
+}
+
+/// `vec`'s allocation, emptied, for elements of another lifetime or type of
+/// the same layout. Ported from symtn-rs `symtn-dense/src/lanes/runner.rs`
+/// (`recycle`, commit `09a3ebb`).
+///
+/// Why not a transmute: this crate has no `unsafe`. std collects a mapped
+/// `vec::IntoIter` in place when the layouts match; that is an optimization,
+/// not a documented guarantee, so `tests/alloc_placed.rs` pins it (a
+/// regression would reallocate, never misbehave).
+fn recycle<A, B>(mut vec: Vec<A>) -> Vec<B> {
+    vec.clear();
+    vec.into_iter()
+        .map(|_| unreachable!("the vector was emptied"))
+        .collect()
+}
+
+impl LaneCache {
+    /// Make `self.placement` the placement of `plan`'s jobs for this call.
+    fn update<T: Scalar>(
+        &mut self,
+        plan: &GroupedPlan<T>,
+        exec: &Exec<'_>,
+        (slots, cap): (usize, usize),
+        alpha: T,
+        contract: OutputContract,
+    ) {
+        let token = exec.token_ref();
+        let cost = |width: usize| {
+            token.dispatch_cost(NonZeroUsize::new(width).unwrap_or(NonZeroUsize::MIN))
+        };
+        let key = LaneKey {
+            budget: exec.budget(),
+            slots,
+            cap,
+            policy: *exec.batch_policy(),
+            team: token.carries_team(),
+            alpha_zero: alpha == T::default(),
+            contract,
+        };
+        if self.key == Some(key)
+            && self.costs.len() + 1 == key.budget
+            && self.costs.iter().zip(2..).all(|(&c, w)| c == cost(w))
+        {
+            return;
+        }
+        #[cfg(test)]
+        tests::PLACEMENTS.with(|count| count.set(count.get() + 1));
+        self.costs.clear();
+        self.costs.extend((2..=key.budget).map(cost));
+        // The serial time `lane_decision` sums for the whole call, per child.
+        let scale = 2.0 * ns_per_flop() * if T::IS_COMPLEX { 4.0 } else { 1.0 };
+        self.serial.clear();
+        self.serial.extend(
+            plan.meta
+                .children
+                .iter()
+                .map(|g| ns_duration(g.rows as f64 * g.contracted as f64 * g.cols as f64 * scale)),
+        );
+        self.dispatch.clear();
+        self.dispatch.extend([Duration::ZERO; 2]);
+        self.dispatch.extend((2..=slots).map(cost));
+        self.grants.clear();
+        self.grants
+            .resize_with(plan.meta.children.len() * slots, || Cell::new(0));
+        let model = JobModel {
+            jobs: &plan.meta.jobs,
+            plans: &plan.plans,
+            exec,
+            call: (alpha, contract),
+            slots,
+            serial: &self.serial,
+            grants: &self.grants,
+            dispatch: &self.dispatch,
+        };
+        placement::place(
+            slots,
+            cap,
+            plan.meta.jobs.len(),
+            &model,
+            &mut self.placement,
+            &mut self.scratch,
+        );
+        self.key = Some(key);
+    }
+}
+
+/// The placement's view of a grouped plan's jobs on one context: the serial
+/// time and the grant are per child plan, so jobs sharing a geometry share
+/// them.
+struct JobModel<'a, 'e, T: Scalar> {
+    jobs: &'a [PreparedJob],
+    plans: &'a [Arc<Plan<T>>],
+    exec: &'a Exec<'e>,
+    call: (T, OutputContract),
+    slots: usize,
+    serial: &'a [Duration],
+    grants: &'a [Cell<usize>],
+    dispatch: &'a [Duration],
+}
+
+impl<T: Scalar> placement::Model for JobModel<'_, '_, T> {
+    fn serial(&self, j: usize) -> Duration {
+        self.serial[self.jobs[j].plan as usize]
+    }
+
+    /// tcontract's own answer for the lane: [`Plan::execution_width`] on
+    /// `width` slots of the call's context (for a Faer child, the argmin of
+    /// its `t4a-cost` item time fitted for this host class). A route that
+    /// publishes no width, or a refusal, counts as one thread.
+    fn grant(&self, j: usize, width: usize) -> usize {
+        let width = width.clamp(1, self.slots);
+        if width == 1 {
+            return 1;
+        }
+        let p = self.jobs[j].plan as usize;
+        let cell = &self.grants[p * self.slots + width - 1];
+        if cell.get() == 0 {
+            let (alpha, contract) = self.call;
+            let granted = self.plans[p]
+                .execution_width(self.exec, width, alpha, contract)
+                .ok()
+                .flatten()
+                .map_or(1, NonZeroUsize::get);
+            cell.set(granted.clamp(1, width));
+        }
+        cell.get()
+    }
+
+    fn dispatch(&self, width: usize) -> Duration {
+        self.dispatch.get(width).copied().unwrap_or(Duration::ZERO)
+    }
+}
+
+/// A non-negative estimate in nanoseconds as a `Duration` (tcontract-exec's
+/// conversion): NaN and negative values are zero, and a huge value saturates.
+fn ns_duration(ns: f64) -> Duration {
+    if ns.is_nan() || ns <= 0.0 {
+        Duration::ZERO
+    } else if ns >= 1e18 {
+        Duration::from_secs(u64::MAX / 4)
+    } else {
+        Duration::from_secs_f64(ns * 1e-9)
+    }
+}
+
+/// The route a placement's lane shares describe: equal shares keep the
+/// historical names, uneven ones are [`GroupedRoute::Placed`].
+fn placed_route(shares: &[usize]) -> GroupedRoute {
+    let widest = shares.iter().copied().max().unwrap_or(1);
+    if shares.iter().all(|&share| share == widest) {
+        grouped_route(shares.len(), widest)
+    } else {
+        GroupedRoute::Placed {
+            lanes: shares.len(),
+            widest,
+        }
     }
 }
 

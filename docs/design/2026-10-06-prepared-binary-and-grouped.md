@@ -228,6 +228,9 @@ Execution:
    (`Exec::width_for`, one section) rather than adding thresholds. Clamp lanes to number of jobs. Children
    always run serially with the outer workspace; there is no inner fan-out or
    SPMD child and no resource-dependent failure after a different job writes.
+   *Superseded for `Auto` by cpueinsum-rs#80 (2026-11-25): the jobs are placed by
+   estimated work on lanes of their own widths, and a child on a wider lane runs
+   within that width; see `docs/worklogs/2026-11-25-work-weighted-placement.md`.*
 3. Split the D buffer safely with split_at_mut in prepared offset order,
    preserving holes and unique mutable slices. Build borrow-only job items
    before dispatch; inputs are shared immutable slices.
