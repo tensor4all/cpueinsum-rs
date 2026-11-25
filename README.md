@@ -63,10 +63,15 @@ algorithm. Neither binary nor grouped plans retain executors or data buffers.
 [`GroupedPlan`](crates/cpueinsum/src/grouped.rs) prepares heterogeneous compact
 column-major jobs over shared flat buffers. It checks every job before writing,
 rejects overlapping output ranges, and resolves its scheduler from the caller's
-`Exec` batch policy: `Auto` keeps the historical lane decision, a forced
-`Sequential`/`Outer`/`Inner`/`Split` is honored (clamped to the items and the
-budget, never silently downgraded).
-Children run with the decided item width. `execute_into`/`execute_into_accum`
+`Exec` batch policy: `Auto` keeps the historical width decision (`width_for`
+over the call's estimated work) and places the jobs by estimated work on lanes
+of their own widths, longest first, so a job holding most of the work gets most
+of the threads (`GroupedRoute::Placed`, cpueinsum-rs#80; ported from symtn's
+lane placement, see the [worklog](docs/worklogs/2026-11-25-work-weighted-placement.md));
+a forced `Sequential`/`Outer`/`Inner`/`Split` is honored (clamped to the items
+and the budget, never silently downgraded).
+Children run with the decided item width (under `Auto`, within their lane's
+width). `execute_into`/`execute_into_accum`
 take an initialized output and leave holes unchanged;
 [`execute_uninit`](crates/cpueinsum/src/grouped.rs) instead takes
 `&mut [MaybeUninit<T>]`, requires `beta = 0` and exact coverage of the whole
@@ -94,10 +99,12 @@ with `cargo test -p cpueinsum --doc`; there is no duplicate snippet to drift.
 
 See the [design and boundary constraints](docs/design/2026-10-06-prepared-binary-and-grouped.md).
 Grouped dispatch allocates no per-job metadata: the serial route drives the jobs
-by index and the parallel route gives each lane a contiguous job range with its
-own output chunk. A `tests/alloc_free.rs` gate holds zero Rust-owned allocations
-on the warmed serial steady state, and the parallel bound is parameterized by
-the decided lane count, never by the batch size.
+by index, a forced parallel route gives each lane a contiguous job range with its
+own output chunk, and the `Auto` placement keeps its placement and lane tables in
+the plan. A `tests/alloc_free.rs` gate holds zero Rust-owned allocations
+on the warmed serial steady state, `tests/alloc_placed.rs` holds zero on a warm
+placed call whose lanes are one thread wide, and the parallel bound is
+parameterized by the decided lane count, never by the batch size.
 
 ## BLAS
 

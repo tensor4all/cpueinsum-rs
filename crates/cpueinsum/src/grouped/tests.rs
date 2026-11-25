@@ -4,6 +4,7 @@ use std::cell::Cell;
 thread_local! {
     pub(super) static PLAN_CONSTRUCTIONS: Cell<usize> = const { Cell::new(0) };
     pub(super) static BOUNDS_VISITS: Cell<usize> = const { Cell::new(0) };
+    pub(super) static PLACEMENTS: Cell<usize> = const { Cell::new(0) };
 }
 
 fn bounds(job: usize) -> Error {
@@ -274,14 +275,21 @@ fn a_forced_run_grant_keeps_single_jobs_serial_in_both_loops() {
             lanes,
             item_threads: 2,
             item_policy: Some(BatchPolicy::default()),
+            placed: None,
         };
         assert!(widths.single_context(&Exec::serial()).is_some());
         let mut exec = Exec::new(&pool, 4).unwrap();
         let mut out = initial.clone();
         let (route, _) = routed
-            .run_items(&mut exec, widths, &lhs, &rhs, &mut out, |item, exec| {
-                run_item(item, exec, 0.7, 0.3, SliceAccumulationSource::Output)
-            })
+            .run_items(
+                &mut exec,
+                widths,
+                (0.7, OutputContract::Initialized),
+                &lhs,
+                &rhs,
+                &mut out,
+                |item, exec| run_item(item, exec, 0.7, 0.3, SliceAccumulationSource::Output),
+            )
             .unwrap();
         assert_eq!(route, grouped_route(lanes, 2));
         let bits = |v: &[f64]| {
@@ -295,4 +303,34 @@ fn a_forced_run_grant_keeps_single_jobs_serial_in_both_loops() {
             assert!((a - b).abs() <= 1e-12 * a.abs().max(1.0), "{lanes} lanes");
         }
     }
+}
+
+#[test]
+fn a_warm_call_reuses_its_placement_until_the_context_changes() {
+    // One dominant job and three small ones: wide enough that `Auto` places.
+    let jobs = [
+        GroupedGemmJob::new(0, 0, 0, 192, 192, 192),
+        GroupedGemmJob::new(0, 0, 192 * 192, 8, 8, 8),
+        GroupedGemmJob::new(0, 0, 192 * 192 + 64, 8, 8, 8),
+        GroupedGemmJob::new(0, 0, 192 * 192 + 128, 8, 8, 8),
+    ];
+    let plan = GroupedPlan::<f64>::new(&jobs, &PlanConfig::packed()).unwrap();
+    let (lhs, rhs) = (vec![1.0; 192 * 192], vec![1.0; 192 * 192]);
+    let mut out = vec![0.0; plan.required_out_len()];
+    let thread_pool = threadteam::Pool::builder().threads(4).build().unwrap();
+    let pool = crate::Pool::borrow(&thread_pool);
+    let placements = |exec: &mut Exec<'_>, out: &mut [f64], alpha: f64| {
+        PLACEMENTS.with(|count| count.set(0));
+        plan.execute_into(exec, alpha, &lhs, &rhs, out).unwrap();
+        PLACEMENTS.with(Cell::get)
+    };
+    let mut exec = Exec::new(&pool, 4).unwrap();
+    assert_eq!(placements(&mut exec, &mut out, 1.0), 1);
+    assert_eq!(placements(&mut exec, &mut out, 1.0), 0);
+    assert_eq!(placements(&mut exec, &mut out, 2.0), 0);
+    // A zero alpha makes every child output-only: another placement input.
+    assert_eq!(placements(&mut exec, &mut out, 0.0), 1);
+    let mut narrower = Exec::new(&pool, 3).unwrap();
+    assert_eq!(placements(&mut narrower, &mut out, 1.0), 1);
+    assert_eq!(placements(&mut narrower, &mut out, 1.0), 0);
 }

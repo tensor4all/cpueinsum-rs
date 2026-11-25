@@ -1,0 +1,127 @@
+# round=1 arm=native T=64 cores=0-63 load=7.71 2026-11-25T21:14:38+09:00
+1	native	gm-dom	F64	64	375.0	369.3	376.7	native
+1	native	gm-mix	F64	64	77.2	75.6	79.2	native
+1	native	c u1f	F64	64	1738.8	1701.8	1911.7	native
+1	native	heff u1 1024 L	F64	64	1972.7	1947.5	2003.1	native
+1	native	heff u1 1024 W1	F64	64	1148.3	1144.4	1162.8	native
+1	native	heff su2 1024 L	F64	64	118.4	114.4	127.0	native
+1	native	heff su2 1024 W1	F64	64	393.0	388.2	404.9	native
+1	native	heff su2 256 L	F64	64	30.6	28.4	32.2	native
+1	native	heff u1 256 L	F64	64	87.8	84.1	92.6	native
+1	native	heff u1 64 L	F64	64	27.2	25.5	27.9	native
+1	native	gm-dom	C64	64	1849.5	1771.3	2063.0	native
+1	native	gm-mix	C64	64	939.0	915.2	1301.3	native
+1	native	c u1f	C64	64	9051.5	8883.8	9452.1	native
+1	native	heff u1 1024 L	C64	64	9657.8	9550.9	10286.9	native
+1	native	heff u1 1024 W1	C64	64	3729.7	3655.5	3778.3	native
+1	native	heff su2 1024 L	C64	64	634.4	615.4	650.9	native
+1	native	heff su2 1024 W1	C64	64	698.8	697.2	705.6	native
+1	native	heff su2 256 L	C64	64	240.6	231.5	272.2	native
+1	native	heff u1 256 L	C64	64	767.6	737.3	780.7	native
+1	native	heff u1 64 L	C64	64	110.6	105.9	133.9	native
+# round=1 arm=base T=64 cores=0-63 load=20.43 2026-11-25T21:14:59+09:00
+1	base	gm-dom	F64	64	9964.1	9950.4	9999.8	Outer { lanes: 28 }	equal=true
+1	base	gm-mix	F64	64	1641.5	1624.7	1674.4	Outer { lanes: 10 }	equal=true
+1	base	c u1f	F64	64	33525.4	33500.6	33574.5	Outer { lanes: 5 }	equal=true
+1	base	heff u1 1024 L	F64	64	30327.0	30262.3	30535.3	Outer { lanes: 9 }	equal=true
+1	base	heff u1 1024 W1	F64	64	3477.5	3363.5	3620.4	Outer { lanes: 4 }	equal=true
+1	base	heff su2 1024 L	F64	64	1688.6	1604.4	2392.0	Outer { lanes: 5 }	equal=true
+1	base	heff su2 1024 W1	F64	64	960.5	959.1	968.3	Serial	equal=true
+1	base	heff su2 256 L	F64	64	78.7	78.4	82.9	Serial	equal=true
+1	base	heff u1 256 L	F64	64	923.1	832.1	1712.0	Outer { lanes: 7 }	equal=true
+1	base	heff u1 64 L	F64	64	40.7	40.5	40.9	Serial	equal=true
+1	base	gm-dom	C64	64	41479.6	41392.5	41603.8	Outer { lanes: 55 }	equal=true
+1	base	gm-mix	C64	64	5407.4	5310.8	5448.3	Outer { lanes: 21 }	equal=true
+1	base	c u1f	C64	64	138314.9	138034.6	138643.4	Outer { lanes: 5 }	equal=true
+1	base	heff u1 1024 L	C64	64	132893.8	132689.1	133158.3	Outer { lanes: 9 }	equal=true
+1	base	heff u1 1024 W1	C64	64	12985.0	12870.6	13091.3	Outer { lanes: 4 }	equal=true
+1	base	heff su2 1024 L	C64	64	7222.6	6949.1	7280.2	Outer { lanes: 5 }	equal=true
+1	base	heff su2 1024 W1	C64	64	2291.3	2284.6	2300.4	Serial	equal=true
+1	base	heff su2 256 L	C64	64	384.8	306.2	462.4	Outer { lanes: 4 }	equal=true
+1	base	heff u1 256 L	C64	64	2786.2	2771.2	2848.6	Outer { lanes: 7 }	equal=true
+1	base	heff u1 64 L	C64	64	145.7	145.1	148.8	Serial	equal=true
+# round=1 arm=cand T=64 cores=0-63 load=13.83 2026-11-25T21:15:26+09:00
+1	cand	gm-dom	F64	64	10213.1	10187.1	10291.8	Outer { lanes: 28 }	equal=true
+1	cand	gm-mix	F64	64	1660.4	1641.2	1678.0	Outer { lanes: 10 }	equal=true
+1	cand	c u1f	F64	64	33585.8	33536.7	33624.5	Placed { lanes: 5, widest: 13 }	equal=true
+1	cand	heff u1 1024 L	F64	64	30483.6	30451.9	30585.2	Placed { lanes: 9, widest: 8 }	equal=true
+1	cand	heff u1 1024 W1	F64	64	3464.3	3325.4	3547.0	Placed { lanes: 4, widest: 3 }	equal=true
+1	cand	heff su2 1024 L	F64	64	1622.5	1610.9	1657.8	Placed { lanes: 5, widest: 3 }	equal=true
+1	cand	heff su2 1024 W1	F64	64	957.4	955.7	961.1	Serial	equal=true
+1	cand	heff su2 256 L	F64	64	79.6	79.4	84.6	Serial	equal=true
+1	cand	heff u1 256 L	F64	64	824.4	780.6	1508.8	Placed { lanes: 7, widest: 2 }	equal=true
+1	cand	heff u1 64 L	F64	64	40.8	40.6	41.0	Serial	equal=true
+1	cand	gm-dom	C64	64	2600.7	2382.4	2819.7	Placed { lanes: 2, widest: 54 }	equal=true
+1	cand	gm-mix	C64	64	1084.4	994.0	1461.3	Placed { lanes: 3, widest: 19 }	equal=true
+1	cand	c u1f	C64	64	9180.0	7747.7	10140.5	Placed { lanes: 5, widest: 38 }	equal=true
+1	cand	heff u1 1024 L	C64	64	8618.7	8197.4	11809.6	Placed { lanes: 5, widest: 30 }	equal=true
+1	cand	heff u1 1024 W1	C64	64	12633.4	12499.4	12781.7	Placed { lanes: 3, widest: 8 }	equal=true
+1	cand	heff su2 1024 L	C64	64	1432.0	1153.5	1533.0	Placed { lanes: 3, widest: 19 }	equal=true
+1	cand	heff su2 1024 W1	C64	64	2301.7	2294.9	2308.8	Serial	equal=true
+1	cand	heff su2 256 L	C64	64	303.3	221.6	406.1	Placed { lanes: 4, widest: 2 }	equal=true
+1	cand	heff u1 256 L	C64	64	854.2	799.3	1032.6	Placed { lanes: 4, widest: 10 }	equal=true
+1	cand	heff u1 64 L	C64	64	145.9	145.6	149.6	Serial	equal=true
+# round=2 arm=native T=64 cores=0-63 load=11.15 2026-11-25T21:15:49+09:00
+2	native	gm-dom	F64	64	376.3	373.2	384.5	native
+2	native	gm-mix	F64	64	83.0	81.5	89.4	native
+2	native	c u1f	F64	64	1744.0	1726.2	1767.8	native
+2	native	heff u1 1024 L	F64	64	1960.2	1915.0	1999.5	native
+2	native	heff u1 1024 W1	F64	64	1139.4	1135.1	1144.3	native
+2	native	heff su2 1024 L	F64	64	118.0	113.5	122.9	native
+2	native	heff su2 1024 W1	F64	64	405.6	399.7	414.4	native
+2	native	heff su2 256 L	F64	64	32.4	30.8	37.1	native
+2	native	heff u1 256 L	F64	64	82.1	79.3	89.1	native
+2	native	heff u1 64 L	F64	64	26.8	25.4	36.1	native
+2	native	gm-dom	C64	64	1790.2	1736.9	1816.3	native
+2	native	gm-mix	C64	64	1223.6	1206.1	1244.0	native
+2	native	c u1f	C64	64	8962.7	8783.1	14324.7	native
+2	native	heff u1 1024 L	C64	64	9582.7	9544.3	9677.5	native
+2	native	heff u1 1024 W1	C64	64	3729.4	3690.4	3749.5	native
+2	native	heff su2 1024 L	C64	64	611.8	591.3	623.1	native
+2	native	heff su2 1024 W1	C64	64	683.9	676.8	701.9	native
+2	native	heff su2 256 L	C64	64	218.0	206.4	275.3	native
+2	native	heff u1 256 L	C64	64	620.5	597.2	643.1	native
+2	native	heff u1 64 L	C64	64	120.7	106.0	146.8	native
+# round=2 arm=base T=64 cores=0-63 load=25.23 2026-11-25T21:16:10+09:00
+2	base	gm-dom	F64	64	9986.6	9981.5	10065.3	Outer { lanes: 28 }	equal=true
+2	base	gm-mix	F64	64	1914.0	1894.6	1951.6	Outer { lanes: 10 }	equal=true
+2	base	c u1f	F64	64	33687.4	33663.1	33810.4	Outer { lanes: 5 }	equal=true
+2	base	heff u1 1024 L	F64	64	30276.5	30241.6	30315.9	Outer { lanes: 9 }	equal=true
+2	base	heff u1 1024 W1	F64	64	3450.6	3355.5	3661.0	Outer { lanes: 4 }	equal=true
+2	base	heff su2 1024 L	F64	64	1658.6	1586.3	1701.6	Outer { lanes: 5 }	equal=true
+2	base	heff su2 1024 W1	F64	64	956.9	953.8	960.8	Serial	equal=true
+2	base	heff su2 256 L	F64	64	78.6	78.4	82.2	Serial	equal=true
+2	base	heff u1 256 L	F64	64	692.9	662.4	1547.1	Outer { lanes: 7 }	equal=true
+2	base	heff u1 64 L	F64	64	40.1	39.9	43.6	Serial	equal=true
+2	base	gm-dom	C64	64	41147.2	41040.3	41296.5	Outer { lanes: 55 }	equal=true
+2	base	gm-mix	C64	64	5333.1	5323.0	5346.8	Outer { lanes: 21 }	equal=true
+2	base	c u1f	C64	64	138103.1	137911.3	138288.9	Outer { lanes: 5 }	equal=true
+2	base	heff u1 1024 L	C64	64	131722.0	131279.7	132251.9	Outer { lanes: 9 }	equal=true
+2	base	heff u1 1024 W1	C64	64	12930.9	12836.8	13274.9	Outer { lanes: 4 }	equal=true
+2	base	heff su2 1024 L	C64	64	7170.6	6948.2	7323.0	Outer { lanes: 5 }	equal=true
+2	base	heff su2 1024 W1	C64	64	2281.4	2278.5	2286.9	Serial	equal=true
+2	base	heff su2 256 L	C64	64	378.9	297.8	487.0	Outer { lanes: 4 }	equal=true
+2	base	heff u1 256 L	C64	64	2871.8	2809.8	3183.7	Outer { lanes: 7 }	equal=true
+2	base	heff u1 64 L	C64	64	145.5	145.2	150.7	Serial	equal=true
+# round=2 arm=cand T=64 cores=0-63 load=18.52 2026-11-25T21:16:37+09:00
+2	cand	gm-dom	F64	64	10184.5	10176.1	10202.2	Outer { lanes: 28 }	equal=true
+2	cand	gm-mix	F64	64	1784.3	1769.9	1791.1	Outer { lanes: 10 }	equal=true
+2	cand	c u1f	F64	64	33725.7	33676.3	33760.3	Placed { lanes: 5, widest: 13 }	equal=true
+2	cand	heff u1 1024 L	F64	64	30599.5	30528.5	30720.5	Placed { lanes: 9, widest: 8 }	equal=true
+2	cand	heff u1 1024 W1	F64	64	3442.0	3271.6	3523.5	Placed { lanes: 4, widest: 3 }	equal=true
+2	cand	heff su2 1024 L	F64	64	1601.5	1594.3	1622.5	Placed { lanes: 5, widest: 3 }	equal=true
+2	cand	heff su2 1024 W1	F64	64	958.8	955.8	965.6	Serial	equal=true
+2	cand	heff su2 256 L	F64	64	79.7	79.6	85.1	Serial	equal=true
+2	cand	heff u1 256 L	F64	64	836.6	734.6	1551.6	Placed { lanes: 7, widest: 2 }	equal=true
+2	cand	heff u1 64 L	F64	64	40.4	40.3	40.5	Serial	equal=true
+2	cand	gm-dom	C64	64	2465.7	2299.2	3404.0	Placed { lanes: 2, widest: 54 }	equal=true
+2	cand	gm-mix	C64	64	1258.6	1017.3	1273.3	Placed { lanes: 3, widest: 19 }	equal=true
+2	cand	c u1f	C64	64	7315.6	6998.4	8046.8	Placed { lanes: 5, widest: 38 }	equal=true
+2	cand	heff u1 1024 L	C64	64	10322.3	9567.7	10998.2	Placed { lanes: 5, widest: 30 }	equal=true
+2	cand	heff u1 1024 W1	C64	64	12664.6	12565.5	12838.0	Placed { lanes: 3, widest: 8 }	equal=true
+2	cand	heff su2 1024 L	C64	64	1407.8	1185.4	1504.0	Placed { lanes: 3, widest: 19 }	equal=true
+2	cand	heff su2 1024 W1	C64	64	2306.3	2294.3	2310.6	Serial	equal=true
+2	cand	heff su2 256 L	C64	64	303.2	224.9	361.6	Placed { lanes: 4, widest: 2 }	equal=true
+2	cand	heff u1 256 L	C64	64	927.2	673.8	1036.5	Placed { lanes: 4, widest: 10 }	equal=true
+2	cand	heff u1 64 L	C64	64	149.7	149.3	155.2	Serial	equal=true
+# end load=14.65 2026-11-25T21:17:00+09:00
