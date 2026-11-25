@@ -2062,6 +2062,9 @@ struct LaneKey {
     cap: usize,
     policy: BatchPolicy,
     team: bool,
+    /// Whether the token can co-schedule a team (`Plan::execution_width`
+    /// narrows a packed grid when it cannot).
+    broadcast: bool,
     /// A zero `alpha` makes every child output-only (no width).
     alpha_zero: bool,
     contract: OutputContract,
@@ -2130,6 +2133,7 @@ impl LaneCache {
             cap,
             policy: *exec.batch_policy(),
             team: token.carries_team(),
+            broadcast: token.can_broadcast(),
             alpha_zero: alpha == T::default(),
             contract,
         };
@@ -2141,6 +2145,10 @@ impl LaneCache {
         }
         #[cfg(test)]
         tests::PLACEMENTS.with(|count| count.set(count.get() + 1));
+        // Invalidate first: a panic below (say, inside a child's width query)
+        // must not leave the old key over half-written tables for a caller
+        // that recovers the poisoned lock.
+        self.key = None;
         self.costs.clear();
         self.costs.extend((2..=key.budget).map(cost));
         // The serial time `lane_decision` sums for the whole call, per child.
