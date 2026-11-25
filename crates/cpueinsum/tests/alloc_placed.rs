@@ -8,6 +8,11 @@
 //! reallocations, varying run to run); that case keeps the per-lane bound
 //! `alloc_free_parallel.rs` asserts for the historical `Outer` route. The
 //! counter is process-global, and this is the only test in the binary.
+//!
+//! The route holds no per-call `Mutex` for this reason: on Apple targets a
+//! fresh `std::sync::Mutex` allocates on its first lock, which is the one
+//! allocation macOS CI caught here (each lane now reports its receipts and its
+//! failure through its own `fork_sized_slots` slot).
 
 use std::alloc::{GlobalAlloc, Layout as AllocLayout, System};
 use std::sync::atomic::{AtomicUsize, Ordering};

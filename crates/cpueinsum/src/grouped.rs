@@ -1871,42 +1871,50 @@ impl<T: Scalar> GroupedPlan<T> {
             };
             filed[placement.position(i)] = Some(d);
         }
-        let mut lanes: Vec<&mut [Option<&'d mut [D]>]> = recycle(core::mem::take(parked_parts));
+        // One slot per lane, lent to that lane alone by `fork_sized_slots`: its
+        // part of the filed slices, its receipts and its lowest failure. No
+        // lock: a per-call `Mutex` allocates on its first lock on Apple
+        // targets, which a warm call must not do.
+        let mut lanes: Vec<LaneSlot<'_, 'd, D, R>> = recycle(core::mem::take(parked_parts));
         lanes.reserve_exact(placement.lanes());
         let mut rest = &mut filed[..];
         for lane in 0..placement.lanes() {
             let (mine, tail) = core::mem::take(&mut rest).split_at_mut(placement.jobs(lane).len());
-            lanes.push(mine);
+            lanes.push((mine, Vec::new(), None));
             rest = tail;
         }
-        let failure: Mutex<Option<(usize, Error)>> = Mutex::new(None);
-        let receipts: Mutex<Vec<R>> = Mutex::new(Vec::new());
-        let forked =
-            exec.token()
-                .fork_sized_slots(placement.shares(), &mut lanes, |lane, filed, token| {
-                    let share = placement.shares()[lane];
-                    let mut lane_exec = Exec::from_token(token, workspace, lane_policy(share));
-                    let mut lane_receipts: Vec<R> = Vec::new();
-                    for (&i, d) in placement.jobs(lane).iter().zip(filed.iter_mut()) {
-                        let Some(d) = d.take() else { continue };
-                        let source = &jobs[i];
-                        let item = source.job_item(plans, lhs, rhs, d);
-                        match run(item, &mut lane_exec) {
-                            Ok(receipt) => lane_receipts.push(receipt),
-                            Err(error) => {
-                                let mut slot =
-                                    failure.lock().unwrap_or_else(|poison| poison.into_inner());
-                                keep_lowest(&mut slot, source.id(), error);
-                            }
-                        }
+        let forked = exec.token().fork_sized_slots(
+            placement.shares(),
+            &mut lanes,
+            |lane, (filed, receipts, failure), token| {
+                let share = placement.shares()[lane];
+                let mut lane_exec = Exec::from_token(token, workspace, lane_policy(share));
+                for (&i, d) in placement.jobs(lane).iter().zip(filed.iter_mut()) {
+                    let Some(d) = d.take() else { continue };
+                    let source = &jobs[i];
+                    let item = source.job_item(plans, lhs, rhs, d);
+                    match run(item, &mut lane_exec) {
+                        Ok(receipt) => receipts.push(receipt),
+                        Err(error) => keep_lowest(failure, source.id(), error),
                     }
-                    if !lane_receipts.is_empty() {
-                        receipts
-                            .lock()
-                            .unwrap_or_else(|poison| poison.into_inner())
-                            .append(&mut lane_receipts);
-                    }
-                });
+                }
+            },
+        );
+        // Every lane's receipts into the first lane's vector (zero-sized on
+        // the initialized path, so no allocation there), and the lowest
+        // failure over all lanes.
+        let mut failure: Option<(usize, Error)> = None;
+        let mut receipts: Vec<R> = Vec::new();
+        for (_, lane_receipts, lane_failure) in lanes.iter_mut() {
+            if let Some((id, error)) = lane_failure.take() {
+                keep_lowest(&mut failure, id, error);
+            }
+            if receipts.is_empty() {
+                core::mem::swap(&mut receipts, lane_receipts);
+            } else {
+                receipts.append(lane_receipts);
+            }
+        }
         *parked_parts = recycle(lanes);
         *parked_filed = recycle(filed);
         if let Err(source) = forked {
@@ -1919,17 +1927,9 @@ impl<T: Scalar> GroupedPlan<T> {
                 source: tcontract_exec::ExecError::from(source).into(),
             });
         }
-        match failure
-            .into_inner()
-            .unwrap_or_else(|poison| poison.into_inner())
-        {
+        match failure {
             Some((_, error)) => Err(error),
-            None => Ok((
-                route,
-                receipts
-                    .into_inner()
-                    .unwrap_or_else(|poison| poison.into_inner()),
-            )),
+            None => Ok((route, receipts)),
         }
     }
 
@@ -2092,11 +2092,21 @@ struct LaneCache {
     placement: Placement,
     scratch: PlaceScratch,
     /// The parked allocations of a placed call's two lane tables (each job's
-    /// output slice in lane order, and each lane's part of it), emptied and
+    /// output slice in lane order, and each lane's slot), emptied and
     /// re-typed by [`recycle`] so a warm call allocates neither.
     filed: Vec<Option<&'static mut [u8]>>,
-    parts: Vec<Option<&'static mut [u8]>>,
+    parts: Vec<LaneSlot<'static, 'static, u8, ()>>,
 }
+
+/// One lane's slot in a placed call: its part of the filed output slices, its
+/// receipts and its lowest failure. Its layout does not depend on `D` or `R`
+/// (a slice reference and a `Vec` are two and three words), so the parked
+/// table is re-typed by [`recycle`] in place.
+type LaneSlot<'s, 'd, D, R> = (
+    &'s mut [Option<&'d mut [D]>],
+    Vec<R>,
+    Option<(usize, Error)>,
+);
 
 /// `vec`'s allocation, emptied, for elements of another lifetime or type of
 /// the same layout. Ported from symtn-rs `symtn-dense/src/lanes/runner.rs`
