@@ -141,6 +141,39 @@ impl<T: Scalar> BinaryPlan<T> {
         self.plan.report()
     }
 
+    /// Bytes this plan keeps allocated for as long as it lives.
+    ///
+    /// This is tcontract's [`Plan::retained_bytes`](tcontract::Plan::retained_bytes):
+    /// the plan header plus the heap behind it, including the packed strategy's
+    /// scatter tables, which are one `i64` per index of each role group and grow
+    /// with the operands' free extents, not with the rank. A cache that holds
+    /// plans should charge this number, not re-derive it from the shapes.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cpueinsum::tcontract::api::{
+    ///     CSpec, DType, Labels, LayoutSpec, OperandSpec, Problem,
+    /// };
+    /// use cpueinsum::tcontract::PlanConfig;
+    /// use cpueinsum::BinaryPlan;
+    /// let l = OperandSpec::new(LayoutSpec::new(&[2], &[1], 0).unwrap());
+    /// let problem = Problem::from_labels(
+    ///     DType::F64,
+    ///     l.clone(),
+    ///     l.clone(),
+    ///     CSpec::Absent,
+    ///     l,
+    ///     &Labels::new(&[0], &[0], &[0]),
+    /// )
+    /// .unwrap();
+    /// let plan = BinaryPlan::<f64>::new(&problem, &PlanConfig::default()).unwrap();
+    /// assert!(plan.retained_bytes() >= core::mem::size_of::<BinaryPlan<f64>>());
+    /// ```
+    pub fn retained_bytes(&self) -> usize {
+        self.plan.retained_bytes()
+    }
+
     /// Elements of the caller-owned intermediate arena this plan needs.
     ///
     /// A binary contraction has no cpueinsum intermediate, so this is always
