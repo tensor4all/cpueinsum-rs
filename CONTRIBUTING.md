@@ -19,8 +19,9 @@ This file only records what is specific to `cpueinsum-rs`:
   Linux. `cpueinsum-blas`'s tests link a provider: the system OpenBLAS on Linux
   (installed by the workflow, because `openblas-src`'s `system` feature needs `libopenblas-dev`) and Accelerate on
   macOS. `cpueinsum` itself needs no C toolchain.
-- **Platforms claimed**: `ubuntu-latest` and `macos-latest` for `clippy` and `test`; `fmt`, `deny`, `test-release`,
-  `overhead` and `msrv` on `ubuntu-latest` only.
+- **Platforms claimed**: `ubuntu-latest` and `macos-latest` for `clippy` and `test`. `ubuntu-latest` runs them on every
+  PR; macOS is validated nightly, and on demand via `workflow_dispatch`, not per PR: The `schedule` trigger of `ci.yml` (and `workflow_dispatch`) adds the macOS rows; they are not run per PR, because macOS runners are costly and limited to five concurrent jobs across the organization. A failing scheduled run files an issue. `fmt`, `deny`,
+  `test-release`, `overhead` and `msrv` run on `ubuntu-latest` only.
 - **Local gate**:
 
   ```sh
