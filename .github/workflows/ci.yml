@@ -10,7 +10,7 @@ env:
   RUSTFLAGS: -D warnings
 
 # This file is the gate AGENTS.md asks for, run on a clean machine: `cargo fmt`,
-# `cargo clippy --workspace --all-targets`, `cargo test --workspace`,
+# `cargo clippy --workspace --all-targets`, `cargo test --profile ci --workspace`,
 # `cargo test --release --workspace` and `cargo deny check bans`. Keep them in step.
 #
 # Every Rust job restores `Swatinem/rust-cache` and only a push to main writes it,
@@ -81,7 +81,7 @@ jobs:
       - name: System BLAS
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libopenblas-dev
-      - run: cargo test --workspace
+      - run: cargo test --profile ci --workspace
 
   test-release:
     runs-on: ubuntu-latest
@@ -127,4 +127,4 @@ jobs:
           save-if: ${{ github.event_name == 'push' }}
       - name: System BLAS
         run: sudo apt-get update && sudo apt-get install -y libopenblas-dev
-      - run: cargo build --workspace --all-targets
+      - run: cargo build --profile ci --workspace --all-targets
