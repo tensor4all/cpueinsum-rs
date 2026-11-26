@@ -11,11 +11,12 @@ This file only records what is specific to `cpueinsum-rs`:
 ## Local facts
 
 - **MSRV**: `rust-version = "1.89"` in the workspace `Cargo.toml`, inherited by every crate
-  (`rust-version.workspace = true`). The `msrv` job builds `cargo build --workspace --all-targets` on `1.89.0`; every
+  (`rust-version.workspace = true`). The `msrv` job builds `cargo build --profile ci --workspace --all-targets` on `1.89.0`; every
   other Rust job uses `stable`.
 - **Feature combinations CI builds**: one — the default features. No crate in the workspace declares a feature, so
-  the lanes differ by profile and operating system, not by feature set: `cargo test --workspace` (dev) and
-  `cargo test --release --workspace` on Linux. `cpueinsum-blas`'s tests link a provider: the system OpenBLAS on Linux
+  the lanes differ by profile and operating system, not by feature set: `cargo test --profile ci --workspace`
+  (`[profile.ci]`, which inherits `test`, so `debug-assertions` stay on) and `cargo test --release --workspace` on
+  Linux. `cpueinsum-blas`'s tests link a provider: the system OpenBLAS on Linux
   (installed by the workflow, because `openblas-src`'s `system` feature needs `libopenblas-dev`) and Accelerate on
   macOS. `cpueinsum` itself needs no C toolchain.
 - **Platforms claimed**: `ubuntu-latest` and `macos-latest` for `clippy` and `test`; `fmt`, `deny`, `test-release`,
@@ -24,7 +25,7 @@ This file only records what is specific to `cpueinsum-rs`:
 
   ```sh
   sudo apt-get update && sudo apt-get install -y libopenblas-dev   # Linux only; macOS links Accelerate
-  cargo test --workspace
+  cargo test --profile ci --workspace
   ```
 
   The install is the step people forget: `cpueinsum-blas`'s dev-dependencies link the system OpenBLAS through
